@@ -1,0 +1,31 @@
+name: default_kinematics_v1
+
+angles:
+  - left_elbow_angle
+  - right_elbow_angle
+  - left_knee_angle
+  - right_knee_angle
+  - left_hip_angle
+  - right_hip_angle
+  - left_shoulder_angle
+  - right_shoulder_angle
+  - trunk_tilt_proxy
+
+velocities:
+  - pelvis_speed
+  - left_wrist_speed
+  - right_wrist_speed
+  - left_ankle_speed
+  - right_ankle_speed
+
+angular_velocities:
+  - left_elbow_angular_velocity
+  - right_elbow_angular_velocity
+  - left_knee_angular_velocity
+  - right_knee_angular_velocity
+
+stability:
+  - pelvis_stability_proxy
+  - trunk_stability_proxy
+  - motion_energy_proxy
+

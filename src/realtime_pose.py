@@ -1,0 +1,936 @@
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import threading
+import time
+from collections import deque
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Iterable, Sequence
+
+os.environ.setdefault("MPLCONFIGDIR", str(Path(__file__).resolve().parents[1] / ".cache" / "matplotlib"))
+
+import cv2
+import numpy as np
+
+try:
+    import mediapipe as mp
+    from mediapipe.tasks import python as mp_python
+    from mediapipe.tasks.python import vision
+except ModuleNotFoundError:
+    mp = None
+    mp_python = None
+    vision = None
+
+from src.biomechanics.landmarks import coerce_landmarks
+from src.biomechanics.normalization import normalize_landmarks
+from src.biomechanics.session_writer import SessionConfig, SessionWriter
+from src.biomechanics.types import KinematicFrame, LandmarkPoint, PoseFrame
+from src.biomechanics.velocity import KinematicsProcessor
+from src.fitness.squat.calibration import StandingCalibrationBuilder
+from src.fitness.squat.phase_metrics import build_squat_frame_from_pose
+from src.fitness.squat.realtime_overlay import draw_squat_overlay
+from src.fitness.squat.rep_detector import SquatRepDetector
+from src.fitness.squat.schema import load_squat_config
+from src.sports.basketball.realtime_overlay import draw_basketball_overlay
+from src.ui.metrics_overlay import draw_metrics_overlay
+
+
+POSE_CONNECTIONS: tuple[tuple[int, int], ...] = (
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 7),
+    (0, 4),
+    (4, 5),
+    (5, 6),
+    (6, 8),
+    (9, 10),
+    (11, 12),
+    (11, 13),
+    (13, 15),
+    (15, 17),
+    (15, 19),
+    (15, 21),
+    (17, 19),
+    (12, 14),
+    (14, 16),
+    (16, 18),
+    (16, 20),
+    (16, 22),
+    (18, 20),
+    (11, 23),
+    (12, 24),
+    (23, 24),
+    (23, 25),
+    (24, 26),
+    (25, 27),
+    (26, 28),
+    (27, 29),
+    (28, 30),
+    (29, 31),
+    (30, 32),
+    (27, 31),
+    (28, 32),
+)
+
+SHOT_JOINTS: frozenset[int] = frozenset({11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28})
+HIGHLIGHT_JOINTS: frozenset[int] = SHOT_JOINTS
+SHOT_CONNECTIONS: tuple[tuple[int, int], ...] = (
+    (11, 12),
+    (11, 13),
+    (13, 15),
+    (12, 14),
+    (14, 16),
+    (11, 23),
+    (12, 24),
+    (23, 24),
+    (23, 25),
+    (25, 27),
+    (24, 26),
+    (26, 28),
+)
+
+
+@dataclass(frozen=True)
+class DrawLandmark:
+    x: float
+    y: float
+    z: float
+    visibility: float
+    presence: float
+
+
+class PoseResultStore:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._result: vision.PoseLandmarkerResult | None = None
+        self._timestamp_ms: int = -1
+
+    def update(self, result: vision.PoseLandmarkerResult, timestamp_ms: int) -> None:
+        with self._lock:
+            if timestamp_ms < self._timestamp_ms:
+                return
+            self._result = result
+            self._timestamp_ms = timestamp_ms
+
+    def snapshot(self) -> tuple[vision.PoseLandmarkerResult | None, int]:
+        with self._lock:
+            return self._result, self._timestamp_ms
+
+
+class SlidingFps:
+    def __init__(self, window: int = 30) -> None:
+        self._samples: deque[float] = deque(maxlen=max(2, window))
+
+    def tick(self) -> float:
+        now = time.perf_counter()
+        self._samples.append(now)
+        if len(self._samples) < 2:
+            return 0.0
+        elapsed = self._samples[-1] - self._samples[0]
+        if elapsed <= 0:
+            return 0.0
+        return (len(self._samples) - 1) / elapsed
+
+
+class LandmarkSmoother:
+    def __init__(self, alpha: float) -> None:
+        self.alpha = max(0.0, min(1.0, alpha))
+        self._previous: list[DrawLandmark] | None = None
+        self._previous_timestamp_ms: int | None = None
+
+    def reset(self) -> None:
+        self._previous = None
+        self._previous_timestamp_ms = None
+
+    def smooth(self, landmarks: Sequence[object], timestamp_ms: int | None = None) -> list[DrawLandmark]:
+        current = [
+            DrawLandmark(
+                x=float(getattr(point, "x", 0.0)),
+                y=float(getattr(point, "y", 0.0)),
+                z=float(getattr(point, "z", 0.0)),
+                visibility=float(getattr(point, "visibility", 1.0)),
+                presence=float(getattr(point, "presence", 1.0)),
+            )
+            for point in landmarks
+        ]
+        if self.alpha <= 0.0 or self._previous is None or len(self._previous) != len(current):
+            self._previous = current
+            self._previous_timestamp_ms = timestamp_ms
+            return current
+
+        smoothed: list[DrawLandmark] = []
+        dt = 1.0 / 30.0
+        if timestamp_ms is not None and self._previous_timestamp_ms is not None:
+            delta_ms = timestamp_ms - self._previous_timestamp_ms
+            if 0 < delta_ms <= 1000:
+                dt = delta_ms / 1000.0
+
+        for old, new in zip(self._previous, current):
+            confidence = max(0.0, min(1.0, (new.visibility + new.presence) / 2.0))
+            displacement = float(np.linalg.norm(np.array([new.x - old.x, new.y - old.y, new.z - old.z], dtype=float)))
+            speed = displacement / max(dt, 1e-3)
+            dynamic_alpha = min(0.95, self.alpha + min(0.3, speed * 0.08))
+            if displacement < 0.006:
+                dynamic_alpha *= 0.65
+            if confidence < 0.55:
+                dynamic_alpha *= max(0.15, confidence)
+            if displacement > 0.30 and confidence < 0.55:
+                dynamic_alpha = 0.08
+            dynamic_alpha = max(0.03, min(0.95, dynamic_alpha))
+            keep = 1.0 - dynamic_alpha
+            smoothed.append(
+                DrawLandmark(
+                    x=old.x * keep + new.x * dynamic_alpha,
+                    y=old.y * keep + new.y * dynamic_alpha,
+                    z=old.z * keep + new.z * dynamic_alpha,
+                    visibility=new.visibility,
+                    presence=new.presence,
+                )
+            )
+        self._previous = smoothed
+        self._previous_timestamp_ms = timestamp_ms
+        return smoothed
+
+
+class VideoRecorder:
+    def __init__(self, output_dir: Path) -> None:
+        self.output_dir = output_dir
+        self.writer: cv2.VideoWriter | None = None
+        self.path: Path | None = None
+
+    @property
+    def is_recording(self) -> bool:
+        return self.writer is not None and self.writer.isOpened()
+
+    def start(self, frame_shape: tuple[int, int, int], fps_hint: float) -> Path:
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        height, width = frame_shape[:2]
+        fps = fps_hint if fps_hint >= 1.0 else 30.0
+        fps = max(1.0, min(60.0, fps))
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        candidates = ((".mp4", "mp4v"), (".avi", "XVID"))
+
+        for suffix, fourcc_name in candidates:
+            path = self.output_dir / f"pose_{stamp}{suffix}"
+            fourcc = cv2.VideoWriter_fourcc(*fourcc_name)
+            writer = cv2.VideoWriter(str(path), fourcc, fps, (width, height))
+            if writer.isOpened():
+                self.writer = writer
+                self.path = path
+                return path
+            writer.release()
+
+        raise RuntimeError(f"Could not create a video file in {self.output_dir}")
+
+    def write(self, frame: np.ndarray) -> None:
+        if self.is_recording and self.writer is not None:
+            self.writer.write(frame)
+
+    def stop(self) -> Path | None:
+        path = self.path
+        if self.writer is not None:
+            self.writer.release()
+        self.writer = None
+        self.path = None
+        return path
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Realtime single-person pose detection with MediaPipe Pose Landmarker."
+    )
+    parser.add_argument("--camera", type=int, default=0, help="Camera index. Default: 0.")
+    parser.add_argument("--width", type=int, default=1280, help="Requested camera width. Default: 1280.")
+    parser.add_argument("--height", type=int, default=720, help="Requested camera height. Default: 720.")
+    parser.add_argument("--model", default="models/pose_landmarker_full.task", help="Path to .task model file.")
+    parser.add_argument("--record", action="store_true", help="Start recording immediately.")
+    parser.add_argument("--save-dir", default="outputs", help="Directory for sessions, screenshots, and recordings.")
+    parser.add_argument("--metrics-overlay", action="store_true", help="Show kinematic metrics panel at startup.")
+    parser.add_argument("--session-autostart", action="store_true", help="Start a kinematic data session automatically.")
+    parser.add_argument("--analysis-mode", default="pose", choices=("pose", "squat", "basketball"), help="Optional realtime analysis mode. Default: pose.")
+    parser.add_argument("--camera-view", default="unknown", choices=("side", "front", "front_left", "front_right", "unknown"), help="Camera view for view-sensitive analysis. Default: unknown.")
+    parser.add_argument("--shot-type", default="set_shot", choices=("set_shot", "jump_shot"), help="Basketball shot type for realtime panel. Default: set_shot.")
+    parser.add_argument("--shooting-side", default="right", choices=("right", "left"), help="Basketball shooting side. Default: right.")
+    parser.add_argument("--detect-width", type=int, default=960, help="Resize detector input to this width for lower latency. Use 0 for full frame. Default: 960.")
+    parser.add_argument("--max-detect-fps", type=float, default=30.0, help="Maximum pose detector submissions per second. Default: 30.")
+    parser.add_argument("--max-pending-ms", type=int, default=250, help="Timeout for one pending async detection before submitting a new frame. Default: 250.")
+    parser.add_argument("--max-result-lag-ms", type=int, default=350, help="Hide stale pose results older than this many ms. Default: 350.")
+    plot_group = parser.add_mutually_exclusive_group()
+    plot_group.add_argument("--plot-on-save", dest="plot_on_save", action="store_true", help="Generate PNG plots when saving a session. Default.")
+    plot_group.add_argument("--no-plot-on-save", dest="plot_on_save", action="store_false", help="Skip PNG plots when saving a session.")
+    parser.add_argument(
+        "--smoothing",
+        nargs="?",
+        type=float,
+        const=0.65,
+        default=0.65,
+        help="Landmark smoothing alpha from 0 to 1. Use 0 to disable. Default: 0.65.",
+    )
+    mirror_group = parser.add_mutually_exclusive_group()
+    mirror_group.add_argument("--mirror", dest="mirror", action="store_true", help="Mirror display. Default.")
+    mirror_group.add_argument("--no-mirror", dest="mirror", action="store_false", help="Disable mirror display.")
+    parser.set_defaults(mirror=True)
+    parser.set_defaults(plot_on_save=True)
+    return parser.parse_args(argv)
+
+
+def resolve_model_path(raw_path: str) -> Path:
+    model_path = Path(raw_path).expanduser()
+    if not model_path.is_absolute():
+        model_path = Path.cwd() / model_path
+    return model_path
+
+
+def open_camera(camera_index: int, width: int, height: int) -> tuple[cv2.VideoCapture | None, str | None]:
+    attempts: list[tuple[str, int | None]] = []
+    if os.name == "nt":
+        attempts.append(("DirectShow", cv2.CAP_DSHOW))
+    attempts.append(("default", None))
+
+    for backend, api_preference in attempts:
+        if api_preference is None:
+            capture = cv2.VideoCapture(camera_index)
+        else:
+            capture = cv2.VideoCapture(camera_index, api_preference)
+        capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        capture.set(cv2.CAP_PROP_FPS, 30)
+        if width > 0:
+            capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        if height > 0:
+            capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        if capture.isOpened():
+            ok, frame = capture.read()
+            if ok and frame is not None:
+                return capture, backend
+        capture.release()
+    return None, None
+
+
+def next_timestamp_ms(previous_ms: int) -> int:
+    current_ms = int(time.monotonic_ns() / 1_000_000)
+    if current_ms <= previous_ms:
+        return previous_ms + 1
+    return current_ms
+
+
+def is_visible(landmark: DrawLandmark, threshold: float = 0.2) -> bool:
+    return (
+        landmark.visibility >= threshold
+        and landmark.presence >= threshold
+        and -0.25 <= landmark.x <= 1.25
+        and -0.25 <= landmark.y <= 1.25
+    )
+
+
+def to_pixel(landmark: DrawLandmark, width: int, height: int) -> tuple[int, int]:
+    x = min(width - 1, max(0, int(round(landmark.x * width))))
+    y = min(height - 1, max(0, int(round(landmark.y * height))))
+    return x, y
+
+
+def draw_pose(frame: np.ndarray, landmarks: Sequence[DrawLandmark], mode: str) -> None:
+    height, width = frame.shape[:2]
+    if mode == "shot":
+        connections: Iterable[tuple[int, int]] = SHOT_CONNECTIONS
+        point_indices: Iterable[int] = sorted(SHOT_JOINTS)
+    else:
+        connections = POSE_CONNECTIONS
+        point_indices = range(len(landmarks))
+
+    for start, end in connections:
+        if start >= len(landmarks) or end >= len(landmarks):
+            continue
+        if not is_visible(landmarks[start]) or not is_visible(landmarks[end]):
+            continue
+        start_xy = to_pixel(landmarks[start], width, height)
+        end_xy = to_pixel(landmarks[end], width, height)
+        cv2.line(frame, start_xy, end_xy, (80, 220, 120), 2, cv2.LINE_AA)
+
+    for index in point_indices:
+        if index >= len(landmarks) or not is_visible(landmarks[index]):
+            continue
+        center = to_pixel(landmarks[index], width, height)
+        if index in HIGHLIGHT_JOINTS:
+            cv2.circle(frame, center, 7, (0, 170, 255), -1, cv2.LINE_AA)
+            cv2.circle(frame, center, 9, (10, 30, 30), 1, cv2.LINE_AA)
+        else:
+            cv2.circle(frame, center, 4, (255, 210, 80), -1, cv2.LINE_AA)
+
+
+def put_text(frame: np.ndarray, text: str, origin: tuple[int, int], color: tuple[int, int, int]) -> None:
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.62
+    thickness = 2
+    (text_width, text_height), baseline = cv2.getTextSize(text, font, scale, thickness)
+    x, y = origin
+    top_left = (max(0, x - 6), max(0, y - text_height - 7))
+    bottom_right = (min(frame.shape[1] - 1, x + text_width + 6), min(frame.shape[0] - 1, y + baseline + 7))
+    overlay = frame.copy()
+    cv2.rectangle(overlay, top_left, bottom_right, (20, 22, 24), -1)
+    cv2.addWeighted(overlay, 0.62, frame, 0.38, 0, frame)
+    cv2.putText(frame, text, origin, font, scale, color, thickness, cv2.LINE_AA)
+
+
+def draw_hud(
+    frame: np.ndarray,
+    fps: float,
+    camera_index: int,
+    has_pose: bool,
+    mode: str,
+    mirror: bool,
+    recording: bool,
+    session_active: bool,
+    session_id: str | None,
+    result_lag_ms: int | None,
+    backend: str,
+) -> None:
+    lines = (
+        f"FPS: {fps:4.1f}",
+        f"CAM: {camera_index} ({backend})",
+        f"POSE: {'YES' if has_pose else 'NO'}",
+        f"LAG: {result_lag_ms} ms" if result_lag_ms is not None else "LAG: N/A",
+        f"SESSION: {'RECORDING' if session_active else 'IDLE'}",
+        f"MODE: {'FULL' if mode == 'full' else 'SHOT JOINTS'}",
+        f"MIRROR: {'ON' if mirror else 'OFF'}",
+        f"REC: {'ON' if recording else 'OFF'}",
+    )
+    for row, text in enumerate(lines):
+        color = (245, 245, 245)
+        if text.startswith("POSE:"):
+            color = (80, 230, 120) if has_pose else (60, 80, 255)
+        if text.startswith("LAG:") and result_lag_ms is not None and result_lag_ms > 180:
+            color = (0, 180, 255)
+        if text.startswith("SESSION:") and session_active:
+            color = (70, 90, 255)
+        if text.startswith("REC:") and recording:
+            color = (70, 80, 255)
+        put_text(frame, text, (14, 28 + row * 30), color)
+
+    if session_active and session_id:
+        put_text(frame, f"ID: {session_id}", (14, 28 + len(lines) * 30), (245, 245, 245))
+
+    if not has_pose:
+        offset = len(lines) + (1 if session_active and session_id else 0)
+        put_text(frame, "No pose detected", (14, 28 + offset * 30), (60, 80, 255))
+
+
+def save_screenshot(frame: np.ndarray, output_dir: Path) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = output_dir / f"pose_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    if not cv2.imwrite(str(path), frame):
+        raise RuntimeError(f"Could not write screenshot: {path}")
+    return path
+
+
+def prepare_detection_frame(frame: np.ndarray, detect_width: int) -> np.ndarray:
+    if detect_width <= 0:
+        return frame
+    height, width = frame.shape[:2]
+    if width <= detect_width:
+        return frame
+    detect_height = max(1, int(round(height * (detect_width / width))))
+    return cv2.resize(frame, (detect_width, detect_height), interpolation=cv2.INTER_AREA)
+
+
+def to_landmark_points(landmarks: Sequence[object] | None) -> list[LandmarkPoint]:
+    return coerce_landmarks(landmarks)
+
+
+def build_pose_frame(
+    frame_index: int,
+    timestamp_ms: int,
+    result: vision.PoseLandmarkerResult | None,
+    smoothed_landmarks: Sequence[object] | None,
+    pose_detected: bool,
+    mirror: bool,
+    frame_shape: tuple[int, int, int],
+    fps: float,
+) -> PoseFrame:
+    image_source = result.pose_landmarks[0] if pose_detected and result is not None and result.pose_landmarks else None
+    world_source = None
+    if pose_detected and result is not None and getattr(result, "pose_world_landmarks", None):
+        if result.pose_world_landmarks:
+            world_source = result.pose_world_landmarks[0]
+
+    image_landmarks = to_landmark_points(image_source)
+    world_landmarks = to_landmark_points(world_source)
+    smoothed_points = to_landmark_points(smoothed_landmarks)
+    normalization = normalize_landmarks(smoothed_points if pose_detected else None)
+    height, width = frame_shape[:2]
+    return PoseFrame(
+        frame_index=frame_index,
+        timestamp_ms=timestamp_ms,
+        pose_detected=pose_detected,
+        image_landmarks=image_landmarks,
+        world_landmarks=world_landmarks,
+        smoothed_landmarks=smoothed_points,
+        normalized_landmarks=normalization.landmarks,
+        normalization_success=normalization.success,
+        normalization_message=normalization.message,
+        mirror=mirror,
+        camera_width=width,
+        camera_height=height,
+        fps=fps,
+    )
+
+
+def print_controls() -> None:
+    print("Controls: Q/ESC quit, S screenshot, R record, M mirror, 1 full skeleton, 2 shot joints, 3 metrics panel, C kinematic session, K squat calibration, P squat analysis, 4 squat panel, 5 basketball panel, J shot clip marker, L release proxy marker")
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    args.smoothing = max(0.0, min(1.0, float(args.smoothing)))
+    args.max_detect_fps = max(0.0, float(args.max_detect_fps))
+    args.max_pending_ms = max(1, int(args.max_pending_ms))
+    args.max_result_lag_ms = max(1, int(args.max_result_lag_ms))
+    min_detect_interval_ms = int(round(1000.0 / args.max_detect_fps)) if args.max_detect_fps > 0 else 0
+    model_path = resolve_model_path(args.model)
+    save_dir = Path(args.save_dir)
+
+    if mp is None or mp_python is None or vision is None:
+        print(
+            "ERROR: mediapipe is not installed. Install project dependencies with "
+            "'python -m pip install -r requirements.txt' before running realtime detection.",
+            file=sys.stderr,
+        )
+        return 5
+
+    if not model_path.exists():
+        print(
+            "ERROR: model file not found.\n"
+            f"Path: {model_path}\n"
+            "Download a Pose Landmarker .task file into the models directory before running.",
+            file=sys.stderr,
+        )
+        return 2
+
+    capture, backend = open_camera(args.camera, args.width, args.height)
+    if capture is None or backend is None:
+        print(
+            f"ERROR: camera {args.camera} could not be opened. "
+            "Check that the camera is connected and not used by another app.",
+            file=sys.stderr,
+        )
+        return 3
+
+    result_store = PoseResultStore()
+
+    def on_result(
+        result: vision.PoseLandmarkerResult,
+        output_image: mp.Image,
+        timestamp_ms: int,
+    ) -> None:
+        del output_image
+        result_store.update(result, timestamp_ms)
+
+    options = vision.PoseLandmarkerOptions(
+        base_options=mp_python.BaseOptions(model_asset_path=str(model_path)),
+        running_mode=vision.RunningMode.LIVE_STREAM,
+        num_poses=1,
+        min_pose_detection_confidence=0.5,
+        min_pose_presence_confidence=0.5,
+        min_tracking_confidence=0.5,
+        output_segmentation_masks=False,
+        result_callback=on_result,
+    )
+
+    try:
+        landmarker = vision.PoseLandmarker.create_from_options(options)
+    except Exception as exc:
+        capture.release()
+        print(f"ERROR: failed to initialize PoseLandmarker: {exc}", file=sys.stderr)
+        return 4
+
+    window_name = "MediaPipe Pose Landmarker"
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    fps_counter = SlidingFps(window=30)
+    smoother = LandmarkSmoother(alpha=args.smoothing)
+    recorder = VideoRecorder(save_dir / "recordings")
+    session_writer = SessionWriter(save_dir)
+    kinematics_processor = KinematicsProcessor()
+    squat_mode_enabled = args.analysis_mode == "squat"
+    squat_config = load_squat_config() if squat_mode_enabled else None
+    squat_detector = SquatRepDetector(squat_config, None, camera_view=args.camera_view) if squat_mode_enabled else None
+    squat_calibration_builder = (
+        StandingCalibrationBuilder(camera_view=args.camera_view, minimum_visibility=float(squat_config.get("data_quality", {}).get("minimum_landmark_visibility", 0.65)))
+        if squat_mode_enabled and squat_config is not None
+        else None
+    )
+    squat_panel_enabled = squat_mode_enabled
+    squat_active = squat_mode_enabled
+    squat_calibration_status = "N/A"
+    last_squat_measurement = None
+    last_squat_displacement = None
+    basketball_mode_enabled = args.analysis_mode == "basketball"
+    basketball_panel_enabled = basketball_mode_enabled
+    basketball_collecting = False
+    basketball_manual_release_ms: int | None = None
+    basketball_phase = "IDLE"
+    mode = "full"
+    mirror = bool(args.mirror)
+    metrics_overlay_enabled = bool(args.metrics_overlay)
+    session_autostart_pending = bool(args.session_autostart)
+    last_input_timestamp_ms = -1
+    last_submitted_timestamp_ms = -1
+    last_draw_timestamp_ms = -1
+    last_processed_result_timestamp_ms = -1
+    processed_frame_index = 0
+    draw_landmarks: list[DrawLandmark] | None = None
+    kinematic_frame: KinematicFrame | None = None
+    flash_text = ""
+    flash_until = 0.0
+    flash_color = (245, 245, 245)
+    detection_error_printed = False
+
+    def flash(text: str, color: tuple[int, int, int] = (245, 245, 245), seconds: float = 2.0) -> None:
+        nonlocal flash_text, flash_until, flash_color
+        flash_text = text
+        flash_color = color
+        flash_until = time.perf_counter() + seconds
+
+    def start_session(frame_shape: tuple[int, int, int]) -> None:
+        height, width = frame_shape[:2]
+        config = SessionConfig(
+            camera_index=args.camera,
+            width=width,
+            height=height,
+            mirror=mirror,
+            smoothing=args.smoothing,
+            model_name=model_path.name,
+            plot_on_save=args.plot_on_save,
+        )
+        session_id = session_writer.start(config)
+        flash(f"Session recording: {session_id}", (80, 230, 120))
+        print(f"Session started: {session_id}")
+
+    def stop_session() -> None:
+        path = session_writer.stop(final_mirror=mirror)
+        if path is not None:
+            flash(f"Session saved: {path}", (80, 230, 120), seconds=3.0)
+            print(f"Session saved: {path}")
+
+    print(f"Camera {args.camera} opened with backend: {backend}")
+    print_controls()
+
+    try:
+        with landmarker:
+            while True:
+                ok, raw_frame = capture.read()
+                if not ok or raw_frame is None:
+                    print("ERROR: failed to read a frame from the camera.", file=sys.stderr)
+                    break
+
+                frame = cv2.flip(raw_frame, 1) if mirror else raw_frame.copy()
+                frame = np.ascontiguousarray(frame)
+                fps_value = fps_counter.tick()
+                if session_autostart_pending and not session_writer.is_active:
+                    try:
+                        start_session(frame.shape)
+                    except Exception as exc:
+                        flash(f"Session start failed: {exc}", (60, 80, 255), seconds=3.0)
+                        print(f"ERROR: could not start session: {exc}", file=sys.stderr)
+                    session_autostart_pending = False
+
+                timestamp_ms = next_timestamp_ms(last_input_timestamp_ms)
+                last_input_timestamp_ms = timestamp_ms
+
+                _, result_timestamp_before_submit = result_store.snapshot()
+                pending_detection = last_submitted_timestamp_ms > result_timestamp_before_submit
+                pending_timed_out = timestamp_ms - last_submitted_timestamp_ms >= args.max_pending_ms
+                detect_interval_elapsed = timestamp_ms - last_submitted_timestamp_ms >= min_detect_interval_ms
+
+                if detect_interval_elapsed and (not pending_detection or pending_timed_out):
+                    detection_frame = prepare_detection_frame(frame, args.detect_width)
+                    rgb_frame = cv2.cvtColor(detection_frame, cv2.COLOR_BGR2RGB)
+                    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb_frame))
+
+                    try:
+                        landmarker.detect_async(mp_image, timestamp_ms)
+                        last_submitted_timestamp_ms = timestamp_ms
+                    except Exception as exc:
+                        flash(f"Detection failed: {exc}", (60, 80, 255), seconds=3.0)
+                        if not detection_error_printed:
+                            print(f"ERROR: detect_async failed: {exc}", file=sys.stderr)
+                            detection_error_printed = True
+
+                result, result_timestamp_ms = result_store.snapshot()
+                result_lag_ms = timestamp_ms - result_timestamp_ms if result_timestamp_ms >= 0 else None
+                result_is_fresh = result_lag_ms is not None and result_lag_ms <= args.max_result_lag_ms
+                has_pose = bool(result_is_fresh and result is not None and result.pose_landmarks)
+                new_result = result_timestamp_ms >= 0 and result_timestamp_ms != last_processed_result_timestamp_ms
+                if has_pose and result is not None:
+                    if result_timestamp_ms != last_draw_timestamp_ms:
+                        draw_landmarks = smoother.smooth(result.pose_landmarks[0], result_timestamp_ms)
+                        last_draw_timestamp_ms = result_timestamp_ms
+                    if draw_landmarks is not None:
+                        draw_pose(frame, draw_landmarks, mode)
+                else:
+                    if result_timestamp_ms != last_draw_timestamp_ms or (
+                        result_lag_ms is not None and result_lag_ms > args.max_result_lag_ms
+                    ):
+                        smoother.reset()
+                        draw_landmarks = None
+                        last_draw_timestamp_ms = result_timestamp_ms
+
+                if new_result and result_is_fresh:
+                    processed_frame_index += 1
+                    pose_frame = build_pose_frame(
+                        frame_index=processed_frame_index,
+                        timestamp_ms=result_timestamp_ms,
+                        result=result,
+                        smoothed_landmarks=draw_landmarks,
+                        pose_detected=has_pose,
+                        mirror=mirror,
+                        frame_shape=frame.shape,
+                        fps=fps_value,
+                    )
+                    kinematic_frame = kinematics_processor.process(pose_frame)
+                    if session_writer.is_active:
+                        session_writer.add_frame(pose_frame, kinematic_frame)
+                    if squat_mode_enabled and squat_detector is not None:
+                        squat_measurement = build_squat_frame_from_pose(pose_frame, kinematic_frame)
+                        last_squat_measurement = squat_measurement
+                        if squat_calibration_builder is not None and squat_calibration_builder.active:
+                            calibration = squat_calibration_builder.add(squat_measurement)
+                            if calibration is not None:
+                                squat_detector.set_calibration(calibration)
+                                squat_calibration_status = calibration.status
+                                flash(f"Squat calibration: {calibration.status}", (80, 230, 120) if calibration.status == "PASS" else (0, 190, 255), seconds=3.0)
+                        elif squat_active:
+                            completed_rep = squat_detector.update(squat_measurement)
+                            if squat_detector.frame_states:
+                                value = squat_detector.frame_states[-1].get("pelvis_displacement_normalized")
+                                try:
+                                    last_squat_displacement = float(value) if value != "" else None
+                                except (TypeError, ValueError):
+                                    last_squat_displacement = None
+                            if completed_rep is not None:
+                                flash(f"Squat rep: {completed_rep.rep_index}", (80, 230, 120), seconds=1.5)
+                    if basketball_mode_enabled:
+                        side = args.shooting_side
+                        elbow_angle = getattr(kinematic_frame, f"{side}_elbow_angle", None)
+                        wrist_speed = getattr(kinematic_frame, f"{side}_wrist_speed", None)
+                        knee_angle = getattr(kinematic_frame, f"{side}_knee_angle", None)
+                        try:
+                            elbow_value = float(elbow_angle)
+                        except (TypeError, ValueError):
+                            elbow_value = float("nan")
+                        try:
+                            wrist_value = float(wrist_speed)
+                        except (TypeError, ValueError):
+                            wrist_value = float("nan")
+                        try:
+                            knee_value = float(knee_angle)
+                        except (TypeError, ValueError):
+                            knee_value = float("nan")
+                        if not pose_frame.pose_detected:
+                            basketball_phase = "IDLE"
+                        elif wrist_value == wrist_value and wrist_value > 0.7:
+                            basketball_phase = "RELEASE_PROXY" if basketball_manual_release_ms is not None else "ARM_EXTENSION"
+                        elif elbow_value == elbow_value and elbow_value > 130:
+                            basketball_phase = "FOLLOW_THROUGH"
+                        elif knee_value == knee_value and knee_value < 145:
+                            basketball_phase = "DIP"
+                        else:
+                            basketball_phase = "SETUP"
+                    last_processed_result_timestamp_ms = result_timestamp_ms
+                elif new_result:
+                    last_processed_result_timestamp_ms = result_timestamp_ms
+
+                draw_hud(
+                    frame=frame,
+                    fps=fps_value,
+                    camera_index=args.camera,
+                    has_pose=has_pose,
+                    mode=mode,
+                    mirror=mirror,
+                    recording=recorder.is_recording,
+                    session_active=session_writer.is_active,
+                    session_id=session_writer.session_id,
+                    result_lag_ms=result_lag_ms,
+                    backend=backend,
+                )
+
+                if metrics_overlay_enabled:
+                    draw_metrics_overlay(
+                        frame,
+                        {
+                            "pose_detected": has_pose,
+                            "fps": fps_value,
+                            "session_state": "RECORDING" if session_writer.is_active else "IDLE",
+                            "mirror": mirror,
+                            "right_elbow_angle": getattr(kinematic_frame, "right_elbow_angle", None),
+                            "right_knee_angle": getattr(kinematic_frame, "right_knee_angle", None),
+                            "right_wrist_speed": getattr(kinematic_frame, "right_wrist_speed", None),
+                            "pelvis_speed": getattr(kinematic_frame, "pelvis_speed", None),
+                            "motion_energy_proxy": getattr(kinematic_frame, "motion_energy_proxy", None),
+                        },
+                        origin=(14, 260),
+                    )
+
+                if squat_mode_enabled and squat_panel_enabled and squat_detector is not None:
+                    if squat_calibration_builder is not None and squat_calibration_builder.active:
+                        calibration_label = f"CALIBRATING {squat_calibration_builder.progress(timestamp_ms) * 100.0:.0f}%"
+                    else:
+                        calibration_label = squat_calibration_status
+                    visibility = getattr(last_squat_measurement, "visibility_mean", None)
+                    quality_label = "GOOD" if visibility is not None and visibility >= 0.75 else ("WARNING" if visibility is not None and visibility >= 0.55 else "N/A")
+                    draw_squat_overlay(
+                        frame,
+                        {
+                            "camera_view": args.camera_view,
+                            "calibration_status": calibration_label,
+                            "state": squat_detector.machine.state,
+                            "rep_count": squat_detector.machine.rep_count,
+                            "left_knee_angle": getattr(last_squat_measurement, "left_knee_angle", None),
+                            "right_knee_angle": getattr(last_squat_measurement, "right_knee_angle", None),
+                            "trunk_tilt_proxy": getattr(last_squat_measurement, "trunk_tilt_proxy", None),
+                            "pelvis_displacement": last_squat_displacement,
+                            "data_quality": quality_label,
+                        },
+                        origin=(14, 470 if metrics_overlay_enabled else 280),
+                    )
+
+                if basketball_mode_enabled and basketball_panel_enabled:
+                    side = args.shooting_side
+                    visibility = getattr(kinematic_frame, "quality", {}).get("visibility_mean") if kinematic_frame is not None else None
+                    quality_label = "GOOD" if visibility is not None and visibility >= 0.75 else ("WARNING" if visibility is not None and visibility >= 0.55 else "N/A")
+                    release_label = f"{basketball_manual_release_ms} ms" if basketball_manual_release_ms is not None else "PENDING"
+                    draw_basketball_overlay(
+                        frame,
+                        {
+                            "shot_type": args.shot_type,
+                            "shooting_side": side,
+                            "camera_view": args.camera_view,
+                            "phase": basketball_phase,
+                            "knee_angle": getattr(kinematic_frame, f"{side}_knee_angle", None),
+                            "elbow_angle": getattr(kinematic_frame, f"{side}_elbow_angle", None),
+                            "pelvis_speed": getattr(kinematic_frame, "pelvis_speed", None),
+                            "wrist_speed": getattr(kinematic_frame, f"{side}_wrist_speed", None),
+                            "release_proxy": release_label,
+                            "data_quality": quality_label,
+                        },
+                        origin=(14, 470 if metrics_overlay_enabled else 280),
+                    )
+
+                if time.perf_counter() < flash_until and flash_text:
+                    put_text(frame, flash_text, (14, frame.shape[0] - 20), flash_color)
+
+                if args.record and not recorder.is_recording:
+                    try:
+                        path = recorder.start(frame.shape, fps_value)
+                        flash(f"Recording: {path}", (80, 230, 120))
+                    except Exception as exc:
+                        flash(f"Record failed: {exc}", (60, 80, 255), seconds=3.0)
+                        print(f"ERROR: could not start recording: {exc}", file=sys.stderr)
+                    args.record = False
+
+                if recorder.is_recording:
+                    recorder.write(frame)
+
+                cv2.imshow(window_name, frame)
+                key = cv2.waitKey(1) & 0xFF
+                if key in (27, ord("q"), ord("Q")):
+                    break
+                if key in (ord("s"), ord("S")):
+                    try:
+                        path = save_screenshot(frame, save_dir / "screenshots")
+                        flash(f"Screenshot: {path}", (80, 230, 120))
+                    except Exception as exc:
+                        flash(f"Screenshot failed: {exc}", (60, 80, 255), seconds=3.0)
+                        print(f"ERROR: could not save screenshot: {exc}", file=sys.stderr)
+                elif key in (ord("r"), ord("R")):
+                    if recorder.is_recording:
+                        path = recorder.stop()
+                        flash(f"Recording saved: {path}", (80, 230, 120))
+                    else:
+                        try:
+                            path = recorder.start(frame.shape, fps_value)
+                            flash(f"Recording: {path}", (80, 230, 120))
+                        except Exception as exc:
+                            flash(f"Record failed: {exc}", (60, 80, 255), seconds=3.0)
+                            print(f"ERROR: could not start recording: {exc}", file=sys.stderr)
+                elif key in (ord("m"), ord("M")):
+                    mirror = not mirror
+                    smoother.reset()
+                    draw_landmarks = None
+                    flash(f"Mirror: {'ON' if mirror else 'OFF'}")
+                elif key == ord("1"):
+                    mode = "full"
+                    flash("Mode: full skeleton")
+                elif key == ord("2"):
+                    mode = "shot"
+                    flash("Mode: shot joints")
+                elif key == ord("3"):
+                    metrics_overlay_enabled = not metrics_overlay_enabled
+                    flash(f"Metrics panel: {'ON' if metrics_overlay_enabled else 'OFF'}")
+                elif key in (ord("c"), ord("C")):
+                    try:
+                        if session_writer.is_active:
+                            stop_session()
+                        else:
+                            start_session(frame.shape)
+                    except Exception as exc:
+                        flash(f"Session failed: {exc}", (60, 80, 255), seconds=3.0)
+                        print(f"ERROR: session operation failed: {exc}", file=sys.stderr)
+                elif key in (ord("k"), ord("K")):
+                    if squat_mode_enabled and squat_calibration_builder is not None:
+                        squat_calibration_builder.start()
+                        squat_calibration_status = "CALIBRATING"
+                        if squat_detector is not None:
+                            squat_detector.machine.reset(clear_calibration=True)
+                        flash("Squat calibration started", (80, 230, 120))
+                    else:
+                        flash("Squat mode is not enabled", (0, 190, 255))
+                elif key in (ord("p"), ord("P")):
+                    if squat_mode_enabled:
+                        squat_active = not squat_active
+                        flash(f"Squat analysis: {'ON' if squat_active else 'OFF'}")
+                    else:
+                        flash("Squat mode is not enabled", (0, 190, 255))
+                elif key == ord("4"):
+                    if squat_mode_enabled:
+                        squat_panel_enabled = not squat_panel_enabled
+                        flash(f"Squat panel: {'ON' if squat_panel_enabled else 'OFF'}")
+                    else:
+                        flash("Squat mode is not enabled", (0, 190, 255))
+                elif key == ord("5"):
+                    if basketball_mode_enabled:
+                        basketball_panel_enabled = not basketball_panel_enabled
+                        flash(f"Basketball panel: {'ON' if basketball_panel_enabled else 'OFF'}")
+                    else:
+                        flash("Basketball mode is not enabled", (0, 190, 255))
+                elif key in (ord("j"), ord("J")):
+                    if basketball_mode_enabled:
+                        basketball_collecting = not basketball_collecting
+                        flash(f"Shot candidate capture: {'ON' if basketball_collecting else 'OFF'}")
+                    else:
+                        flash("Basketball mode is not enabled", (0, 190, 255))
+                elif key in (ord("l"), ord("L")):
+                    if basketball_mode_enabled:
+                        basketball_manual_release_ms = last_processed_result_timestamp_ms if last_processed_result_timestamp_ms >= 0 else timestamp_ms
+                        flash(f"Release proxy marked: {basketball_manual_release_ms} ms", (80, 230, 120))
+                    else:
+                        flash("Basketball mode is not enabled", (0, 190, 255))
+    finally:
+        if session_writer.is_active:
+            path = session_writer.stop(final_mirror=mirror)
+            if path is not None:
+                print(f"Session saved: {path}")
+        saved_path = recorder.stop()
+        if saved_path is not None:
+            print(f"Recording saved: {saved_path}")
+        capture.release()
+        cv2.destroyAllWindows()
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
