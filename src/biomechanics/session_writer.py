@@ -10,6 +10,7 @@ from typing import Any
 
 from src.utils.time_utils import make_session_id, now_iso
 
+from .hand_landmarks import SUPPLEMENTAL_FINGER_JOINTS, empty_hand_landmarks, hand_landmark_name
 from .landmarks import LANDMARK_NAMES, empty_landmarks
 from .report import write_report_outputs
 from .types import KinematicFrame, LandmarkPoint, PoseFrame
@@ -24,6 +25,9 @@ class SessionConfig:
     smoothing: float
     model_name: str
     plot_on_save: bool = True
+    landmark_profile: str = "full"
+    hands_enabled: bool = False
+    hand_model_name: str | None = None
 
 
 def _number(value: float | int | None) -> str:
@@ -37,6 +41,17 @@ def _landmark_at(points: list[LandmarkPoint], index: int) -> LandmarkPoint:
     if 0 <= index < len(points):
         return points[index]
     return empty_landmarks(1)[0]
+
+
+def _hand_landmark_at(points: list[LandmarkPoint], index: int) -> LandmarkPoint:
+    if 0 <= index < len(points):
+        return points[index]
+    return empty_hand_landmarks(1)[0]
+
+
+def _ordered_hand_items(hand_map: dict[str, list[LandmarkPoint]]) -> list[tuple[str, list[LandmarkPoint]]]:
+    side_order = {"left": 0, "right": 1}
+    return sorted(hand_map.items(), key=lambda item: (side_order.get(item[0], 2), item[0]))
 
 
 class SessionWriter:
@@ -99,6 +114,7 @@ class SessionWriter:
         assert self.config is not None
         total = len(self.pose_frames)
         detected = sum(1 for frame in self.pose_frames if frame.pose_detected)
+        hands_detected = sum(1 for frame in self.pose_frames if frame.hands_detected)
         fps_values = [frame.fps for frame in self.pose_frames if isfinite(frame.fps) and frame.fps > 0]
         return {
             "session_id": self.session_id,
@@ -111,9 +127,13 @@ class SessionWriter:
             "mirror_at_end": final_mirror if final_mirror is not None else self.config.mirror,
             "smoothing": self.config.smoothing,
             "model_name": self.config.model_name,
+            "landmark_profile": self.config.landmark_profile,
+            "hands_enabled": self.config.hands_enabled,
+            "hand_model_name": self.config.hand_model_name,
             "landmark_frame_count": total,
             "pose_detected_frame_count": detected,
             "pose_lost_frame_count": total - detected,
+            "hands_detected_frame_count": hands_detected,
         }
 
     def _write_metadata(self, path: Path, final_mirror: bool | None) -> None:
@@ -162,6 +182,31 @@ class SessionWriter:
                             "presence": _number(image.presence),
                         }
                     )
+                for side, image_points in _ordered_hand_items(frame.hand_landmarks):
+                    world_points = frame.hand_world_landmarks.get(side, [])
+                    smoothed_points = frame.smoothed_hand_landmarks.get(side, [])
+                    for _, index in SUPPLEMENTAL_FINGER_JOINTS:
+                        image = _hand_landmark_at(image_points, index)
+                        world = _hand_landmark_at(world_points, index)
+                        smoothed = _hand_landmark_at(smoothed_points, index)
+                        writer.writerow(
+                            {
+                                "frame_index": frame.frame_index,
+                                "timestamp_ms": frame.timestamp_ms,
+                                "landmark_name": hand_landmark_name(side, index),
+                                "image_x": _number(image.x),
+                                "image_y": _number(image.y),
+                                "image_z": _number(image.z),
+                                "world_x": _number(world.x),
+                                "world_y": _number(world.y),
+                                "world_z": _number(world.z),
+                                "smoothed_x": _number(smoothed.x),
+                                "smoothed_y": _number(smoothed.y),
+                                "smoothed_z": _number(smoothed.z),
+                                "visibility": _number(image.visibility),
+                                "presence": _number(image.presence),
+                            }
+                        )
 
     def _write_kinematics_csv(self, path: Path) -> None:
         columns = [

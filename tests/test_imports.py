@@ -8,6 +8,7 @@ def test_second_stage_modules_import() -> None:
         "src.realtime_pose",
         "src.biomechanics.types",
         "src.biomechanics.landmarks",
+        "src.biomechanics.hand_landmarks",
         "src.biomechanics.normalization",
         "src.biomechanics.angles",
         "src.biomechanics.segments",

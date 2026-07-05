@@ -54,6 +54,10 @@ class PoseFrame:
     world_landmarks: list[LandmarkPoint] = field(default_factory=list)
     smoothed_landmarks: list[LandmarkPoint] = field(default_factory=list)
     normalized_landmarks: list[LandmarkPoint] = field(default_factory=list)
+    hands_detected: bool = False
+    hand_landmarks: dict[str, list[LandmarkPoint]] = field(default_factory=dict)
+    hand_world_landmarks: dict[str, list[LandmarkPoint]] = field(default_factory=dict)
+    smoothed_hand_landmarks: dict[str, list[LandmarkPoint]] = field(default_factory=dict)
     normalization_success: bool = False
     normalization_message: str = ""
     mirror: bool = True
@@ -94,4 +98,3 @@ class KinematicFrame:
     stability: dict[str, float] = field(default_factory=dict)
     symmetry: dict[str, float] = field(default_factory=dict)
     quality: dict[str, float] = field(default_factory=dict)
-

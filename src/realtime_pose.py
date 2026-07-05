@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 from collections import deque
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -25,7 +26,12 @@ except ModuleNotFoundError:
     mp_python = None
     vision = None
 
-from src.biomechanics.landmarks import coerce_landmarks
+from src.biomechanics.hand_landmarks import (
+    SUPPLEMENTAL_FINGER_CONNECTIONS,
+    SUPPLEMENTAL_FINGER_DISPLAY_INDICES,
+    coerce_hand_landmarks,
+)
+from src.biomechanics.landmarks import LANDMARK_INDEX, LANDMARK_NAMES, coerce_landmarks
 from src.biomechanics.normalization import normalize_landmarks
 from src.biomechanics.session_writer import SessionConfig, SessionWriter
 from src.biomechanics.types import KinematicFrame, LandmarkPoint, PoseFrame
@@ -94,6 +100,25 @@ SHOT_CONNECTIONS: tuple[tuple[int, int], ...] = (
     (26, 28),
 )
 
+BODY_JOINTS: frozenset[int] = frozenset(range(11, 33))
+UPPER_BODY_JOINTS: frozenset[int] = frozenset({11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24})
+LOWER_BODY_JOINTS: frozenset[int] = frozenset({23, 24, 25, 26, 27, 28, 29, 30, 31, 32})
+LANDMARK_PROFILES: dict[str, frozenset[int]] = {
+    "full": frozenset(range(len(LANDMARK_NAMES))),
+    "no-face": BODY_JOINTS,
+    "upper-body": UPPER_BODY_JOINTS,
+    "lower-body": LOWER_BODY_JOINTS,
+    "shot": SHOT_JOINTS,
+}
+PROFILE_LABELS: dict[str, str] = {
+    "full": "FULL",
+    "no-face": "NO FACE",
+    "upper-body": "UPPER BODY",
+    "lower-body": "LOWER BODY",
+    "shot": "SHOT JOINTS",
+}
+HAND_TIP_INDICES: frozenset[int] = frozenset({4, 8, 20})
+
 
 @dataclass(frozen=True)
 class DrawLandmark:
@@ -120,6 +145,32 @@ class PoseResultStore:
     def snapshot(self) -> tuple[vision.PoseLandmarkerResult | None, int]:
         with self._lock:
             return self._result, self._timestamp_ms
+
+
+class HandResultStore:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._result: vision.HandLandmarkerResult | None = None
+        self._timestamp_ms: int = -1
+
+    def update(self, result: vision.HandLandmarkerResult, timestamp_ms: int) -> None:
+        with self._lock:
+            if timestamp_ms < self._timestamp_ms:
+                return
+            self._result = result
+            self._timestamp_ms = timestamp_ms
+
+    def snapshot(self) -> tuple[vision.HandLandmarkerResult | None, int]:
+        with self._lock:
+            return self._result, self._timestamp_ms
+
+
+@dataclass(frozen=True)
+class HandDetection:
+    side: str
+    score: float
+    landmarks: Sequence[object]
+    world_landmarks: Sequence[object] | None = None
 
 
 class SlidingFps:
@@ -248,6 +299,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=1280, help="Requested camera width. Default: 1280.")
     parser.add_argument("--height", type=int, default=720, help="Requested camera height. Default: 720.")
     parser.add_argument("--model", default="models/pose_landmarker_full.task", help="Path to .task model file.")
+    parser.add_argument("--landmark-profile", default="full", choices=tuple(LANDMARK_PROFILES), help="Pose landmarks to draw at startup. Default: full.")
+    parser.add_argument("--include-landmarks", default="", help="Comma-separated pose landmark names or indices to draw instead of the selected profile.")
+    parser.add_argument("--exclude-landmarks", default="", help="Comma-separated pose landmark names or indices to hide from the selected profile.")
+    parser.add_argument("--show-hands", action="store_true", help="Enable supplemental thumb, index, and pinky finger joints with MediaPipe Hand Landmarker.")
+    parser.add_argument("--hand-model", default="models/hand_landmarker.task", help="Path to Hand Landmarker .task model file.")
+    parser.add_argument("--hand-detect-width", type=int, default=640, help="Resize hand detector input to this width for lower latency. Default: 640.")
+    parser.add_argument("--max-hand-detect-fps", type=float, default=15.0, help="Maximum hand detector submissions per second. Default: 15.")
+    parser.add_argument("--max-hands", type=int, default=2, help="Maximum number of hands to detect. Default: 2.")
     parser.add_argument("--record", action="store_true", help="Start recording immediately.")
     parser.add_argument("--save-dir", default="outputs", help="Directory for sessions, screenshots, and recordings.")
     parser.add_argument("--metrics-overlay", action="store_true", help="Show kinematic metrics panel at startup.")
@@ -284,6 +343,39 @@ def resolve_model_path(raw_path: str) -> Path:
     if not model_path.is_absolute():
         model_path = Path.cwd() / model_path
     return model_path
+
+
+def parse_pose_landmark_selector(raw_value: str) -> set[int]:
+    indices: set[int] = set()
+    if not raw_value.strip():
+        return indices
+    tokens = raw_value.replace(";", ",").split(",")
+    for raw_token in tokens:
+        token = raw_token.strip()
+        if not token:
+            continue
+        if token in LANDMARK_INDEX:
+            indices.add(LANDMARK_INDEX[token])
+            continue
+        if token.startswith("landmark_") and token.removeprefix("landmark_").isdigit():
+            indices.add(int(token.removeprefix("landmark_")))
+            continue
+        if token.isdigit():
+            indices.add(int(token))
+            continue
+        raise ValueError(f"unknown pose landmark selector: {token}")
+    invalid = sorted(index for index in indices if index < 0 or index >= len(LANDMARK_NAMES))
+    if invalid:
+        raise ValueError(f"pose landmark index out of range: {invalid[0]}")
+    return indices
+
+
+def resolve_pose_draw_indices(profile: str, include_raw: str, exclude_raw: str) -> frozenset[int]:
+    include = parse_pose_landmark_selector(include_raw)
+    exclude = parse_pose_landmark_selector(exclude_raw)
+    base = set(include) if include else set(LANDMARK_PROFILES[profile])
+    base.difference_update(exclude)
+    return frozenset(sorted(base))
 
 
 def open_camera(camera_index: int, width: int, height: int) -> tuple[cv2.VideoCapture | None, str | None]:
@@ -333,16 +425,17 @@ def to_pixel(landmark: DrawLandmark, width: int, height: int) -> tuple[int, int]
     return x, y
 
 
-def draw_pose(frame: np.ndarray, landmarks: Sequence[DrawLandmark], mode: str) -> None:
+def draw_pose(frame: np.ndarray, landmarks: Sequence[DrawLandmark], mode: str, point_indices: Iterable[int]) -> None:
     height, width = frame.shape[:2]
+    point_set = set(point_indices)
     if mode == "shot":
         connections: Iterable[tuple[int, int]] = SHOT_CONNECTIONS
-        point_indices: Iterable[int] = sorted(SHOT_JOINTS)
     else:
         connections = POSE_CONNECTIONS
-        point_indices = range(len(landmarks))
 
     for start, end in connections:
+        if start not in point_set or end not in point_set:
+            continue
         if start >= len(landmarks) or end >= len(landmarks):
             continue
         if not is_visible(landmarks[start]) or not is_visible(landmarks[end]):
@@ -351,7 +444,7 @@ def draw_pose(frame: np.ndarray, landmarks: Sequence[DrawLandmark], mode: str) -
         end_xy = to_pixel(landmarks[end], width, height)
         cv2.line(frame, start_xy, end_xy, (80, 220, 120), 2, cv2.LINE_AA)
 
-    for index in point_indices:
+    for index in sorted(point_set):
         if index >= len(landmarks) or not is_visible(landmarks[index]):
             continue
         center = to_pixel(landmarks[index], width, height)
@@ -360,6 +453,30 @@ def draw_pose(frame: np.ndarray, landmarks: Sequence[DrawLandmark], mode: str) -
             cv2.circle(frame, center, 9, (10, 30, 30), 1, cv2.LINE_AA)
         else:
             cv2.circle(frame, center, 4, (255, 210, 80), -1, cv2.LINE_AA)
+
+
+def draw_hands(frame: np.ndarray, hands: dict[str, Sequence[DrawLandmark]]) -> None:
+    height, width = frame.shape[:2]
+    side_colors = {
+        "left": ((255, 190, 90), (255, 235, 160)),
+        "right": ((90, 190, 255), (170, 235, 255)),
+    }
+    for side, landmarks in sorted(hands.items()):
+        line_color, point_color = side_colors.get(side, ((170, 220, 170), (220, 255, 220)))
+        for start, end in SUPPLEMENTAL_FINGER_CONNECTIONS:
+            if start >= len(landmarks) or end >= len(landmarks):
+                continue
+            if not is_visible(landmarks[start], threshold=0.05) or not is_visible(landmarks[end], threshold=0.05):
+                continue
+            cv2.line(frame, to_pixel(landmarks[start], width, height), to_pixel(landmarks[end], width, height), line_color, 2, cv2.LINE_AA)
+        for index in sorted(SUPPLEMENTAL_FINGER_DISPLAY_INDICES):
+            if index >= len(landmarks):
+                continue
+            landmark = landmarks[index]
+            if not is_visible(landmark, threshold=0.05):
+                continue
+            radius = 5 if index in HAND_TIP_INDICES else 3
+            cv2.circle(frame, to_pixel(landmark, width, height), radius, point_color, -1, cv2.LINE_AA)
 
 
 def put_text(frame: np.ndarray, text: str, origin: tuple[int, int], color: tuple[int, int, int]) -> None:
@@ -388,23 +505,33 @@ def draw_hud(
     session_id: str | None,
     result_lag_ms: int | None,
     backend: str,
+    hands_enabled: bool = False,
+    hands_detected: bool = False,
+    hand_lag_ms: int | None = None,
 ) -> None:
-    lines = (
+    lines = [
         f"FPS: {fps:4.1f}",
         f"CAM: {camera_index} ({backend})",
         f"POSE: {'YES' if has_pose else 'NO'}",
         f"LAG: {result_lag_ms} ms" if result_lag_ms is not None else "LAG: N/A",
         f"SESSION: {'RECORDING' if session_active else 'IDLE'}",
-        f"MODE: {'FULL' if mode == 'full' else 'SHOT JOINTS'}",
+        f"MODE: {PROFILE_LABELS.get(mode, mode.upper())}",
         f"MIRROR: {'ON' if mirror else 'OFF'}",
         f"REC: {'ON' if recording else 'OFF'}",
-    )
+    ]
+    if hands_enabled:
+        lines.append(f"HANDS: {'YES' if hands_detected else 'NO'}")
+        lines.append(f"HAND LAG: {hand_lag_ms} ms" if hand_lag_ms is not None else "HAND LAG: N/A")
     for row, text in enumerate(lines):
         color = (245, 245, 245)
         if text.startswith("POSE:"):
             color = (80, 230, 120) if has_pose else (60, 80, 255)
+        if text.startswith("HANDS:"):
+            color = (80, 230, 120) if hands_detected else (0, 190, 255)
         if text.startswith("LAG:") and result_lag_ms is not None and result_lag_ms > 180:
             color = (0, 180, 255)
+        if text.startswith("HAND LAG:") and hand_lag_ms is not None and hand_lag_ms > 180:
+            color = (0, 190, 255)
         if text.startswith("SESSION:") and session_active:
             color = (70, 90, 255)
         if text.startswith("REC:") and recording:
@@ -437,8 +564,55 @@ def prepare_detection_frame(frame: np.ndarray, detect_width: int) -> np.ndarray:
     return cv2.resize(frame, (detect_width, detect_height), interpolation=cv2.INTER_AREA)
 
 
+def frame_to_mp_image(frame: np.ndarray, detect_width: int) -> mp.Image:
+    detection_frame = prepare_detection_frame(frame, detect_width)
+    rgb_frame = cv2.cvtColor(detection_frame, cv2.COLOR_BGR2RGB)
+    return mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb_frame))
+
+
 def to_landmark_points(landmarks: Sequence[object] | None) -> list[LandmarkPoint]:
     return coerce_landmarks(landmarks)
+
+
+def to_hand_landmark_points(landmarks: Sequence[object] | None) -> list[LandmarkPoint]:
+    return coerce_hand_landmarks(landmarks)
+
+
+def infer_hand_side(landmarks: Sequence[object], fallback_index: int) -> str:
+    xs = [float(getattr(point, "x", 0.5)) for point in landmarks]
+    if xs:
+        return "left" if sum(xs) / len(xs) < 0.5 else "right"
+    return "left" if fallback_index == 0 else "right"
+
+
+def hand_side_from_handedness(
+    result: vision.HandLandmarkerResult,
+    hand_index: int,
+    landmarks: Sequence[object],
+) -> tuple[str, float]:
+    handedness = getattr(result, "handedness", None) or []
+    if hand_index < len(handedness) and handedness[hand_index]:
+        category = handedness[hand_index][0]
+        raw_name = str(getattr(category, "category_name", "") or getattr(category, "display_name", "")).strip().lower()
+        score = float(getattr(category, "score", 0.5))
+        if raw_name in {"left", "right"}:
+            return raw_name, score
+    return infer_hand_side(landmarks, hand_index), 0.5
+
+
+def extract_hand_detections(result: vision.HandLandmarkerResult | None) -> dict[str, HandDetection]:
+    if result is None or not getattr(result, "hand_landmarks", None):
+        return {}
+    world_landmarks = getattr(result, "hand_world_landmarks", None) or []
+    detections: dict[str, HandDetection] = {}
+    for index, landmarks in enumerate(result.hand_landmarks):
+        side, score = hand_side_from_handedness(result, index, landmarks)
+        world = world_landmarks[index] if index < len(world_landmarks) else None
+        existing = detections.get(side)
+        if existing is not None and existing.score >= score:
+            continue
+        detections[side] = HandDetection(side=side, score=score, landmarks=landmarks, world_landmarks=world)
+    return detections
 
 
 def build_pose_frame(
@@ -446,6 +620,9 @@ def build_pose_frame(
     timestamp_ms: int,
     result: vision.PoseLandmarkerResult | None,
     smoothed_landmarks: Sequence[object] | None,
+    hand_detections: dict[str, HandDetection] | None,
+    smoothed_hand_landmarks: dict[str, Sequence[object]] | None,
+    hands_detected: bool,
     pose_detected: bool,
     mirror: bool,
     frame_shape: tuple[int, int, int],
@@ -460,6 +637,20 @@ def build_pose_frame(
     image_landmarks = to_landmark_points(image_source)
     world_landmarks = to_landmark_points(world_source)
     smoothed_points = to_landmark_points(smoothed_landmarks)
+    hand_detections = hand_detections or {}
+    smoothed_hand_landmarks = smoothed_hand_landmarks or {}
+    image_hand_landmarks = {
+        side: to_hand_landmark_points(detection.landmarks)
+        for side, detection in hand_detections.items()
+    }
+    world_hand_landmarks = {
+        side: to_hand_landmark_points(detection.world_landmarks)
+        for side, detection in hand_detections.items()
+    }
+    smoothed_hand_points = {
+        side: to_hand_landmark_points(points)
+        for side, points in smoothed_hand_landmarks.items()
+    }
     normalization = normalize_landmarks(smoothed_points if pose_detected else None)
     height, width = frame_shape[:2]
     return PoseFrame(
@@ -470,6 +661,10 @@ def build_pose_frame(
         world_landmarks=world_landmarks,
         smoothed_landmarks=smoothed_points,
         normalized_landmarks=normalization.landmarks,
+        hands_detected=hands_detected,
+        hand_landmarks=image_hand_landmarks,
+        hand_world_landmarks=world_hand_landmarks,
+        smoothed_hand_landmarks=smoothed_hand_points,
         normalization_success=normalization.success,
         normalization_message=normalization.message,
         mirror=mirror,
@@ -480,18 +675,28 @@ def build_pose_frame(
 
 
 def print_controls() -> None:
-    print("Controls: Q/ESC quit, S screenshot, R record, M mirror, 1 full skeleton, 2 shot joints, 3 metrics panel, C kinematic session, K squat calibration, P squat analysis, 4 squat panel, 5 basketball panel, J shot clip marker, L release proxy marker")
+    print("Controls: Q/ESC quit, S screenshot, R record, M mirror, 1 full, 2 shot, 3 metrics, 6 no-face, 7 upper, 8 lower, H hands, C session, K squat calibration, P squat analysis, 4 squat panel, 5 basketball panel, J shot clip marker, L release proxy marker")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     args.smoothing = max(0.0, min(1.0, float(args.smoothing)))
     args.max_detect_fps = max(0.0, float(args.max_detect_fps))
+    args.max_hand_detect_fps = max(0.0, float(args.max_hand_detect_fps))
     args.max_pending_ms = max(1, int(args.max_pending_ms))
     args.max_result_lag_ms = max(1, int(args.max_result_lag_ms))
+    args.max_hands = max(1, int(args.max_hands))
+    args.hand_detect_width = max(0, int(args.hand_detect_width))
     min_detect_interval_ms = int(round(1000.0 / args.max_detect_fps)) if args.max_detect_fps > 0 else 0
+    min_hand_detect_interval_ms = int(round(1000.0 / args.max_hand_detect_fps)) if args.max_hand_detect_fps > 0 else 0
     model_path = resolve_model_path(args.model)
+    hand_model_path = resolve_model_path(args.hand_model)
     save_dir = Path(args.save_dir)
+    try:
+        pose_draw_indices = resolve_pose_draw_indices(args.landmark_profile, args.include_landmarks, args.exclude_landmarks)
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 6
 
     if mp is None or mp_python is None or vision is None:
         print(
@@ -510,6 +715,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
 
+    if args.show_hands and not hand_model_path.exists():
+        print(
+            "ERROR: hand model file not found.\n"
+            f"Path: {hand_model_path}\n"
+            "Download a Hand Landmarker .task file into the models directory or run without --show-hands.",
+            file=sys.stderr,
+        )
+        return 2
+
     capture, backend = open_camera(args.camera, args.width, args.height)
     if capture is None or backend is None:
         print(
@@ -520,6 +734,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 3
 
     result_store = PoseResultStore()
+    hand_result_store = HandResultStore()
 
     def on_result(
         result: vision.PoseLandmarkerResult,
@@ -528,6 +743,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     ) -> None:
         del output_image
         result_store.update(result, timestamp_ms)
+
+    def on_hand_result(
+        result: vision.HandLandmarkerResult,
+        output_image: mp.Image,
+        timestamp_ms: int,
+    ) -> None:
+        del output_image
+        hand_result_store.update(result, timestamp_ms)
 
     options = vision.PoseLandmarkerOptions(
         base_options=mp_python.BaseOptions(model_asset_path=str(model_path)),
@@ -547,10 +770,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"ERROR: failed to initialize PoseLandmarker: {exc}", file=sys.stderr)
         return 4
 
+    hand_landmarker = None
+    if args.show_hands:
+        try:
+            hand_options = vision.HandLandmarkerOptions(
+                base_options=mp_python.BaseOptions(model_asset_path=str(hand_model_path)),
+                running_mode=vision.RunningMode.LIVE_STREAM,
+                num_hands=args.max_hands,
+                min_hand_detection_confidence=0.45,
+                min_hand_presence_confidence=0.45,
+                min_tracking_confidence=0.45,
+                result_callback=on_hand_result,
+            )
+            hand_landmarker = vision.HandLandmarker.create_from_options(hand_options)
+        except Exception as exc:
+            capture.release()
+            print(f"ERROR: failed to initialize HandLandmarker: {exc}", file=sys.stderr)
+            return 4
+
     window_name = "MediaPipe Pose Landmarker"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     fps_counter = SlidingFps(window=30)
     smoother = LandmarkSmoother(alpha=args.smoothing)
+    hand_smoothers: dict[str, LandmarkSmoother] = {}
     recorder = VideoRecorder(save_dir / "recordings")
     session_writer = SessionWriter(save_dir)
     kinematics_processor = KinematicsProcessor()
@@ -572,21 +814,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     basketball_collecting = False
     basketball_manual_release_ms: int | None = None
     basketball_phase = "IDLE"
-    mode = "full"
+    mode = args.landmark_profile
     mirror = bool(args.mirror)
     metrics_overlay_enabled = bool(args.metrics_overlay)
+    hand_overlay_enabled = hand_landmarker is not None
     session_autostart_pending = bool(args.session_autostart)
     last_input_timestamp_ms = -1
     last_submitted_timestamp_ms = -1
+    last_hand_submitted_timestamp_ms = -1
     last_draw_timestamp_ms = -1
+    last_hand_draw_timestamp_ms = -1
     last_processed_result_timestamp_ms = -1
     processed_frame_index = 0
     draw_landmarks: list[DrawLandmark] | None = None
+    draw_hand_landmarks: dict[str, list[DrawLandmark]] = {}
+    latest_hand_detections: dict[str, HandDetection] = {}
     kinematic_frame: KinematicFrame | None = None
     flash_text = ""
     flash_until = 0.0
     flash_color = (245, 245, 245)
     detection_error_printed = False
+    hand_detection_error_printed = False
 
     def flash(text: str, color: tuple[int, int, int] = (245, 245, 245), seconds: float = 2.0) -> None:
         nonlocal flash_text, flash_until, flash_color
@@ -604,6 +852,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             smoothing=args.smoothing,
             model_name=model_path.name,
             plot_on_save=args.plot_on_save,
+            landmark_profile=mode,
+            hands_enabled=hand_landmarker is not None,
+            hand_model_name=hand_model_path.name if hand_landmarker is not None else None,
         )
         session_id = session_writer.start(config)
         flash(f"Session recording: {session_id}", (80, 230, 120))
@@ -619,7 +870,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     print_controls()
 
     try:
-        with landmarker:
+        with ExitStack() as stack:
+            stack.enter_context(landmarker)
+            if hand_landmarker is not None:
+                stack.enter_context(hand_landmarker)
             while True:
                 ok, raw_frame = capture.read()
                 if not ok or raw_frame is None:
@@ -646,11 +900,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 detect_interval_elapsed = timestamp_ms - last_submitted_timestamp_ms >= min_detect_interval_ms
 
                 if detect_interval_elapsed and (not pending_detection or pending_timed_out):
-                    detection_frame = prepare_detection_frame(frame, args.detect_width)
-                    rgb_frame = cv2.cvtColor(detection_frame, cv2.COLOR_BGR2RGB)
-                    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb_frame))
-
                     try:
+                        mp_image = frame_to_mp_image(frame, args.detect_width)
                         landmarker.detect_async(mp_image, timestamp_ms)
                         last_submitted_timestamp_ms = timestamp_ms
                     except Exception as exc:
@@ -659,9 +910,28 @@ def main(argv: Sequence[str] | None = None) -> int:
                             print(f"ERROR: detect_async failed: {exc}", file=sys.stderr)
                             detection_error_printed = True
 
+                if hand_landmarker is not None:
+                    _, hand_timestamp_before_submit = hand_result_store.snapshot()
+                    pending_hand_detection = last_hand_submitted_timestamp_ms > hand_timestamp_before_submit
+                    pending_hand_timed_out = timestamp_ms - last_hand_submitted_timestamp_ms >= args.max_pending_ms
+                    hand_interval_elapsed = timestamp_ms - last_hand_submitted_timestamp_ms >= min_hand_detect_interval_ms
+                    if hand_interval_elapsed and (not pending_hand_detection or pending_hand_timed_out):
+                        try:
+                            hand_mp_image = frame_to_mp_image(frame, args.hand_detect_width)
+                            hand_landmarker.detect_async(hand_mp_image, timestamp_ms)
+                            last_hand_submitted_timestamp_ms = timestamp_ms
+                        except Exception as exc:
+                            flash(f"Hand detection failed: {exc}", (60, 80, 255), seconds=3.0)
+                            if not hand_detection_error_printed:
+                                print(f"ERROR: hand detect_async failed: {exc}", file=sys.stderr)
+                                hand_detection_error_printed = True
+
                 result, result_timestamp_ms = result_store.snapshot()
                 result_lag_ms = timestamp_ms - result_timestamp_ms if result_timestamp_ms >= 0 else None
                 result_is_fresh = result_lag_ms is not None and result_lag_ms <= args.max_result_lag_ms
+                hand_result, hand_result_timestamp_ms = hand_result_store.snapshot() if hand_landmarker is not None else (None, -1)
+                hand_lag_ms = timestamp_ms - hand_result_timestamp_ms if hand_result_timestamp_ms >= 0 else None
+                hand_result_is_fresh = hand_lag_ms is not None and hand_lag_ms <= args.max_result_lag_ms
                 has_pose = bool(result_is_fresh and result is not None and result.pose_landmarks)
                 new_result = result_timestamp_ms >= 0 and result_timestamp_ms != last_processed_result_timestamp_ms
                 if has_pose and result is not None:
@@ -669,7 +939,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         draw_landmarks = smoother.smooth(result.pose_landmarks[0], result_timestamp_ms)
                         last_draw_timestamp_ms = result_timestamp_ms
                     if draw_landmarks is not None:
-                        draw_pose(frame, draw_landmarks, mode)
+                        draw_pose(frame, draw_landmarks, mode, pose_draw_indices)
                 else:
                     if result_timestamp_ms != last_draw_timestamp_ms or (
                         result_lag_ms is not None and result_lag_ms > args.max_result_lag_ms
@@ -678,6 +948,30 @@ def main(argv: Sequence[str] | None = None) -> int:
                         draw_landmarks = None
                         last_draw_timestamp_ms = result_timestamp_ms
 
+                if hand_landmarker is not None and hand_result_is_fresh:
+                    if hand_result_timestamp_ms != last_hand_draw_timestamp_ms:
+                        latest_hand_detections = extract_hand_detections(hand_result)
+                        next_draw_hand_landmarks: dict[str, list[DrawLandmark]] = {}
+                        for side, detection in latest_hand_detections.items():
+                            side_smoother = hand_smoothers.setdefault(side, LandmarkSmoother(alpha=args.smoothing))
+                            next_draw_hand_landmarks[side] = side_smoother.smooth(detection.landmarks, hand_result_timestamp_ms)
+                        for side, side_smoother in list(hand_smoothers.items()):
+                            if side not in latest_hand_detections:
+                                side_smoother.reset()
+                        draw_hand_landmarks = next_draw_hand_landmarks
+                        last_hand_draw_timestamp_ms = hand_result_timestamp_ms
+                    if hand_overlay_enabled and draw_hand_landmarks:
+                        draw_hands(frame, draw_hand_landmarks)
+                elif hand_landmarker is not None:
+                    if hand_result_timestamp_ms != last_hand_draw_timestamp_ms or (
+                        hand_lag_ms is not None and hand_lag_ms > args.max_result_lag_ms
+                    ):
+                        for side_smoother in hand_smoothers.values():
+                            side_smoother.reset()
+                        latest_hand_detections = {}
+                        draw_hand_landmarks = {}
+                        last_hand_draw_timestamp_ms = hand_result_timestamp_ms
+
                 if new_result and result_is_fresh:
                     processed_frame_index += 1
                     pose_frame = build_pose_frame(
@@ -685,6 +979,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         timestamp_ms=result_timestamp_ms,
                         result=result,
                         smoothed_landmarks=draw_landmarks,
+                        hand_detections=latest_hand_detections if hand_result_is_fresh else {},
+                        smoothed_hand_landmarks=draw_hand_landmarks if hand_result_is_fresh else {},
+                        hands_detected=bool(latest_hand_detections) if hand_result_is_fresh else False,
                         pose_detected=has_pose,
                         mirror=mirror,
                         frame_shape=frame.shape,
@@ -755,6 +1052,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     session_id=session_writer.session_id,
                     result_lag_ms=result_lag_ms,
                     backend=backend,
+                    hands_enabled=hand_landmarker is not None,
+                    hands_detected=bool(draw_hand_landmarks),
+                    hand_lag_ms=hand_lag_ms,
                 )
 
                 if metrics_overlay_enabled:
@@ -859,17 +1159,40 @@ def main(argv: Sequence[str] | None = None) -> int:
                 elif key in (ord("m"), ord("M")):
                     mirror = not mirror
                     smoother.reset()
+                    for side_smoother in hand_smoothers.values():
+                        side_smoother.reset()
                     draw_landmarks = None
+                    draw_hand_landmarks = {}
                     flash(f"Mirror: {'ON' if mirror else 'OFF'}")
                 elif key == ord("1"):
                     mode = "full"
+                    pose_draw_indices = resolve_pose_draw_indices(mode, args.include_landmarks, args.exclude_landmarks)
                     flash("Mode: full skeleton")
                 elif key == ord("2"):
                     mode = "shot"
+                    pose_draw_indices = resolve_pose_draw_indices(mode, args.include_landmarks, args.exclude_landmarks)
                     flash("Mode: shot joints")
                 elif key == ord("3"):
                     metrics_overlay_enabled = not metrics_overlay_enabled
                     flash(f"Metrics panel: {'ON' if metrics_overlay_enabled else 'OFF'}")
+                elif key == ord("6"):
+                    mode = "no-face"
+                    pose_draw_indices = resolve_pose_draw_indices(mode, args.include_landmarks, args.exclude_landmarks)
+                    flash("Mode: no face")
+                elif key == ord("7"):
+                    mode = "upper-body"
+                    pose_draw_indices = resolve_pose_draw_indices(mode, args.include_landmarks, args.exclude_landmarks)
+                    flash("Mode: upper body")
+                elif key == ord("8"):
+                    mode = "lower-body"
+                    pose_draw_indices = resolve_pose_draw_indices(mode, args.include_landmarks, args.exclude_landmarks)
+                    flash("Mode: lower body")
+                elif key in (ord("h"), ord("H")):
+                    if hand_landmarker is not None:
+                        hand_overlay_enabled = not hand_overlay_enabled
+                        flash(f"Hands overlay: {'ON' if hand_overlay_enabled else 'OFF'}")
+                    else:
+                        flash("Hand detection is not enabled", (0, 190, 255))
                 elif key in (ord("c"), ord("C")):
                     try:
                         if session_writer.is_active:

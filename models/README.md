@@ -1,16 +1,29 @@
 # Models
 
-Put the MediaPipe Pose Landmarker model file here before running the app.
+Put MediaPipe task model files here before running the app.
 
-Recommended file name:
+Pose Landmarker recommended file name:
 
 ```text
 models/pose_landmarker_full.task
 ```
 
-Official model download URL:
+Pose Landmarker official model download URL:
 
 ```text
 https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task
 ```
 
+Hand Landmarker is optional. It is required only when running realtime detection with `--show-hands` to supplement the existing pose thumb, index, and pinky points with their finger joints.
+
+Hand Landmarker recommended file name:
+
+```text
+models/hand_landmarker.task
+```
+
+Hand Landmarker official model download URL:
+
+```text
+https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
+```
