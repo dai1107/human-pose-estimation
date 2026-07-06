@@ -17,7 +17,8 @@
 ├── README.md
 ├── requirements.txt
 ├── models/
-│   └── pose_landmarker_full.task
+│   ├── pose_landmarker_full.task
+│   └── hand_landmarker.task
 ├── outputs/
 │   ├── sessions/
 │   ├── screenshots/
@@ -88,6 +89,16 @@ Invoke-WebRequest `
 - https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker
 - https://ai.google.dev/edge/mediapipe/solutions/vision/pose_landmarker/python
 
+如需显示五根手指的手指点，还需要官方 MediaPipe Hand Landmarker 模型：
+
+```powershell
+Invoke-WebRequest `
+  -Uri "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task" `
+  -OutFile "models\hand_landmarker.task"
+```
+
+启动时加 `--show-hands` 后，程序会显示五根手指的完整手指点，不显示手腕点。当前显示和保存的是除 `wrist` 外的 20 个手指点：拇指 `CMC/MCP/IP/TIP`，食指/中指/无名指/小指 `MCP/PIP/DIP/TIP`。
+
 ## 运行
 
 基础导入测试：
@@ -121,7 +132,10 @@ python -m src.realtime_pose --detect-width 640 --smoothing 0.75
 python -m src.realtime_pose --save-dir outputs
 python -m src.realtime_pose --smoothing 0.65
 python -m src.realtime_pose --model models\pose_landmarker_full.task
+python -m src.realtime_pose --landmark-profile full
+python -m src.realtime_pose --show-hands
 python app.py --analysis-mode squat --camera-view side
+python app.py --analysis-mode squat --camera-view side --show-hands
 python -m src.realtime_pose --analysis-mode squat --camera-view front --metrics-overlay
 python app.py --analysis-mode basketball --shot-type set_shot --shooting-side right --camera-view side
 ```
@@ -223,6 +237,12 @@ python -m src.tools.create_reference `
 - `--record`：启动后立即录制视频。
 - `--smoothing`：关键点指数平滑系数，范围 `0` 到 `1`，`0` 表示关闭，默认 `0.65`。
 - `--model`：`.task` 模型文件路径，默认 `models/pose_landmarker_full.task`。
+- `--landmark-profile`：启动时显示和保存的姿态点集合，默认 `no-face`，可选 `full`、`no-face`、`upper-body`、`lower-body`、`shot`。
+- `--show-hands`：启用独立手部检测，显示五根手指的完整手指点。
+- `--hand-model`：手部 `.task` 模型文件路径，默认 `models/hand_landmarker.task`。
+- `--hand-detect-width`：手部检测输入宽度，默认 `416`；较小可降低延迟，`0` 表示使用完整画面。
+- `--max-hand-detect-fps`：手部检测提交上限，默认 `12`。
+- `--max-hands`：最多检测手的数量，默认 `2`。
 - `--save-dir`：输出根目录，默认 `outputs`。
 - `--metrics-overlay`：启动时显示运动学信息面板，默认关闭。
 - `--session-autostart`：启动后自动开始运动学数据采集会话，默认关闭。
@@ -230,10 +250,10 @@ python -m src.tools.create_reference `
 - `--camera-view`：专项分析视角，`side`、`front`、`front_left`、`front_right` 或 `unknown`。
 - `--shot-type`：篮球投篮类型，`set_shot` 或 `jump_shot`，默认 `set_shot`。
 - `--shooting-side`：篮球投篮侧，`right` 或 `left`，默认 `right`。
-- `--detect-width`：检测输入宽度，默认 `960`；较小可降低延迟，`0` 表示使用完整画面。
-- `--max-detect-fps`：MediaPipe 检测提交上限，默认 `30`，用于避免异步检测队列堆积。
-- `--max-pending-ms`：单次异步检测等待超时，默认 `250` 毫秒。
-- `--max-result-lag-ms`：过旧姿态结果隐藏阈值，默认 `350` 毫秒。
+- `--detect-width`：检测输入宽度，默认 `640`；较小可降低延迟，`0` 表示使用完整画面。
+- `--max-detect-fps`：MediaPipe 检测提交上限，默认 `24`，用于避免异步检测队列堆积。
+- `--max-pending-ms`：单次异步检测等待超时，默认 `180` 毫秒。
+- `--max-result-lag-ms`：过旧姿态结果隐藏阈值，默认 `280` 毫秒。
 - `--plot-on-save` / `--no-plot-on-save`：会话保存时是否生成 PNG 曲线图，默认开启。
 
 ## 快速动作稳定性建议
@@ -241,7 +261,8 @@ python -m src.tools.create_reference `
 程序已默认启用以下优化：
 
 - 摄像头缓冲请求设为 `1`，减少读取旧画面。
-- 检测输入默认缩放到 `960` 宽，降低 CPU 推理延迟。
+- 检测输入默认缩放到 `640` 宽，降低 CPU 推理延迟，同时仍使用原来的 `pose_landmarker_full.task` 模型。
+- 姿态点默认使用 `no-face` profile，跳过面部点绘制和保存；需要完整 33 点时可用 `--landmark-profile full` 或按 `1`。
 - MediaPipe 异步检测最多保留一个待处理任务，避免检测队列积压。
 - 过旧检测结果不会继续叠加到当前画面。
 - 关键点平滑会根据运动速度自适应：慢速时抑制抖动，快速时提高跟随速度。
@@ -268,6 +289,8 @@ python -m src.realtime_pose --detect-width 1280 --smoothing 0.65
 - `1`：完整 33 点骨架模式。
 - `2`：投篮关键关节高亮模式，突出肩、肘、腕、髋、膝、踝。
 - `3`：显示或隐藏运动学信息面板。
+- `F`：显示或隐藏面部点。
+- `H`：显示或隐藏手指点，需要启动时带 `--show-hands`。
 - `C`：开始或停止一次运动学数据采集会话。
 - `K`：在深蹲模式下开始或重新进行站立校准。
 - `P`：在深蹲模式下开始或暂停专项分析。
@@ -372,7 +395,7 @@ outputs/sessions/2026-07-04_162530/
 文件说明：
 
 - `metadata.json`：会话 ID、开始/结束时间、摄像头、分辨率、平均 FPS、镜像、平滑参数、模型名、检测帧统计。
-- `landmarks.csv`：长表格式关键点数据，每帧每个关键点一行，包含 image/world/smoothed 坐标、可见度和 presence。
+- `landmarks.csv`：长表格式关键点数据，每帧每个已启用 profile 的关键点一行，包含 image/world/smoothed 坐标、可见度和 presence；默认 `no-face` 不保存面部点。
 - `kinematics.csv`：每帧关节角、速度、角速度、运动能量代理值和姿态检测状态。
 - `summary.json`：角度统计、速度统计、有效姿态帧比例、运动能量代理峰值、可用峰值事件。
 - `sequence_summary.json`：峰值事件时间和通用顺序比较结果。

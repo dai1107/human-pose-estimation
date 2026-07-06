@@ -14,7 +14,7 @@ Pose Landmarker official model download URL:
 https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task
 ```
 
-Hand Landmarker is optional. It is required only when running realtime detection with `--show-hands` to supplement the existing pose thumb, index, and pinky points with their finger joints.
+Hand Landmarker is optional. It is required only when running realtime detection with `--show-hands` to supplement the pose landmarks with five-finger overlays. The app displays the 20 finger points and excludes the wrist point.
 
 Hand Landmarker recommended file name:
 

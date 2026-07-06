@@ -33,46 +33,30 @@ HAND_LANDMARK_NAMES: tuple[str, ...] = (
 
 HAND_LANDMARK_INDEX: dict[str, int] = {name: index for index, name in enumerate(HAND_LANDMARK_NAMES)}
 
-SUPPLEMENTAL_FINGER_JOINTS: tuple[tuple[str, int], ...] = (
-    ("thumb_cmc", HAND_LANDMARK_INDEX["thumb_cmc"]),
-    ("thumb_mcp", HAND_LANDMARK_INDEX["thumb_mcp"]),
-    ("thumb_ip", HAND_LANDMARK_INDEX["thumb_ip"]),
-    ("index_finger_mcp", HAND_LANDMARK_INDEX["index_finger_mcp"]),
-    ("index_finger_pip", HAND_LANDMARK_INDEX["index_finger_pip"]),
-    ("index_finger_dip", HAND_LANDMARK_INDEX["index_finger_dip"]),
-    ("pinky_mcp", HAND_LANDMARK_INDEX["pinky_mcp"]),
-    ("pinky_pip", HAND_LANDMARK_INDEX["pinky_pip"]),
-    ("pinky_dip", HAND_LANDMARK_INDEX["pinky_dip"]),
+FINGER_LANDMARK_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("thumb_cmc", "thumb_mcp", "thumb_ip", "thumb_tip"),
+    ("index_finger_mcp", "index_finger_pip", "index_finger_dip", "index_finger_tip"),
+    ("middle_finger_mcp", "middle_finger_pip", "middle_finger_dip", "middle_finger_tip"),
+    ("ring_finger_mcp", "ring_finger_pip", "ring_finger_dip", "ring_finger_tip"),
+    ("pinky_mcp", "pinky_pip", "pinky_dip", "pinky_tip"),
+)
+
+SUPPLEMENTAL_FINGER_JOINTS: tuple[tuple[str, int], ...] = tuple(
+    (name, HAND_LANDMARK_INDEX[name])
+    for finger in FINGER_LANDMARK_GROUPS
+    for name in finger
 )
 
 SUPPLEMENTAL_FINGER_DISPLAY_INDICES: frozenset[int] = frozenset(
     HAND_LANDMARK_INDEX[name]
-    for name in (
-        "thumb_cmc",
-        "thumb_mcp",
-        "thumb_ip",
-        "thumb_tip",
-        "index_finger_mcp",
-        "index_finger_pip",
-        "index_finger_dip",
-        "index_finger_tip",
-        "pinky_mcp",
-        "pinky_pip",
-        "pinky_dip",
-        "pinky_tip",
-    )
+    for finger in FINGER_LANDMARK_GROUPS
+    for name in finger
 )
 
-SUPPLEMENTAL_FINGER_CONNECTIONS: tuple[tuple[int, int], ...] = (
-    (HAND_LANDMARK_INDEX["thumb_cmc"], HAND_LANDMARK_INDEX["thumb_mcp"]),
-    (HAND_LANDMARK_INDEX["thumb_mcp"], HAND_LANDMARK_INDEX["thumb_ip"]),
-    (HAND_LANDMARK_INDEX["thumb_ip"], HAND_LANDMARK_INDEX["thumb_tip"]),
-    (HAND_LANDMARK_INDEX["index_finger_mcp"], HAND_LANDMARK_INDEX["index_finger_pip"]),
-    (HAND_LANDMARK_INDEX["index_finger_pip"], HAND_LANDMARK_INDEX["index_finger_dip"]),
-    (HAND_LANDMARK_INDEX["index_finger_dip"], HAND_LANDMARK_INDEX["index_finger_tip"]),
-    (HAND_LANDMARK_INDEX["pinky_mcp"], HAND_LANDMARK_INDEX["pinky_pip"]),
-    (HAND_LANDMARK_INDEX["pinky_pip"], HAND_LANDMARK_INDEX["pinky_dip"]),
-    (HAND_LANDMARK_INDEX["pinky_dip"], HAND_LANDMARK_INDEX["pinky_tip"]),
+SUPPLEMENTAL_FINGER_CONNECTIONS: tuple[tuple[int, int], ...] = tuple(
+    (HAND_LANDMARK_INDEX[start], HAND_LANDMARK_INDEX[end])
+    for finger in FINGER_LANDMARK_GROUPS
+    for start, end in zip(finger, finger[1:])
 )
 
 

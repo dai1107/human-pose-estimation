@@ -51,15 +51,25 @@ def empty_landmarks(count: int = 33) -> list[LandmarkPoint]:
     return [LandmarkPoint(nan, nan, nan, 0.0, 0.0) for _ in range(count)]
 
 
+def _float_attribute(point: object, name: str, default: float) -> float:
+    value = getattr(point, name, default)
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def coerce_landmark(point: object | None) -> LandmarkPoint:
     if point is None:
         return LandmarkPoint(nan, nan, nan, 0.0, 0.0)
     return LandmarkPoint(
-        x=float(getattr(point, "x", nan)),
-        y=float(getattr(point, "y", nan)),
-        z=float(getattr(point, "z", 0.0)),
-        visibility=float(getattr(point, "visibility", 1.0)),
-        presence=float(getattr(point, "presence", 1.0)),
+        x=_float_attribute(point, "x", nan),
+        y=_float_attribute(point, "y", nan),
+        z=_float_attribute(point, "z", 0.0),
+        visibility=_float_attribute(point, "visibility", 1.0),
+        presence=_float_attribute(point, "presence", 1.0),
     )
 
 
@@ -135,4 +145,3 @@ def missing_ratio(landmarks: Sequence[LandmarkPoint], min_visibility: float = 0.
         return 1.0
     missing = sum(1 for point in landmarks if not point.is_usable(min_visibility=min_visibility))
     return missing / len(landmarks)
-

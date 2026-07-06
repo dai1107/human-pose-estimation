@@ -16,6 +16,15 @@ from .report import write_report_outputs
 from .types import KinematicFrame, LandmarkPoint, PoseFrame
 
 
+POSE_LANDMARK_PROFILES: dict[str, frozenset[int]] = {
+    "full": frozenset(range(len(LANDMARK_NAMES))),
+    "no-face": frozenset(range(11, len(LANDMARK_NAMES))),
+    "upper-body": frozenset({11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24}),
+    "lower-body": frozenset({23, 24, 25, 26, 27, 28, 29, 30, 31, 32}),
+    "shot": frozenset({11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28}),
+}
+
+
 @dataclass(frozen=True)
 class SessionConfig:
     camera_index: int
@@ -25,7 +34,7 @@ class SessionConfig:
     smoothing: float
     model_name: str
     plot_on_save: bool = True
-    landmark_profile: str = "full"
+    landmark_profile: str = "no-face"
     hands_enabled: bool = False
     hand_model_name: str | None = None
 
@@ -139,6 +148,11 @@ class SessionWriter:
     def _write_metadata(self, path: Path, final_mirror: bool | None) -> None:
         path.write_text(json.dumps(self._metadata_payload(final_mirror), indent=2, ensure_ascii=False), encoding="utf-8")
 
+    def _pose_landmark_items(self) -> list[tuple[int, str]]:
+        assert self.config is not None
+        indices = POSE_LANDMARK_PROFILES.get(self.config.landmark_profile, POSE_LANDMARK_PROFILES["no-face"])
+        return [(index, LANDMARK_NAMES[index]) for index in sorted(indices)]
+
     def _write_landmarks_csv(self, path: Path) -> None:
         columns = [
             "frame_index",
@@ -159,8 +173,9 @@ class SessionWriter:
         with path.open("w", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(file, fieldnames=columns)
             writer.writeheader()
+            pose_items = self._pose_landmark_items()
             for frame in self.pose_frames:
-                for index, name in enumerate(LANDMARK_NAMES):
+                for index, name in pose_items:
                     image = _landmark_at(frame.image_landmarks, index)
                     world = _landmark_at(frame.world_landmarks, index)
                     smoothed = _landmark_at(frame.smoothed_landmarks, index)

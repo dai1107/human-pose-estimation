@@ -5,7 +5,7 @@ import json
 from dataclasses import replace
 
 from src.biomechanics.hand_landmarks import SUPPLEMENTAL_FINGER_JOINTS, empty_hand_landmarks
-from src.biomechanics.landmarks import LANDMARK_INDEX, empty_landmarks
+from src.biomechanics.landmarks import LANDMARK_INDEX, LANDMARK_NAMES, empty_landmarks
 from src.biomechanics.normalization import normalize_landmarks
 from src.biomechanics.session_writer import SessionConfig, SessionWriter
 from src.biomechanics.types import KinematicFrame, LandmarkPoint, PoseFrame
@@ -90,6 +90,40 @@ def test_simulated_session_writes_metadata_and_csv(tmp_path) -> None:
         rows = list(csv.DictReader(file))
     assert len(rows) == 2
 
+    with (session_dir / "landmarks.csv").open(newline="", encoding="utf-8") as file:
+        landmark_rows = list(csv.DictReader(file))
+    pose_rows = [row for row in landmark_rows if "_hand_" not in row["landmark_name"]]
+    assert len(pose_rows) == 2 * 22
+    assert not any(row["landmark_name"] == "nose" for row in pose_rows)
+    assert any(row["landmark_name"] == "left_shoulder" for row in pose_rows)
+
+
+def test_session_writer_can_export_full_pose_landmarks(tmp_path) -> None:
+    writer = SessionWriter(tmp_path)
+    writer.start(
+        SessionConfig(
+            camera_index=0,
+            width=1280,
+            height=720,
+            mirror=True,
+            smoothing=0.65,
+            model_name="pose_landmarker_full.task",
+            plot_on_save=False,
+            landmark_profile="full",
+        ),
+        session_id="full_pose_unit_test_session",
+    )
+    pose_frame = _pose_frame(1, 1100, _landmarks())
+    writer.add_frame(pose_frame, KinematicsProcessor().process(pose_frame))
+
+    session_dir = writer.stop()
+    assert session_dir is not None
+    with (session_dir / "landmarks.csv").open(newline="", encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
+    pose_rows = [row for row in rows if "_hand_" not in row["landmark_name"]]
+    assert len(pose_rows) == len(LANDMARK_NAMES)
+    assert any(row["landmark_name"] == "nose" for row in pose_rows)
+
 
 def test_session_writer_exports_hand_landmarks(tmp_path) -> None:
     writer = SessionWriter(tmp_path)
@@ -112,6 +146,10 @@ def test_session_writer_exports_hand_landmarks(tmp_path) -> None:
     hand_points = empty_hand_landmarks()
     hand_points[0] = LandmarkPoint(0.40, 0.50, 0.0, 1.0, 1.0)
     hand_points[7] = LandmarkPoint(0.45, 0.30, 0.0, 1.0, 1.0)
+    hand_points[8] = LandmarkPoint(0.46, 0.24, 0.0, 1.0, 1.0)
+    hand_points[9] = LandmarkPoint(0.50, 0.28, 0.0, 1.0, 1.0)
+    hand_points[15] = LandmarkPoint(0.55, 0.26, 0.0, 1.0, 1.0)
+    hand_points[16] = LandmarkPoint(0.56, 0.22, 0.0, 1.0, 1.0)
     pose_frame = replace(
         _pose_frame(1, 1100, _landmarks()),
         hands_detected=True,
@@ -132,5 +170,8 @@ def test_session_writer_exports_hand_landmarks(tmp_path) -> None:
     hand_rows = [row for row in rows if row["landmark_name"].startswith("left_hand_")]
     assert len(hand_rows) == len(SUPPLEMENTAL_FINGER_JOINTS)
     assert any(row["landmark_name"] == "left_hand_index_finger_dip" and row["image_x"] == "0.45" for row in hand_rows)
-    assert not any(row["landmark_name"] == "left_hand_middle_finger_mcp" for row in hand_rows)
-    assert not any(row["landmark_name"] == "left_hand_index_finger_tip" for row in hand_rows)
+    assert any(row["landmark_name"] == "left_hand_middle_finger_mcp" and row["image_x"] == "0.5" for row in hand_rows)
+    assert any(row["landmark_name"] == "left_hand_ring_finger_dip" and row["image_x"] == "0.55" for row in hand_rows)
+    assert any(row["landmark_name"] == "left_hand_index_finger_tip" and row["image_x"] == "0.46" for row in hand_rows)
+    assert any(row["landmark_name"] == "left_hand_ring_finger_tip" and row["image_x"] == "0.56" for row in hand_rows)
+    assert not any(row["landmark_name"] == "left_hand_wrist" for row in hand_rows)

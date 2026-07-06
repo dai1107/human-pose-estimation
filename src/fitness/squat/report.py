@@ -188,48 +188,116 @@ def _write_keyframes(report_dir: Path, metrics: list[SquatRepMetrics], frames_by
 
 
 def _write_markdown(path: Path, summary: dict[str, Any], metrics: list[SquatRepMetrics], view: dict[str, Any], reference_summary: dict[str, Any] | None) -> None:
+    metric_labels = {
+        "rep_count": "重复次数",
+        "basic_joint_angles": "基础关节角",
+        "left_knee_min_angle": "左膝最小角度",
+        "right_knee_min_angle": "右膝最小角度",
+        "left_hip_min_angle": "左髋最小角度",
+        "right_hip_min_angle": "右髋最小角度",
+        "pelvis_vertical_displacement_normalized": "骨盆垂直位移",
+        "left_knee_angle_range": "左膝角度范围",
+        "right_knee_angle_range": "右膝角度范围",
+        "left_hip_angle_range": "左髋角度范围",
+        "right_hip_angle_range": "右髋角度范围",
+        "trunk_tilt_range": "躯干倾斜范围",
+        "descent_duration_ms": "下降时长",
+        "ascent_duration_ms": "起身时长",
+        "bottom_duration_ms": "底部停留时长",
+        "left_right_knee_difference_mean": "左右膝平均差异",
+        "left_right_knee_difference_peak": "左右膝峰值差异",
+        "left_right_hip_difference_mean": "左右髋平均差异",
+        "left_right_hip_difference_peak": "左右髋峰值差异",
+        "pelvis_lateral_drift_proxy": "骨盆横向偏移代理",
+        "trunk_lateral_drift_proxy": "躯干横向偏移代理",
+        "knee_lateral_trajectory_proxy": "膝盖横向轨迹代理",
+        "precise_squat_depth": "精确下蹲深度",
+        "precise_hip_knee_flexion_depth": "精确髋膝屈曲深度",
+        "precise_depth_or_lateral_tracking": "精确深度或横向轨迹",
+        "view_sensitive_metrics": "视角敏感指标",
+    }
+    note_labels = {
+        "SIDE view: lateral knee trajectory is not reported or is low reliability.": "侧面视角：膝盖横向轨迹不输出，或可靠性较低。",
+        "FRONT view: hip and knee flexion depth is only a 2D visual proxy, not precise depth measurement.": "正面视角：髋膝屈曲深度只作为二维视觉代理，不代表精确深度测量。",
+        "Angled front view provides mixed visual proxy metrics with lower reliability.": "斜前方视角：可输出混合视觉代理指标，但可靠性低于标准侧面或正面视角。",
+        "UNKNOWN view: only basic joint angles and repetition count are reported.": "未知视角：仅输出基础关节角和重复次数。",
+    }
+
+    def label(name: str) -> str:
+        return metric_labels.get(name, name)
+
+    def label_list(names: list[str]) -> str:
+        return "、".join(label(name) for name in names) if names else "无"
+
+    def seconds(value_ms: int | float | None) -> str:
+        if value_ms is None:
+            return ""
+        return f"{float(value_ms) / 1000.0:.2f} s"
+
     lines = [
         "# 深蹲专项分析报告",
         "",
-        f"检测到完整深蹲次数：{summary['complete_rep_count']}",
-        f"有效重复次数：{summary['valid_rep_count']}",
-        f"数据质量警告次数：{summary['data_quality_warning_count']}",
+        "## 概览",
         "",
-        f"当前分析视角：{view['camera_view']}",
-        f"当前可用指标：{', '.join(view['available_metrics'])}",
-        f"当前不可靠或不可用指标：{', '.join(view['unavailable_or_low_reliability'])}",
+        f"- 检测到完整深蹲次数：{summary['complete_rep_count']}",
+        f"- 有效重复次数：{summary['valid_rep_count']}",
+        f"- 数据质量警告次数：{summary['data_quality_warning_count']}",
+        f"- 分析帧数：{summary['frame_count']}",
+        "",
+        "## 视角与指标",
+        "",
+        f"- 当前分析视角：{view['camera_view']}",
+        f"- 当前可用指标：{label_list(view['available_metrics'])}",
+        f"- 当前不可靠或不可用指标：{label_list(view['unavailable_or_low_reliability'])}",
         "",
     ]
     for note in view["notes"]:
-        lines.append(f"- {note}")
+        lines.append(f"- {note_labels.get(note, note)}")
     lines.append("")
-    for item in metrics[:5]:
-        knee_diff = item.left_right_knee_difference_peak
-        lines.extend(
-            [
-                f"第 {item.rep_index} 次深蹲：",
-                f"- 下蹲时长：{item.descent_duration_ms / 1000.0:.2f} s",
-                f"- 起身时长：{item.ascent_duration_ms / 1000.0:.2f} s",
-                f"- 左右膝角最小值差异：{_number(knee_diff)} deg",
-                f"- 躯干倾斜变化范围：{_number(item.trunk_tilt_range)} deg",
-                f"- 骨盆相对位移：{_number(item.pelvis_vertical_displacement_normalized)} body-scale",
-                "",
-            ]
-        )
+
+    if metrics:
+        lines.extend(["## 单次深蹲明细", ""])
+        for item in metrics[:5]:
+            lines.extend(
+                [
+                    f"### 第 {item.rep_index} 次深蹲",
+                    "",
+                    f"- 总时长：{seconds(item.total_duration_ms)}",
+                    f"- 下降时长：{seconds(item.descent_duration_ms)}",
+                    f"- 底部停留：{seconds(item.bottom_duration_ms)}",
+                    f"- 起身时长：{seconds(item.ascent_duration_ms)}",
+                    f"- 左膝最小角度：{_number(item.left_knee_min_angle)} deg",
+                    f"- 右膝最小角度：{_number(item.right_knee_min_angle)} deg",
+                    f"- 左髋最小角度：{_number(item.left_hip_min_angle)} deg",
+                    f"- 右髋最小角度：{_number(item.right_hip_min_angle)} deg",
+                    f"- 左右膝峰值差异：{_number(item.left_right_knee_difference_peak)} deg",
+                    f"- 左右髋峰值差异：{_number(item.left_right_hip_difference_peak)} deg",
+                    f"- 躯干倾斜变化范围：{_number(item.trunk_tilt_range)} deg",
+                    f"- 骨盆相对垂直位移：{_number(item.pelvis_vertical_displacement_normalized)} body-scale",
+                    f"- 姿态有效帧比例：{_number(item.pose_valid_ratio)}",
+                    f"- 数据质量等级：{item.data_quality_level}",
+                    "",
+                ]
+            )
+    else:
+        lines.extend(["## 单次深蹲明细", "", "未检测到完整深蹲重复。", ""])
+
     if reference_summary:
-        lines.extend(["与个人参考深蹲相比：", ""])
+        lines.extend(["## 与个人参考动作对比", ""])
         if reference_summary.get("rep_comparisons"):
             for comparison in reference_summary["rep_comparisons"][:5]:
                 top = comparison.get("top_difference_features", [])
-                feature = top[0]["feature"] if top else "可用特征"
+                feature = label(top[0]["feature"]) if top else "可用特征"
                 lines.append(f"- 第 {comparison['rep_index']} 次深蹲在 {feature} 上与参考动作差异较大。")
         else:
             lines.append("- 参考比较未生成稳定结果。")
-        lines.extend(["", "上述内容为相对个人参考动作的差异，不代表绝对正确与否。", ""])
+        lines.extend(["", "以上内容是相对个人参考动作的差异描述，不代表绝对正确或错误。", ""])
+
     lines.extend(
         [
-            "说明：",
-            "以上为视觉运动学测量和相对变化，不构成动作安全性、医学风险或训练建议。",
+            "## 说明",
+            "",
+            "以上结果来自单摄像头视觉运动学测量和相对变化分析，不构成医疗诊断、动作安全性判断或训练处方。",
         ]
     )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -285,4 +353,3 @@ def analyze_squat_session(
     _write_keyframes(report_dir, metrics, frames_by_rep)
     _write_markdown(report_dir / "report.md", summary, metrics, view_summary.to_dict(), reference_summary)
     return report_dir
-

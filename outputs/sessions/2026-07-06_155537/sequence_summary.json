@@ -1,0 +1,26 @@
+{
+  "events": {
+    "pelvis_speed_peak": 3391805640.0,
+    "right_elbow_angular_velocity_peak": 3391807234.0,
+    "right_wrist_speed_peak": 3391804546.0
+  },
+  "comparison": {
+    "in_expected_order": false,
+    "available_events": {
+      "pelvis_speed_peak": 3391805640.0,
+      "right_elbow_angular_velocity_peak": 3391807234.0,
+      "right_wrist_speed_peak": 3391804546.0
+    },
+    "chronological_order": [
+      "right_wrist_speed_peak",
+      "pelvis_speed_peak",
+      "right_elbow_angular_velocity_peak"
+    ],
+    "time_deltas_ms": {
+      "pelvis_speed_peak_to_right_elbow_angular_velocity_peak": 1594.0,
+      "right_elbow_angular_velocity_peak_to_right_wrist_speed_peak": -2688.0
+    },
+    "missing_events": [],
+    "description": "right_wrist_speed_peak -> pelvis_speed_peak -> right_elbow_angular_velocity_peak"
+  }
+}

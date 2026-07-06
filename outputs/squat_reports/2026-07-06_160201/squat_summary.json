@@ -1,0 +1,11 @@
+{
+  "complete_rep_count": 1,
+  "valid_rep_count": 1,
+  "data_quality_warning_count": 0,
+  "frame_count": 56,
+  "average_total_duration_ms": 2703.0,
+  "average_descent_duration_ms": 1703.0,
+  "average_ascent_duration_ms": 1000.0,
+  "average_pelvis_vertical_displacement_normalized": 0.5629781979264696,
+  "average_left_right_knee_difference_mean": 16.775308444444445
+}

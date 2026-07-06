@@ -1,0 +1,55 @@
+{
+  "report_id": "2026-07-06_160201",
+  "created_at": "2026-07-06T16:02:01+08:00",
+  "session_id": "2026-07-06_155537",
+  "session_dir": "outputs\\sessions\\2026-07-06_155537",
+  "camera_view": "unknown",
+  "analysis_name": "squat_basic_v1",
+  "calibration": {
+    "status": "PASS",
+    "baseline_pelvis_y": 0.433395513,
+    "baseline_pelvis_x": 0.5837944030000001,
+    "baseline_body_scale": 0.4485375063014093,
+    "baseline_left_knee_angle": 176.892956,
+    "baseline_right_knee_angle": 169.394268,
+    "baseline_left_hip_angle": 174.27383600000002,
+    "baseline_right_hip_angle": 151.588084,
+    "baseline_trunk_tilt_proxy": 0.76876228,
+    "visibility_mean": 0.799641236,
+    "stability_proxy": 0.0005465146406615506,
+    "camera_view": "unknown",
+    "warnings": [],
+    "recommended_position": "Keep hips, knees, ankles, and shoulders visible."
+  },
+  "view_metrics": {
+    "camera_view": "UNKNOWN",
+    "available_metrics": [
+      "rep_count",
+      "left_knee_min_angle",
+      "right_knee_min_angle",
+      "left_hip_min_angle",
+      "right_hip_min_angle"
+    ],
+    "unavailable_or_low_reliability": [
+      "view_sensitive_metrics",
+      "pelvis_vertical_displacement_normalized",
+      "left_knee_angle_range",
+      "right_knee_angle_range",
+      "left_hip_angle_range",
+      "right_hip_angle_range",
+      "trunk_tilt_range",
+      "descent_duration_ms",
+      "ascent_duration_ms",
+      "bottom_duration_ms",
+      "left_right_knee_difference_mean",
+      "left_right_knee_difference_peak",
+      "left_right_hip_difference_mean",
+      "left_right_hip_difference_peak",
+      "pelvis_lateral_drift_proxy",
+      "trunk_lateral_drift_proxy"
+    ],
+    "notes": [
+      "UNKNOWN view: only basic joint angles and repetition count are reported."
+    ]
+  }
+}
