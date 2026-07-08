@@ -1,0 +1,14 @@
+{
+  "created_at": "20260708_214036",
+  "video_dir": "HYROX视频",
+  "output_root": "outputs\\comparisons\\hyrox_gpu_compare_20260708",
+  "schemes": [
+    "yolo_pose_cpu",
+    "yolo_pose_gpu",
+    "yolo_roi_mediapipe_cpu",
+    "yolo_roi_mediapipe_gpu"
+  ],
+  "videos": [
+    "HYROX视频\\负重箭步蹲.mp4"
+  ]
+}

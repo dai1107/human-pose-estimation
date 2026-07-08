@@ -8,10 +8,14 @@ def test_realtime_defaults_keep_full_pose_model_and_hide_face() -> None:
 
     assert args.model == "models/pose_landmarker_full.task"
     assert args.landmark_profile == "no-face"
-    assert args.detect_width == 640
-    assert args.max_detect_fps == 24.0
+    assert args.width == 640
+    assert args.height == 480
+    assert args.camera_fps == 60.0
+    assert args.camera_fourcc == "MJPG"
+    assert args.detect_width == 480
+    assert args.max_detect_fps == 30.0
     assert args.hand_detect_width == 416
-    assert args.max_hand_detect_fps == 12.0
+    assert args.max_hand_detect_fps == 18.0
     assert args.max_pending_ms == 180
     assert args.max_result_lag_ms == 280
 
@@ -28,6 +32,10 @@ def test_explicit_detection_options_override_defaults() -> None:
         [
             "--model",
             "models/custom.task",
+            "--camera-fps",
+            "45",
+            "--camera-fourcc",
+            "YUY2",
             "--detect-width",
             "960",
             "--max-detect-fps",
@@ -40,6 +48,8 @@ def test_explicit_detection_options_override_defaults() -> None:
     )
 
     assert args.model == "models/custom.task"
+    assert args.camera_fps == 45.0
+    assert args.camera_fourcc == "YUY2"
     assert args.detect_width == 960
     assert args.max_detect_fps == 30.0
     assert args.hand_detect_width == 480

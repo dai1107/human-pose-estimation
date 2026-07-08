@@ -1,0 +1,22 @@
+{
+  "session_id": "2026-07-08_173037",
+  "started_at": "2026-07-08T17:30:37+08:00",
+  "ended_at": "2026-07-08T17:30:48+08:00",
+  "camera_index": 0,
+  "actual_resolution": {
+    "width": 640,
+    "height": 480
+  },
+  "average_fps": 30.050405084738166,
+  "mirror": true,
+  "mirror_at_end": true,
+  "smoothing": 0.65,
+  "model_name": "pose_landmarker_full.task",
+  "landmark_profile": "no-face",
+  "hands_enabled": true,
+  "hand_model_name": "hand_landmarker.task",
+  "landmark_frame_count": 167,
+  "pose_detected_frame_count": 51,
+  "pose_lost_frame_count": 116,
+  "hands_detected_frame_count": 138
+}

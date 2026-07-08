@@ -1,0 +1,13 @@
+{
+  "created_at": "20260708_174510",
+  "video_dir": "HYROX视频",
+  "output_root": "outputs\\comparisons\\hyrox_batch_20260708",
+  "schemes": [
+    "mediapipe",
+    "yolo_roi_mediapipe",
+    "yolo_pose"
+  ],
+  "videos": [
+    "HYROX视频\\负重箭步蹲.mp4"
+  ]
+}

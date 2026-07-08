@@ -1,0 +1,12 @@
+{
+  "created_at": "20260708_212345",
+  "video_dir": "HYROX视频",
+  "output_root": "outputs\\comparisons\\hyrox_gpu_smoke",
+  "schemes": [
+    "yolo_pose_cpu",
+    "yolo_pose_gpu"
+  ],
+  "videos": [
+    "HYROX视频\\滑雪机.mp4"
+  ]
+}

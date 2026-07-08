@@ -1,0 +1,9 @@
+video,stability_best,speed_best,recommended,recommended_success_rate,recommended_avg_missing_rate,recommended_keypoint_jitter,recommended_angle_jitter,recommended_avg_end_to_end_latency_ms,recommended_record_path
+农夫行走.mp4,mediapipe,mediapipe,mediapipe,1.0,0.0,0.0028941420367293224,1.2737026525914215,14.87828720273193,outputs\comparisons\hyrox_batch_20260708\records\农夫行走_mediapipe.mp4
+划船机.mp4,yolo_pose,yolo_pose,yolo_pose,1.0,0.0,0.009428642150973065,2.0879185604613,21.855839650015696,outputs\comparisons\hyrox_batch_20260708\records\划船机_yolo_pose.mp4
+投掷药球.mp4,mediapipe,mediapipe,mediapipe,1.0,0.0,0.006902547345014535,3.238197159719864,14.545304145150144,outputs\comparisons\hyrox_batch_20260708\records\投掷药球_mediapipe.mp4
+拉雪橇.mp4,yolo_pose,mediapipe,yolo_pose,1.0,0.0,0.009012007609227315,2.147437647808424,22.654023790081222,outputs\comparisons\hyrox_batch_20260708\records\拉雪橇_yolo_pose.mp4
+推雪橇.mp4,mediapipe,mediapipe,mediapipe,1.0,0.0,0.006387658166336025,1.4801101080182317,14.219614166223447,outputs\comparisons\hyrox_batch_20260708\records\推雪橇_mediapipe.mp4
+波比跳远.mp4,mediapipe,mediapipe,mediapipe,0.9920159680638723,0.08158682634730538,0.0084967636843203,3.1048735885805185,14.223575646879372,outputs\comparisons\hyrox_batch_20260708\records\波比跳远_mediapipe.mp4
+滑雪机.mp4,yolo_pose,mediapipe,yolo_pose,1.0,0.0,0.010794008098011667,3.192460131227394,44.83263691417077,outputs\comparisons\hyrox_batch_20260708\records\滑雪机_yolo_pose.mp4
+负重箭步蹲.mp4,mediapipe,mediapipe,mediapipe,1.0,0.0,0.0107884592693251,3.0853820938330805,14.268754900930295,outputs\comparisons\hyrox_batch_20260708\records\负重箭步蹲_mediapipe.mp4

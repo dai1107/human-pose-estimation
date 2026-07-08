@@ -118,6 +118,17 @@ PROFILE_LABELS: dict[str, str] = {
     "shot": "SHOT JOINTS",
 }
 HAND_TIP_INDICES: frozenset[int] = frozenset({4, 8, 12, 16, 20})
+POSE_HAND_OCCLUSION_INDICES: frozenset[int] = frozenset({15, 16, 17, 18, 19, 20, 21, 22})
+POSE_OCCLUSION_GUARD_INDICES: frozenset[int] = frozenset({11, 12, 13, 14, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32})
+HAND_OCCLUSION_RADIUS = 0.065
+HAND_OCCLUSION_JUMP_THRESHOLD = 0.035
+DEFAULT_CAMERA_WIDTH = 640
+DEFAULT_CAMERA_HEIGHT = 480
+DEFAULT_CAMERA_FPS = 60.0
+DEFAULT_CAMERA_FOURCC = "MJPG"
+DEFAULT_DETECT_WIDTH = 480
+DEFAULT_MAX_DETECT_FPS = 30.0
+DEFAULT_MAX_HAND_DETECT_FPS = 18.0
 
 
 @dataclass(frozen=True)
@@ -188,6 +199,21 @@ class SlidingFps:
         return (len(self._samples) - 1) / elapsed
 
 
+def is_near_hand_occlusion(landmark: DrawLandmark, occlusion_points: Sequence[DrawLandmark]) -> bool:
+    if not occlusion_points:
+        return False
+    target = np.array([landmark.x, landmark.y], dtype=float)
+    if not np.all(np.isfinite(target)):
+        return False
+    for hand_point in occlusion_points:
+        if hand_point.visibility < 0.05 or hand_point.presence < 0.05:
+            continue
+        candidate = np.array([hand_point.x, hand_point.y], dtype=float)
+        if np.all(np.isfinite(candidate)) and float(np.linalg.norm(target - candidate)) <= HAND_OCCLUSION_RADIUS:
+            return True
+    return False
+
+
 class LandmarkSmoother:
     def __init__(self, alpha: float) -> None:
         self.alpha = max(0.0, min(1.0, alpha))
@@ -198,7 +224,14 @@ class LandmarkSmoother:
         self._previous = None
         self._previous_timestamp_ms = None
 
-    def smooth(self, landmarks: Sequence[object], timestamp_ms: int | None = None) -> list[DrawLandmark]:
+    def smooth(
+        self,
+        landmarks: Sequence[object],
+        timestamp_ms: int | None = None,
+        occlusion_points: Sequence[DrawLandmark] | None = None,
+        occlusion_guard_indices: frozenset[int] | None = None,
+        self_occlusion_indices: frozenset[int] | None = None,
+    ) -> list[DrawLandmark]:
         current = [
             DrawLandmark(
                 x=coerced.x,
@@ -209,6 +242,9 @@ class LandmarkSmoother:
             )
             for coerced in (coerce_landmark(point) for point in landmarks)
         ]
+        all_occlusion_points = list(occlusion_points or [])
+        if self_occlusion_indices:
+            all_occlusion_points.extend(current[index] for index in sorted(self_occlusion_indices) if index < len(current))
         if self.alpha <= 0.0 or self._previous is None or len(self._previous) != len(current):
             self._previous = current
             self._previous_timestamp_ms = timestamp_ms
@@ -221,7 +257,7 @@ class LandmarkSmoother:
             if 0 < delta_ms <= 1000:
                 dt = delta_ms / 1000.0
 
-        for old, new in zip(self._previous, current):
+        for index, (old, new) in enumerate(zip(self._previous, current)):
             confidence = max(0.0, min(1.0, (new.visibility + new.presence) / 2.0))
             displacement = float(np.linalg.norm(np.array([new.x - old.x, new.y - old.y, new.z - old.z], dtype=float)))
             speed = displacement / max(dt, 1e-3)
@@ -232,6 +268,13 @@ class LandmarkSmoother:
                 dynamic_alpha *= max(0.15, confidence)
             if displacement > 0.30 and confidence < 0.55:
                 dynamic_alpha = 0.08
+            if (
+                occlusion_guard_indices is not None
+                and index in occlusion_guard_indices
+                and displacement > HAND_OCCLUSION_JUMP_THRESHOLD
+                and is_near_hand_occlusion(new, all_occlusion_points)
+            ):
+                dynamic_alpha = min(dynamic_alpha, 0.04)
             dynamic_alpha = max(0.03, min(0.95, dynamic_alpha))
             keep = 1.0 - dynamic_alpha
             smoothed.append(
@@ -296,16 +339,18 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         description="Realtime single-person pose detection with MediaPipe Pose Landmarker."
     )
     parser.add_argument("--camera", type=int, default=0, help="Camera index. Default: 0.")
-    parser.add_argument("--width", type=int, default=1280, help="Requested camera width. Default: 1280.")
-    parser.add_argument("--height", type=int, default=720, help="Requested camera height. Default: 720.")
+    parser.add_argument("--width", type=int, default=DEFAULT_CAMERA_WIDTH, help=f"Requested camera width. Default: {DEFAULT_CAMERA_WIDTH}.")
+    parser.add_argument("--height", type=int, default=DEFAULT_CAMERA_HEIGHT, help=f"Requested camera height. Default: {DEFAULT_CAMERA_HEIGHT}.")
+    parser.add_argument("--camera-fps", type=float, default=DEFAULT_CAMERA_FPS, help=f"Requested camera capture FPS. Use 0 for backend default. Default: {DEFAULT_CAMERA_FPS:g}.")
+    parser.add_argument("--camera-fourcc", default=DEFAULT_CAMERA_FOURCC, help=f"Requested camera FourCC codec. Use empty string to leave unchanged. Default: {DEFAULT_CAMERA_FOURCC}.")
     parser.add_argument("--model", default="models/pose_landmarker_full.task", help="Path to .task model file. Default: models/pose_landmarker_full.task.")
     parser.add_argument("--landmark-profile", default="no-face", choices=tuple(LANDMARK_PROFILES), help="Pose landmarks to draw at startup. Default: no-face.")
     parser.add_argument("--include-landmarks", default="", help="Comma-separated pose landmark names or indices to draw instead of the selected profile.")
     parser.add_argument("--exclude-landmarks", default="", help="Comma-separated pose landmark names or indices to hide from the selected profile.")
-    parser.add_argument("--show-hands", action="store_true", help="Enable supplemental five-finger landmarks with MediaPipe Hand Landmarker.")
+    parser.add_argument("--show-hands", action="store_true", help="Show supplemental five-finger landmarks at startup. You can also toggle them with H.")
     parser.add_argument("--hand-model", default="models/hand_landmarker.task", help="Path to Hand Landmarker .task model file.")
     parser.add_argument("--hand-detect-width", type=int, default=416, help="Resize hand detector input to this width for lower latency. Default: 416.")
-    parser.add_argument("--max-hand-detect-fps", type=float, default=12.0, help="Maximum hand detector submissions per second. Default: 12.")
+    parser.add_argument("--max-hand-detect-fps", type=float, default=DEFAULT_MAX_HAND_DETECT_FPS, help=f"Maximum hand detector submissions per second. Default: {DEFAULT_MAX_HAND_DETECT_FPS:g}.")
     parser.add_argument("--max-hands", type=int, default=2, help="Maximum number of hands to detect. Default: 2.")
     parser.add_argument("--record", action="store_true", help="Start recording immediately.")
     parser.add_argument("--save-dir", default="outputs", help="Directory for sessions, screenshots, and recordings.")
@@ -315,8 +360,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--camera-view", default="unknown", choices=("side", "front", "front_left", "front_right", "unknown"), help="Camera view for view-sensitive analysis. Default: unknown.")
     parser.add_argument("--shot-type", default="set_shot", choices=("set_shot", "jump_shot"), help="Basketball shot type for realtime panel. Default: set_shot.")
     parser.add_argument("--shooting-side", default="right", choices=("right", "left"), help="Basketball shooting side. Default: right.")
-    parser.add_argument("--detect-width", type=int, default=640, help="Resize detector input to this width for lower latency. Use 0 for full frame. Default: 640.")
-    parser.add_argument("--max-detect-fps", type=float, default=24.0, help="Maximum pose detector submissions per second. Default: 24.")
+    parser.add_argument("--detect-width", type=int, default=DEFAULT_DETECT_WIDTH, help=f"Resize detector input to this width for lower latency. Use 0 for full frame. Default: {DEFAULT_DETECT_WIDTH}.")
+    parser.add_argument("--max-detect-fps", type=float, default=DEFAULT_MAX_DETECT_FPS, help=f"Maximum pose detector submissions per second. Default: {DEFAULT_MAX_DETECT_FPS:g}.")
     parser.add_argument("--max-pending-ms", type=int, default=180, help="Timeout for one pending async detection before submitting a new frame. Default: 180.")
     parser.add_argument("--max-result-lag-ms", type=int, default=280, help="Hide stale pose results older than this many ms. Default: 280.")
     plot_group = parser.add_mutually_exclusive_group()
@@ -378,7 +423,22 @@ def resolve_pose_draw_indices(profile: str, include_raw: str, exclude_raw: str) 
     return frozenset(sorted(base))
 
 
-def open_camera(camera_index: int, width: int, height: int) -> tuple[cv2.VideoCapture | None, str | None]:
+def normalize_camera_fourcc(raw_value: str) -> str | None:
+    value = raw_value.strip().upper()
+    if not value:
+        return None
+    if len(value) != 4:
+        raise ValueError("--camera-fourcc must be exactly 4 characters, or an empty string")
+    return value
+
+
+def open_camera(
+    camera_index: int,
+    width: int,
+    height: int,
+    camera_fps: float,
+    camera_fourcc: str | None,
+) -> tuple[cv2.VideoCapture | None, str | None]:
     attempts: list[tuple[str, int | None]] = []
     if os.name == "nt":
         attempts.append(("DirectShow", cv2.CAP_DSHOW))
@@ -390,11 +450,14 @@ def open_camera(camera_index: int, width: int, height: int) -> tuple[cv2.VideoCa
         else:
             capture = cv2.VideoCapture(camera_index, api_preference)
         capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        capture.set(cv2.CAP_PROP_FPS, 30)
+        if camera_fourcc is not None:
+            capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*camera_fourcc))
         if width > 0:
             capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         if height > 0:
             capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        if camera_fps > 0:
+            capture.set(cv2.CAP_PROP_FPS, camera_fps)
         if capture.isOpened():
             ok, frame = capture.read()
             if ok and frame is not None:
@@ -691,6 +754,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     args.max_result_lag_ms = max(1, int(args.max_result_lag_ms))
     args.max_hands = max(1, int(args.max_hands))
     args.hand_detect_width = max(0, int(args.hand_detect_width))
+    args.camera_fps = max(0.0, float(args.camera_fps))
+    try:
+        camera_fourcc = normalize_camera_fourcc(str(args.camera_fourcc))
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 6
     min_detect_interval_ms = int(round(1000.0 / args.max_detect_fps)) if args.max_detect_fps > 0 else 0
     min_hand_detect_interval_ms = int(round(1000.0 / args.max_hand_detect_fps)) if args.max_hand_detect_fps > 0 else 0
     model_path = resolve_model_path(args.model)
@@ -728,7 +797,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
 
-    capture, backend = open_camera(args.camera, args.width, args.height)
+    capture, backend = open_camera(args.camera, args.width, args.height, args.camera_fps, camera_fourcc)
     if capture is None or backend is None:
         print(
             f"ERROR: camera {args.camera} could not be opened. "
@@ -775,7 +844,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 4
 
     hand_landmarker = None
-    if args.show_hands:
+    if hand_model_path.exists():
         try:
             hand_options = vision.HandLandmarkerOptions(
                 base_options=mp_python.BaseOptions(model_asset_path=str(hand_model_path)),
@@ -788,9 +857,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             hand_landmarker = vision.HandLandmarker.create_from_options(hand_options)
         except Exception as exc:
-            capture.release()
-            print(f"ERROR: failed to initialize HandLandmarker: {exc}", file=sys.stderr)
-            return 4
+            if args.show_hands:
+                capture.release()
+                print(f"ERROR: failed to initialize HandLandmarker: {exc}", file=sys.stderr)
+                return 4
+            print(f"WARNING: hand hotkey disabled because HandLandmarker failed to initialize: {exc}", file=sys.stderr)
 
     window_name = "MediaPipe Pose Landmarker"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
@@ -821,7 +892,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     mode = args.landmark_profile
     mirror = bool(args.mirror)
     metrics_overlay_enabled = bool(args.metrics_overlay)
-    hand_overlay_enabled = hand_landmarker is not None
+    hand_overlay_enabled = bool(args.show_hands and hand_landmarker is not None)
     session_autostart_pending = bool(args.session_autostart)
     last_input_timestamp_ms = -1
     last_submitted_timestamp_ms = -1
@@ -857,7 +928,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             model_name=model_path.name,
             plot_on_save=args.plot_on_save,
             landmark_profile=mode,
-            hands_enabled=hand_landmarker is not None,
+            hands_enabled=hand_overlay_enabled,
             hand_model_name=hand_model_path.name if hand_landmarker is not None else None,
         )
         session_id = session_writer.start(config)
@@ -870,7 +941,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             flash(f"Session saved: {path}", (80, 230, 120), seconds=3.0)
             print(f"Session saved: {path}")
 
-    print(f"Camera {args.camera} opened with backend: {backend}")
+    reported_camera_fps = capture.get(cv2.CAP_PROP_FPS)
+    camera_fps_text = f"{reported_camera_fps:.1f}" if reported_camera_fps > 0 else "unknown"
+    requested_camera_fps_text = f"{args.camera_fps:g}" if args.camera_fps > 0 else "backend default"
+    requested_fourcc_text = camera_fourcc if camera_fourcc is not None else "unchanged"
+    print(
+        f"Camera {args.camera} opened with backend: {backend} "
+        f"(requested FPS: {requested_camera_fps_text}, reported FPS: {camera_fps_text}, FourCC: {requested_fourcc_text})"
+    )
     print_controls()
 
     try:
@@ -914,7 +992,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                             print(f"ERROR: detect_async failed: {exc}", file=sys.stderr)
                             detection_error_printed = True
 
-                needs_hand_detection = hand_landmarker is not None and (hand_overlay_enabled or session_writer.is_active)
+                needs_hand_detection = hand_landmarker is not None and hand_overlay_enabled
                 if hand_landmarker is not None and not needs_hand_detection and draw_hand_landmarks:
                     for side_smoother in hand_smoothers.values():
                         side_smoother.reset()
@@ -948,7 +1026,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 new_result = result_timestamp_ms >= 0 and result_timestamp_ms != last_processed_result_timestamp_ms
                 if has_pose and result is not None:
                     if result_timestamp_ms != last_draw_timestamp_ms:
-                        draw_landmarks = smoother.smooth(result.pose_landmarks[0], result_timestamp_ms)
+                        hand_occlusion_points = [
+                            point
+                            for hand_landmarks in draw_hand_landmarks.values()
+                            for point in hand_landmarks
+                        ]
+                        draw_landmarks = smoother.smooth(
+                            result.pose_landmarks[0],
+                            result_timestamp_ms,
+                            occlusion_points=hand_occlusion_points,
+                            occlusion_guard_indices=POSE_OCCLUSION_GUARD_INDICES,
+                            self_occlusion_indices=POSE_HAND_OCCLUSION_INDICES,
+                        )
                         last_draw_timestamp_ms = result_timestamp_ms
                     if draw_landmarks is not None:
                         draw_pose(frame, draw_landmarks, mode, pose_draw_indices)
@@ -1064,9 +1153,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     session_id=session_writer.session_id,
                     result_lag_ms=result_lag_ms,
                     backend=backend,
-                    hands_enabled=hand_landmarker is not None,
-                    hands_detected=bool(draw_hand_landmarks),
-                    hand_lag_ms=hand_lag_ms,
+                    hands_enabled=hand_overlay_enabled,
+                    hands_detected=bool(draw_hand_landmarks) if hand_overlay_enabled else False,
+                    hand_lag_ms=hand_lag_ms if hand_overlay_enabled else None,
                 )
 
                 if metrics_overlay_enabled:
@@ -1206,9 +1295,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 elif key in (ord("h"), ord("H")):
                     if hand_landmarker is not None:
                         hand_overlay_enabled = not hand_overlay_enabled
+                        if not hand_overlay_enabled:
+                            for side_smoother in hand_smoothers.values():
+                                side_smoother.reset()
+                            latest_hand_detections = {}
+                            draw_hand_landmarks = {}
+                            last_hand_draw_timestamp_ms = -1
                         flash(f"Hands overlay: {'ON' if hand_overlay_enabled else 'OFF'}")
                     else:
-                        flash("Hand detection is not enabled", (0, 190, 255))
+                        flash(f"Hand model not found: {hand_model_path}", (0, 190, 255), seconds=3.0)
                 elif key in (ord("c"), ord("C")):
                     try:
                         if session_writer.is_active:

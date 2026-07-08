@@ -1,10 +1,13 @@
 # Python 实时人体姿态检测与运动学数据采集
 
-这是一个 Windows 本地 Python 项目，使用 MediaPipe Tasks API 的 `PoseLandmarker` `LIVE_STREAM` 模式，通过 OpenCV 摄像头画面实时显示单人人体骨架，并可采集结构化运动学代理数据。
+这是一个 Windows 本地 Python 项目，主目标是构建实时人体关键点检测与动作指导底座。当前默认主模型是 MediaPipe Pose，可通过 OpenCV 摄像头画面实时显示单人人体骨架，并可采集结构化运动学代理数据。
 
-当前版本分三部分：
+当前主线能力：
 
 - 第一阶段：实时摄像头人体骨架检测、33 个关键点、骨架线、FPS、截图、录像。
+- 实时主链路：`main.py` 支持 MediaPipe、YOLO Pose、One Euro / EMA 平滑、基础反馈、实时性能指标、`record-raw`、`input-video` 和 metrics CSV。
+- 当前模型策略：正式保留 `mediapipe` 和 `yolo-pose` 两个姿态 backend。`--backend auto` 会按动作类型选择推荐 backend；未知动作默认 MediaPipe。YOLO Pose 默认自动使用可用 GPU。
+- 实时稳定性：`main.py` 默认启用短暂 pose 丢失保持和手部遮挡跳点保护，降低画面闪断和身体点错跳。
 - 第二阶段：关节角、速度、角速度、节段方向、稳定性、峰值时序和会话报告导出。
 - 第三阶段：个人参考动作库、动作片段裁剪、时间归一化、DTW 对齐和相对差异报告。
 - 第四阶段：徒手深蹲周期识别、重复计数、专项运动学指标、视角限制说明和个人参考深蹲比较。
@@ -15,6 +18,7 @@
 ```text
 .
 ├── README.md
+├── main.py
 ├── requirements.txt
 ├── models/
 │   ├── pose_landmarker_full.task
@@ -39,6 +43,10 @@
 │   ├── basketball_shot_v1.yaml
 │   └── basketball_views.yaml
 ├── src/
+│   ├── backends/
+│   ├── detectors/
+│   ├── fusion/
+│   ├── realtime/
 │   ├── realtime_pose.py
 │   ├── import_test.py
 │   ├── biomechanics/
@@ -61,6 +69,8 @@ python -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
+
+`requirements.txt` 已包含 `ultralytics`，用于 `--backend yolo-pose` 和实验性的 YOLO bbox 链路。默认 `mediapipe` 流程不会主动加载 YOLO；如果某个环境没有安装 `ultralytics`，只有显式使用 YOLO Pose 或 `--person-detector yolo` 时才会提示。
 
 如果 PowerShell 禁止激活虚拟环境，可以先在当前 PowerShell 窗口执行：
 
@@ -97,7 +107,7 @@ Invoke-WebRequest `
   -OutFile "models\hand_landmarker.task"
 ```
 
-启动时加 `--show-hands` 后，程序会显示五根手指的完整手指点，不显示手腕点。当前显示和保存的是除 `wrist` 外的 20 个手指点：拇指 `CMC/MCP/IP/TIP`，食指/中指/无名指/小指 `MCP/PIP/DIP/TIP`。
+运行中按 `H` 后，程序会显示五根手指的完整手指点，不显示手腕点。当前显示和保存的是除 `wrist` 外的 20 个手指点：拇指 `CMC/MCP/IP/TIP`，食指/中指/无名指/小指 `MCP/PIP/DIP/TIP`。也可以启动时加 `--show-hands`，让手指点默认显示。
 
 ## 运行
 
@@ -113,7 +123,127 @@ python -m src.import_test
 python -m pytest -q
 ```
 
-启动摄像头实时检测：
+启动当前主实时入口：
+
+```powershell
+python main.py
+```
+
+默认平滑方式是 One Euro Filter，也可以显式指定：
+
+```powershell
+python main.py --backend mediapipe --smoothing one-euro
+```
+
+`main.py` 默认使用 `--backend auto`。未知动作走 MediaPipe；如果传入已验证的 HYROX 动作名或视频文件名，会按动作级策略选择 MediaPipe 或 YOLO Pose。
+
+实时窗口打开后，可在普通主链路中按 `B` 在 `mediapipe` 与 `yolo-pose` 之间切换，摄像头不会重新打开。该热切换仅支持 `--fusion none --person-detector none`；切换时会重置关键点平滑器，YOLO Pose 仍按 `--yolo-device auto` 自动使用 GPU。热切换适合实时观察效果，公平 metrics 对比仍建议用固定 backend 分别复跑同一段视频。
+
+`main.py` 默认启用两项实时稳定性保护：短暂丢失 pose 时保留上一帧有效骨架最多 `5` 帧；手腕/手指靠近肩、肘、髋、膝等身体点并触发异常跳变时，短暂保留上一帧稳定位置。画面左上角会显示 `tracking: HOLD` 或 `occlusion_guard`，metrics 会记录 `stabilized_hold_count` 和 `occlusion_guard_count`。可用 `--pose-hold-frames 0` 关闭短暂保留，用 `--no-occlusion-guard` 关闭遮挡保护。
+
+录制原始摄像头画面，不带骨架和文字，用于后续公平测试：
+
+```powershell
+python main.py --backend mediapipe --smoothing one-euro --record-raw videos/test_raw.mp4
+```
+
+录制带骨架和文字的画面：
+
+```powershell
+python main.py --backend mediapipe --smoothing one-euro --record outputs/recordings/test_annotated.mp4
+```
+
+读取同一段原始视频并保存指标：
+
+```powershell
+python main.py --input-video videos/test_raw.mp4 --backend mediapipe --smoothing one-euro --save-metrics results/mediapipe.csv
+```
+
+`main.py` 是实时优先的通用底座入口；`record-raw` 和 `input-video` 主要用于测试和公平评测，不是主流程。
+
+### 模型策略
+
+当前正式姿态模型只保留两个：
+
+| backend | 输出点位 | 默认设备 | 适合场景 | 主要限制 |
+|---|---:|---|---|---|
+| `mediapipe` | 33 点 | CPU | 默认主模型；大多数动作分析；深蹲、投篮、波比跳远、箭步蹲等需要脚跟、脚尖、手部附加点或更多身体细节的场景 | 复杂背景、多人干扰或快速遮挡时可能短暂丢 pose |
+| `yolo-pose` | COCO 17 点 | `--yolo-device auto`，有 CUDA 时使用 GPU | 部分快速动作、复杂背景、人体框更稳定的场景；HYROX 中划船机、拉雪橇、滑雪机当前推荐它 | 点位少于 MediaPipe，没有脚跟、脚尖、手指等细节；不适合直接替代 33 点运动学分析 |
+
+`--backend auto` 是当前推荐的实时入口。选择规则为：
+
+1. 如果传入 `--action-type`，优先按动作类型查策略。
+2. 如果传入 `--input-video`，会按视频文件名推断 HYROX 动作。
+3. 不能识别动作时默认使用 `mediapipe`。
+
+HYROX 批量对比后的默认策略：
+
+| 动作 | 推荐 backend | 说明 |
+|---|---|---|
+| 农夫行走 | `mediapipe` | 速度和稳定性综合更合适 |
+| 划船机 | `yolo-pose` | 对该视频动作的稳定性更好 |
+| 投掷药球 | `mediapipe` | 需要更多身体细节，33 点更合适 |
+| 拉雪橇 | `yolo-pose` | 对该视频动作的稳定性更好 |
+| 推雪橇 | `mediapipe` | 综合指标更好 |
+| 波比跳远 | `mediapipe` | 大幅动作下 33 点输出更适合后续分析 |
+| 滑雪机 | `yolo-pose` | 对该视频动作的稳定性更好 |
+| 负重箭步蹲 | `mediapipe` | 下肢细节和 33 点输出更合适 |
+
+常用启动方式：
+
+```powershell
+python main.py --backend auto --smoothing one-euro
+python main.py --backend auto --action-type rowing --smoothing one-euro
+python main.py --backend auto --input-video "HYROX视频\划船机.mp4" --smoothing one-euro --save-metrics results/rowing_auto.csv
+```
+
+强制指定模型：
+
+```powershell
+python main.py --backend mediapipe --smoothing one-euro
+python main.py --backend yolo-pose --yolo-device auto --smoothing one-euro
+python main.py --backend yolo-pose --yolo-device cpu --smoothing one-euro
+```
+
+实时窗口中可按 `B` 在 `mediapipe` 和 `yolo-pose` 之间切换，摄像头保持打开。热切换只用于观察实时效果；如果要做公平对比，仍应固定 backend，用同一段 raw video 分别复跑并保存 metrics。
+
+`yolo-roi-mediapipe` 不是第三个正式姿态模型。它只是实验性的辅助链路：YOLO 只负责低频检测人体 bbox，姿态估计仍由 MediaPipe 输出 33 点。当前 HYROX 对比没有把它列为任何动作的默认推荐；它默认不启用，不参与 `--backend auto`，也不支持运行中按 `B` 热切换。只有在多人、复杂背景或目标锁定需求明显时，才建议单独测试：
+
+```powershell
+python main.py --backend mediapipe --person-detector yolo --fusion yolo-roi-mediapipe --smoothing one-euro
+```
+
+如果没有安装 `ultralytics`，只有显式使用 `--backend yolo-pose` 或 `--person-detector yolo` 时才会提示安装；默认 `mediapipe` 流程不受影响。
+
+新运动项目接入时，不直接凭肉眼观感改默认策略。建议先录制 3 到 5 段代表视频，然后分别用 `mediapipe`、`yolo-pose` 复跑，必要时再单独测 `yolo-roi-mediapipe`。优先看成功率、关键部位缺失率、关键点/角度抖动、P95 推理耗时和端到端延迟，再把推荐 backend 写入 [src/utils/backend_policy.py](<C:\Users\dell\Desktop\pose estimation\src\utils\backend_policy.py:1>)。
+
+### `main.py` 参数速查
+
+`main.py` 是当前推荐的实时检测、模型切换、视频复跑和公平对比入口。常用参数如下：
+
+- `--backend`：`auto`、`mediapipe` 或 `yolo-pose`，默认 `auto`。
+- `--action-type`：动作类型，用于 `--backend auto`，例如 `rowing`、`ski_erg`、`burpee_broad_jump`；默认 `auto`。
+- `--input-video`：读取视频文件复跑，不打开摄像头。
+- `--camera`、`--width`、`--height`、`--camera-fps`、`--camera-fourcc`：摄像头选择与采集参数；默认 `0`、`640x480`、`60 FPS`、`MJPG`。
+- `--model`：MediaPipe `.task` 模型路径，默认 `models/pose_landmarker_full.task`。
+- `--yolo-pose-model`：YOLO Pose 权重，默认 `yolo11n-pose.pt`。
+- `--yolo-device`：YOLO Pose 推理设备，默认 `auto`；有 CUDA 时通常解析为 GPU `0`，可手动设为 `cpu`。
+- `--smoothing`：`one-euro`、`ema` 或 `none`，默认 `one-euro`。
+- `--pose-hold-frames`：短暂丢 pose 时保留上一帧有效骨架的帧数，默认 `5`，设为 `0` 可关闭。
+- `--occlusion-guard` / `--no-occlusion-guard`：开启或关闭手部遮挡跳点保护，默认开启。
+- `--record`：保存带骨架和文字的标注视频。
+- `--record-raw`：保存原始输入画面，用于后续公平复跑。
+- `--save-metrics`：把本次运行的性能和稳定性指标追加到 CSV。
+- `--headless`：不打开 OpenCV 窗口，适合批量视频评估。
+
+运行时快捷键：
+
+```text
+B：在 mediapipe / yolo-pose 之间切换当前姿态 backend
+Q / ESC：退出
+```
+
+原有高级实时检测入口仍保留：
 
 ```powershell
 python -m src.realtime_pose
@@ -127,15 +257,14 @@ python -m src.realtime_pose --no-mirror
 python -m src.realtime_pose --record
 python -m src.realtime_pose --metrics-overlay
 python -m src.realtime_pose --session-autostart
+python -m src.realtime_pose --camera-fps 60 --max-detect-fps 30
 python -m src.realtime_pose --detect-width 960 --max-detect-fps 30
-python -m src.realtime_pose --detect-width 640 --smoothing 0.75
+python -m src.realtime_pose --detect-width 480 --smoothing 0.75
 python -m src.realtime_pose --save-dir outputs
 python -m src.realtime_pose --smoothing 0.65
 python -m src.realtime_pose --model models\pose_landmarker_full.task
 python -m src.realtime_pose --landmark-profile full
-python -m src.realtime_pose --show-hands
 python app.py --analysis-mode squat --camera-view side
-python app.py --analysis-mode squat --camera-view side --show-hands
 python -m src.realtime_pose --analysis-mode squat --camera-view front --metrics-overlay
 python app.py --analysis-mode basketball --shot-type set_shot --shooting-side right --camera-view side
 ```
@@ -233,15 +362,17 @@ python -m src.tools.create_reference `
 
 - `--camera`：摄像头编号，默认 `0`。
 - `--mirror` / `--no-mirror`：开启或关闭镜像显示，默认开启。
-- `--width` / `--height`：请求摄像头分辨率，默认 `1280x720`。
+- `--width` / `--height`：请求摄像头分辨率，默认 `640x480`，优先保证实时 FPS。
+- `--camera-fps`：请求摄像头采集 FPS，默认 `60`；`0` 表示使用摄像头后端默认值。
+- `--camera-fourcc`：请求摄像头 FourCC 编码，默认 `MJPG`；空字符串表示不修改摄像头编码。
 - `--record`：启动后立即录制视频。
 - `--smoothing`：关键点指数平滑系数，范围 `0` 到 `1`，`0` 表示关闭，默认 `0.65`。
 - `--model`：`.task` 模型文件路径，默认 `models/pose_landmarker_full.task`。
 - `--landmark-profile`：启动时显示和保存的姿态点集合，默认 `no-face`，可选 `full`、`no-face`、`upper-body`、`lower-body`、`shot`。
-- `--show-hands`：启用独立手部检测，显示五根手指的完整手指点。
+- `--show-hands`：启动时直接显示五根手指点；不加该参数时也可按 `H` 开启或关闭。
 - `--hand-model`：手部 `.task` 模型文件路径，默认 `models/hand_landmarker.task`。
 - `--hand-detect-width`：手部检测输入宽度，默认 `416`；较小可降低延迟，`0` 表示使用完整画面。
-- `--max-hand-detect-fps`：手部检测提交上限，默认 `12`。
+- `--max-hand-detect-fps`：手部检测提交上限，默认 `18`。
 - `--max-hands`：最多检测手的数量，默认 `2`。
 - `--save-dir`：输出根目录，默认 `outputs`。
 - `--metrics-overlay`：启动时显示运动学信息面板，默认关闭。
@@ -250,8 +381,8 @@ python -m src.tools.create_reference `
 - `--camera-view`：专项分析视角，`side`、`front`、`front_left`、`front_right` 或 `unknown`。
 - `--shot-type`：篮球投篮类型，`set_shot` 或 `jump_shot`，默认 `set_shot`。
 - `--shooting-side`：篮球投篮侧，`right` 或 `left`，默认 `right`。
-- `--detect-width`：检测输入宽度，默认 `640`；较小可降低延迟，`0` 表示使用完整画面。
-- `--max-detect-fps`：MediaPipe 检测提交上限，默认 `24`，用于避免异步检测队列堆积。
+- `--detect-width`：检测输入宽度，默认 `480`；较小可降低延迟，`0` 表示使用完整画面。
+- `--max-detect-fps`：MediaPipe 检测提交上限，默认 `30`，用于避免异步检测队列堆积。
 - `--max-pending-ms`：单次异步检测等待超时，默认 `180` 毫秒。
 - `--max-result-lag-ms`：过旧姿态结果隐藏阈值，默认 `280` 毫秒。
 - `--plot-on-save` / `--no-plot-on-save`：会话保存时是否生成 PNG 曲线图，默认开启。
@@ -260,18 +391,19 @@ python -m src.tools.create_reference `
 
 程序已默认启用以下优化：
 
-- 摄像头缓冲请求设为 `1`，减少读取旧画面。
-- 检测输入默认缩放到 `640` 宽，降低 CPU 推理延迟，同时仍使用原来的 `pose_landmarker_full.task` 模型。
+- 摄像头默认请求 `640x480`、`MJPG` / `60 FPS` 采集模式，缓冲请求设为 `1`，减少读取旧画面并提高动作节点刷新率。
+- 检测输入默认缩放到 `480` 宽，降低 CPU 推理延迟，同时仍使用原来的 `pose_landmarker_full.task` 模型。
 - 姿态点默认使用 `no-face` profile，跳过面部点绘制和保存；需要完整 33 点时可用 `--landmark-profile full` 或按 `1`。
 - MediaPipe 异步检测最多保留一个待处理任务，避免检测队列积压。
 - 过旧检测结果不会继续叠加到当前画面。
 - 关键点平滑会根据运动速度自适应：慢速时抑制抖动，快速时提高跟随速度。
 - 低置信度关键点发生大幅跳变时会被抑制。
+- 手或手腕靠近肩、肘、髋、膝等身体点并触发异常大跳时，会短暂保留上一帧稳定位置，降低遮挡导致的错点跳变。
 
 如果快速动作仍然延迟明显，可以优先尝试：
 
 ```powershell
-python -m src.realtime_pose --detect-width 640 --max-detect-fps 24 --smoothing 0.75
+python -m src.realtime_pose --width 640 --height 480 --camera-fps 60 --detect-width 480 --max-detect-fps 30 --smoothing 0.75
 ```
 
 如果画面很流畅但关节点偶尔不准，可以提高检测输入宽度：
@@ -290,7 +422,7 @@ python -m src.realtime_pose --detect-width 1280 --smoothing 0.65
 - `2`：投篮关键关节高亮模式，突出肩、肘、腕、髋、膝、踝。
 - `3`：显示或隐藏运动学信息面板。
 - `F`：显示或隐藏面部点。
-- `H`：显示或隐藏手指点，需要启动时带 `--show-hands`。
+- `H`：显示或隐藏手指点。
 - `C`：开始或停止一次运动学数据采集会话。
 - `K`：在深蹲模式下开始或重新进行站立校准。
 - `P`：在深蹲模式下开始或暂停专项分析。
@@ -489,6 +621,21 @@ outputs/basketball/reports/<report_id>/
 
 ## 已实现功能
 
+- `main.py --backend mediapipe` 提供实时优先主链路，默认使用 MediaPipe 33 点姿态检测。
+- `main.py --backend auto` 支持动作级 backend 自动选择，未知动作默认 MediaPipe。
+- `main.py --backend yolo-pose` 提供 YOLO Pose COCO 17 点姿态 backend；`--yolo-device auto` 在当前 RTX GPU 环境下会自动使用 GPU。
+- `main.py` 支持运行中按 `B` 在 MediaPipe 和 YOLO Pose 之间热切换，摄像头保持打开。
+- `main.py` 默认启用短暂 pose 丢失保持和手部遮挡跳点保护，并在 metrics 中记录保护触发次数。
+- `src/backends/` 提供统一 `PoseResult` / `PoseBackend` 基础结构、MediaPipe backend 和 YOLO Pose backend。
+- `src/utils/smoothing.py` 支持 `none`、`ema`、`one-euro` 三种关键点平滑方式；One Euro Filter 是当前推荐实时模式。
+- `src/utils/angle_utils.py` 提供三点夹角、膝、髋、肘、肩和躯干倾角计算，暂不绑定具体运动项目规则。
+- `src/realtime/feedback_engine.py` 提供基础实时反馈：`person_lost`、`low_confidence`、`keypoints_unstable`、`angle_available` 和防抖后的反馈文本。
+- `src/utils/metrics.py` 统计实时 FPS、平均 FPS、推理耗时、P95 推理耗时、端到端延迟、成功率、丢人次数、关键点 jitter 和角度 jitter，并可保存 CSV。
+- `main.py` 支持 `--record` 保存带骨架和文字的视频，`--record-raw` 保存原始画面，`--input-video` 读取视频复跑同一套逻辑，`--save-metrics` 保存指标。
+- `src/detectors/yolo_person_detector.py` 提供实验性 YOLO person bbox 检测；默认不加载 YOLO，不影响 MediaPipe baseline。
+- `src/utils/roi.py` 提供 bbox 扩大、裁剪、平滑和 ROI 关键点坐标还原。
+- `src/fusion/yolo_roi_mediapipe.py` 提供实验性 YOLO 低频 bbox + MediaPipe ROI 检测链路；当前不作为默认策略。
+- metrics 额外记录 `person_detector`、`fusion`、`detector_every_n`、ROI 成功率、YOLO 检测耗时、bbox 复用/丢失次数、全图回退次数、`stabilized_hold_count` 和 `occlusion_guard_count`。
 - MediaPipe Tasks API `PoseLandmarker`，运行模式为 `LIVE_STREAM`。
 - 通过 callback 异步接收最新姿态结果。
 - 每帧传入严格递增的毫秒时间戳。
