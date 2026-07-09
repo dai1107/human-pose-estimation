@@ -3,25 +3,100 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from datetime import datetime
+from math import nan
 from pathlib import Path
 from typing import Sequence
 
 import cv2
 
-from src.backends.base import PoseBackend
+from hyrox.actions import LungeAnalyzer
+from hyrox.features import extract_basic_pose_features
+from src.backends.base import PoseBackend, PoseResult
 from src.backends.factory import create_backend
+from src.biomechanics.landmarks import LANDMARK_NAMES
+from src.biomechanics.normalization import normalize_landmarks
+from src.biomechanics.session_writer import SessionConfig, SessionWriter
+from src.biomechanics.types import KinematicFrame, LandmarkPoint, PoseFrame
+from src.biomechanics.velocity import KinematicsProcessor
 from src.detectors.yolo_person_detector import YoloPersonDetector
+from src.fitness.squat.calibration import StandingCalibrationBuilder
+from src.fitness.squat.phase_metrics import build_squat_frame_from_pose
+from src.fitness.squat.realtime_overlay import draw_squat_overlay
+from src.fitness.squat.rep_detector import SquatRepDetector
+from src.fitness.squat.schema import load_squat_config
 from src.fusion.yolo_roi_mediapipe import FusionFrameStats, YoloRoiMediaPipeFusion
 from src.realtime.feedback_engine import FeedbackEngine
+from src.runtime_hand import DEFAULT_HAND_DETECT_WIDTH, DEFAULT_MAX_HAND_DETECT_FPS, HandDetection, MediaPipeHandTracker
+from src.sports.basketball.realtime_overlay import draw_basketball_overlay
 from src.utils.angle_utils import body_angles
 from src.utils.backend_policy import resolve_backend_choice
-from src.utils.draw_utils import draw_bbox, draw_pose_result, draw_realtime_overlay
+from src.utils.draw_utils import draw_bbox, draw_hand_landmarks, draw_hyrox_action_overlay, draw_hyrox_debug_overlay, draw_pose_result_filtered, draw_realtime_overlay
 from src.utils.device import resolve_torch_device
 from src.utils.metrics import RealtimeMetrics
 from src.utils.smoothing import KeypointSmoother
+from src.ui.metrics_overlay import draw_metrics_overlay
 
 
 RUNTIME_BACKENDS = ("mediapipe", "yolo-pose")
+POSE_NAME_TO_INDEX = {name: index for index, name in enumerate(LANDMARK_NAMES)}
+FACE_KEYPOINT_NAMES = frozenset(LANDMARK_NAMES[:11])
+NO_FACE_KEYPOINT_NAMES = frozenset(LANDMARK_NAMES[11:])
+UPPER_BODY_KEYPOINT_NAMES = frozenset(
+    {
+        "left_shoulder",
+        "right_shoulder",
+        "left_elbow",
+        "right_elbow",
+        "left_wrist",
+        "right_wrist",
+        "left_pinky",
+        "right_pinky",
+        "left_index",
+        "right_index",
+        "left_thumb",
+        "right_thumb",
+        "left_hip",
+        "right_hip",
+    }
+)
+LOWER_BODY_KEYPOINT_NAMES = frozenset(
+    {
+        "left_hip",
+        "right_hip",
+        "left_knee",
+        "right_knee",
+        "left_ankle",
+        "right_ankle",
+        "left_heel",
+        "right_heel",
+        "left_foot_index",
+        "right_foot_index",
+    }
+)
+SHOT_KEYPOINT_NAMES = frozenset(
+    {
+        "left_shoulder",
+        "right_shoulder",
+        "left_elbow",
+        "right_elbow",
+        "left_wrist",
+        "right_wrist",
+        "left_hip",
+        "right_hip",
+        "left_knee",
+        "right_knee",
+        "left_ankle",
+        "right_ankle",
+    }
+)
+DRAW_MODE_KEYPOINT_NAMES: dict[str, frozenset[str] | None] = {
+    "full": None,
+    "no-face": NO_FACE_KEYPOINT_NAMES,
+    "upper-body": UPPER_BODY_KEYPOINT_NAMES,
+    "lower-body": LOWER_BODY_KEYPOINT_NAMES,
+    "shot": SHOT_KEYPOINT_NAMES,
+}
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -37,10 +112,27 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--height", type=int, default=480, help="Requested camera height. Default: 480.")
     parser.add_argument("--camera-fps", type=float, default=60.0, help="Requested camera FPS. Default: 60.")
     parser.add_argument("--camera-fourcc", default="MJPG", help="Requested camera FourCC. Empty string leaves it unchanged.")
+    parser.add_argument("--landmark-profile", default="full", choices=("full", "no-face", "upper-body", "lower-body", "shot"), help="Landmark display profile. Default: full.")
+    parser.add_argument("--show-hands", action="store_true", help="Show supplemental five-finger hand landmarks at startup.")
+    parser.add_argument("--hand-model", default="models/hand_landmarker.task", help="MediaPipe hand model path.")
+    parser.add_argument("--hand-detect-width", type=int, default=DEFAULT_HAND_DETECT_WIDTH, help=f"Resize hand detector input to this width. Default: {DEFAULT_HAND_DETECT_WIDTH}.")
+    parser.add_argument("--max-hand-detect-fps", type=float, default=DEFAULT_MAX_HAND_DETECT_FPS, help=f"Maximum hand detector submissions per second. Default: {DEFAULT_MAX_HAND_DETECT_FPS:g}.")
+    parser.add_argument("--max-hands", type=int, default=2, help="Maximum number of hands to detect. Default: 2.")
     parser.add_argument("--record", default="", help="Save annotated video to this path.")
     parser.add_argument("--record-raw", default="", help="Save raw input frames to this path.")
     parser.add_argument("--save-metrics", default="", help="Append final metrics to this CSV path.")
+    parser.add_argument("--save-dir", default="outputs", help="Directory for sessions, screenshots, and recordings. Default: outputs.")
     parser.add_argument("--headless", action="store_true", help="Do not open an OpenCV window; useful for input-video batch evaluation.")
+    parser.add_argument("--hyrox-debug", action="store_true", help="Show HYROX debug pose features overlay. Default: off.")
+    parser.add_argument("--hyrox-action", default="none", choices=("none", "lunge"), help="Enable HYROX action analysis. Default: none.")
+    parser.add_argument("--hyrox-sensitivity", default="medium", choices=("low", "medium", "high"), help="HYROX action sensitivity. Default: medium.")
+    parser.add_argument("--hyrox-config", default="configs/hyrox/lunge.yaml", help="HYROX analyzer config path. Missing file falls back to defaults.")
+    parser.add_argument("--metrics-overlay", action="store_true", help="Show kinematic metrics panel at startup.")
+    parser.add_argument("--session-autostart", action="store_true", help="Start a kinematic data session automatically.")
+    parser.add_argument("--analysis-mode", default="pose", choices=("pose", "squat", "basketball"), help="Optional realtime analysis mode. Default: pose.")
+    parser.add_argument("--camera-view", default="unknown", choices=("side", "front", "front_left", "front_right", "unknown"), help="Camera view for view-sensitive analysis. Default: unknown.")
+    parser.add_argument("--shot-type", default="set_shot", choices=("set_shot", "jump_shot"), help="Basketball shot type for realtime panel. Default: set_shot.")
+    parser.add_argument("--shooting-side", default="right", choices=("right", "left"), help="Basketball shooting side. Default: right.")
     parser.add_argument("--person-detector", default="none", choices=("none", "yolo"), help="Optional person detector. Default: none.")
     parser.add_argument("--detector-model", default="yolo11n.pt", help="YOLO person detector model. Default: yolo11n.pt.")
     parser.add_argument("--detector-device", default="auto", help="YOLO person detector device, e.g. auto, 0, cuda:0, cpu. Default: auto.")
@@ -110,6 +202,101 @@ def create_writer(path: str, fps: float, frame_shape: tuple[int, int, int]) -> c
     return writer
 
 
+def make_output_path(directory_name: str, suffix: str, root: str | Path = "outputs") -> Path:
+    output_dir = Path(root) / directory_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stem = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    candidate = output_dir / f"{stem}{suffix}"
+    index = 1
+    while candidate.exists():
+        candidate = output_dir / f"{stem}_{index}{suffix}"
+        index += 1
+    return candidate
+
+
+def save_screenshot(frame, root: str | Path = "outputs") -> Path:
+    path = make_output_path("screenshots", ".png", root=root)
+    if not cv2.imwrite(str(path), frame):
+        raise RuntimeError(f"could not save screenshot: {path}")
+    return path
+
+
+def visible_keypoint_names_for_mode(mode: str) -> set[str] | None:
+    allowed = DRAW_MODE_KEYPOINT_NAMES.get(mode)
+    if allowed is None:
+        return None
+    return set(allowed)
+
+
+def highlight_keypoint_names_for_mode(mode: str) -> set[str]:
+    return set(SHOT_KEYPOINT_NAMES) if mode == "shot" else set()
+
+
+def to_landmark_points(result: PoseResult) -> list[LandmarkPoint]:
+    points = [LandmarkPoint(nan, nan, nan, 0.0, 0.0) for _ in range(len(LANDMARK_NAMES))]
+    for point in result.keypoints:
+        index = POSE_NAME_TO_INDEX.get(point.name)
+        if index is None:
+            continue
+        confidence = max(0.0, min(1.0, float(point.confidence)))
+        points[index] = LandmarkPoint(
+            x=float(point.x),
+            y=float(point.y),
+            z=float(point.z),
+            visibility=confidence,
+            presence=confidence,
+        )
+    return points
+
+
+def build_pose_frame_from_result(
+    result: PoseResult,
+    *,
+    frame_index: int,
+    mirror: bool,
+    frame_shape: tuple[int, int, int],
+    fps: float,
+    hand_detections: dict[str, HandDetection] | None = None,
+) -> PoseFrame:
+    image_landmarks = to_landmark_points(result)
+    normalization = normalize_landmarks(image_landmarks if result.success else None)
+    hand_detections = hand_detections or {}
+    image_hand_landmarks = {
+        side: list(detection.landmarks)
+        for side, detection in hand_detections.items()
+    }
+    world_hand_landmarks = {
+        side: list(detection.world_landmarks)
+        for side, detection in hand_detections.items()
+    }
+    height, width = frame_shape[:2]
+    return PoseFrame(
+        frame_index=frame_index,
+        timestamp_ms=int(result.timestamp_ms or 0),
+        pose_detected=bool(result.success),
+        image_landmarks=image_landmarks,
+        world_landmarks=[],
+        smoothed_landmarks=image_landmarks,
+        normalized_landmarks=normalization.landmarks,
+        hands_detected=bool(image_hand_landmarks),
+        hand_landmarks=image_hand_landmarks,
+        hand_world_landmarks=world_hand_landmarks,
+        smoothed_hand_landmarks={side: list(points) for side, points in image_hand_landmarks.items()},
+        normalization_success=normalization.success,
+        normalization_message=normalization.message,
+        mirror=mirror,
+        camera_width=width,
+        camera_height=height,
+        fps=float(fps),
+    )
+
+
+def current_model_label(args: argparse.Namespace, backend_name: str) -> str:
+    if backend_name == "yolo-pose":
+        return Path(args.yolo_pose_model).name
+    return Path(args.model).name
+
+
 def timestamp_for_frame(input_mode: str, started_ns: int, frame_index: int, fps: float) -> int:
     if input_mode == "video":
         return int(round(frame_index * 1000.0 / max(fps, 1.0)))
@@ -166,9 +353,52 @@ def main(argv: Sequence[str] | None = None) -> int:
     capture = None
     record_writer = None
     raw_writer = None
+    save_dir = Path(args.save_dir)
+    record_output_path = args.record
+    raw_record_output_path = args.record_raw
+    recording_enabled = bool(record_output_path)
+    raw_recording_enabled = bool(raw_record_output_path)
+    mirror_enabled = bool(args.mirror)
+    display_mode = args.landmark_profile
+    metrics_overlay_enabled = bool(args.metrics_overlay)
+    session_autostart_pending = bool(args.session_autostart)
+    hand_model_path = Path(args.hand_model)
+    hand_detect_interval_ms = int(round(1000.0 / float(args.max_hand_detect_fps))) if float(args.max_hand_detect_fps) > 0 else 0
     resolved_backend = resolve_backend_choice(args.backend, action_type=args.action_type, input_video=args.input_video)
     runtime_backend_device = backend_device_for(args, resolved_backend)
     runtime_detector_device = resolve_torch_device(args.detector_device) if args.person_detector == "yolo" else "none"
+    session_writer = SessionWriter(save_dir)
+    kinematics_processor = KinematicsProcessor()
+    kinematic_frame: KinematicFrame | None = None
+    hand_tracker: MediaPipeHandTracker | None = None
+    hand_tracker_error: str | None = None
+    hand_overlay_enabled = False
+    hand_detections: dict[str, HandDetection] = {}
+    hand_detection_error_printed = False
+    last_hand_detection_timestamp_ms = -1
+    hyrox_action_enabled = args.hyrox_action != "none"
+    hyrox_analyzer = LungeAnalyzer.from_config_path(args.hyrox_config, sensitivity=args.hyrox_sensitivity) if args.hyrox_action == "lunge" else None
+    squat_mode_enabled = args.analysis_mode == "squat"
+    squat_config = load_squat_config() if squat_mode_enabled else None
+    squat_detector = SquatRepDetector(squat_config, None, camera_view=args.camera_view) if squat_mode_enabled else None
+    squat_calibration_builder = (
+        StandingCalibrationBuilder(
+            camera_view=args.camera_view,
+            minimum_visibility=float(squat_config.get("data_quality", {}).get("minimum_landmark_visibility", 0.65)),
+        )
+        if squat_mode_enabled and squat_config is not None
+        else None
+    )
+    squat_panel_enabled = squat_mode_enabled
+    squat_active = squat_mode_enabled
+    squat_calibration_status = "N/A"
+    last_squat_measurement = None
+    last_squat_displacement = None
+    basketball_mode_enabled = args.analysis_mode == "basketball"
+    basketball_panel_enabled = basketball_mode_enabled
+    basketball_collecting = False
+    basketball_manual_release_ms: int | None = None
+    basketball_phase = "IDLE"
     metrics = RealtimeMetrics(
         backend=resolved_backend,
         smoothing=args.smoothing,
@@ -199,11 +429,72 @@ def main(argv: Sequence[str] | None = None) -> int:
         feedback_engine = FeedbackEngine()
         started_ns = time.monotonic_ns()
         frame_index = 0
+        hyrox_debug_error_printed = False
+        hyrox_action_error_printed = False
         window_name = "Realtime Keypoint Baseline"
         status_message = ""
         status_until = 0.0
+
+        def set_status(message: str, seconds: float = 2.5) -> None:
+            nonlocal status_message, status_until
+            status_message = message
+            status_until = time.perf_counter() + seconds
+
+        def ensure_hand_tracker(*, required: bool) -> MediaPipeHandTracker | None:
+            nonlocal hand_tracker, hand_tracker_error
+            if hand_tracker is not None:
+                return hand_tracker
+            if hand_tracker_error is not None:
+                if required:
+                    raise RuntimeError(hand_tracker_error)
+                return None
+            if not hand_model_path.exists():
+                hand_tracker_error = f"hand model not found: {hand_model_path}"
+                if required:
+                    raise FileNotFoundError(hand_tracker_error)
+                return None
+            try:
+                hand_tracker = MediaPipeHandTracker(
+                    hand_model_path,
+                    detect_width=args.hand_detect_width,
+                    max_hands=args.max_hands,
+                )
+            except Exception as exc:
+                hand_tracker_error = f"hand tracker init failed: {exc}"
+                if required:
+                    raise RuntimeError(hand_tracker_error) from exc
+                return None
+            return hand_tracker
+
+        def start_session(frame_shape: tuple[int, int, int]) -> None:
+            height, width = frame_shape[:2]
+            config = SessionConfig(
+                camera_index=args.camera,
+                width=width,
+                height=height,
+                mirror=mirror_enabled,
+                smoothing=args.smoothing,
+                model_name=current_model_label(args, resolved_backend),
+                landmark_profile=display_mode,
+                hands_enabled=hand_overlay_enabled,
+                hand_model_name=hand_model_path.name if hand_tracker is not None else None,
+            )
+            session_id = session_writer.start(config)
+            set_status(f"session {session_id}", seconds=3.0)
+            print(f"Session started: {session_id}")
+
+        def stop_session() -> None:
+            path = session_writer.stop(final_mirror=mirror_enabled)
+            if path is not None:
+                set_status("session saved", seconds=3.0)
+                print(f"Session saved: {path}")
+
         if not args.headless:
             cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        print("Controls: Q/ESC quit, B backend, S screenshot, R record, T raw record, M mirror, 1 full, 2 shot, 3 metrics, F face, 6 no-face, 7 upper, 8 lower, H hands, C session, K squat calibration, P squat analysis, 4 squat panel, 5 basketball panel, J shot clip marker, L release proxy marker")
+        if args.show_hands:
+            ensure_hand_tracker(required=True)
+            hand_overlay_enabled = True
 
         while True:
             ok, raw_frame = capture.read()
@@ -211,11 +502,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 break
             frame_started = time.perf_counter()
             frame_index += 1
-            display_frame = cv2.flip(raw_frame, 1) if input_mode == "camera" and args.mirror else raw_frame.copy()
+            display_frame = cv2.flip(raw_frame, 1) if input_mode == "camera" and mirror_enabled else raw_frame.copy()
+            if session_autostart_pending and not session_writer.is_active:
+                try:
+                    start_session(display_frame.shape)
+                except Exception as exc:
+                    set_status("session start failed", seconds=3.0)
+                    print(f"Session start failed: {exc}", file=sys.stderr)
+                session_autostart_pending = False
 
-            if args.record_raw:
+            if raw_recording_enabled:
                 if raw_writer is None:
-                    raw_writer = create_writer(args.record_raw, source_fps, raw_frame.shape)
+                    if not raw_record_output_path:
+                        raw_record_output_path = str(make_output_path("recordings", "_raw.mp4", root=save_dir))
+                    raw_writer = create_writer(raw_record_output_path, source_fps, raw_frame.shape)
+                    print(f"Raw recording started: {raw_record_output_path}")
                 raw_writer.write(raw_frame)
 
             timestamp_ms = timestamp_for_frame(input_mode, started_ns, frame_index, source_fps)
@@ -225,6 +526,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                 result = backend.detect(display_frame, timestamp_ms=timestamp_ms)
                 fusion_stats = FusionFrameStats()
             result = smoother.smooth_result(result)
+            if hand_overlay_enabled:
+                tracker = ensure_hand_tracker(required=False)
+                if tracker is None:
+                    hand_overlay_enabled = False
+                    hand_detections = {}
+                    last_hand_detection_timestamp_ms = -1
+                    set_status(hand_tracker_error or "hand tracker unavailable", seconds=3.0)
+                elif hand_detect_interval_ms <= 0 or timestamp_ms - last_hand_detection_timestamp_ms >= hand_detect_interval_ms:
+                    try:
+                        hand_detections = tracker.detect(display_frame, timestamp_ms=timestamp_ms)
+                        last_hand_detection_timestamp_ms = timestamp_ms
+                    except Exception as exc:
+                        hand_detections = {}
+                        hand_overlay_enabled = False
+                        last_hand_detection_timestamp_ms = -1
+                        set_status("hand detection failed", seconds=3.0)
+                        if not hand_detection_error_printed:
+                            print(f"WARN: hand detection failed: {exc}", file=sys.stderr)
+                            hand_detection_error_printed = True
             angles = body_angles(result)
             feedback = feedback_engine.update(result, angles)
             frame_finished = time.perf_counter()
@@ -241,9 +561,98 @@ def main(argv: Sequence[str] | None = None) -> int:
                 fallback_to_full_frame=fusion_stats.fallback_to_full_frame,
                 source_model_distribution=getattr(fusion_stats, "source_model_distribution", None),
             )
+            pose_frame = build_pose_frame_from_result(
+                result,
+                frame_index=frame_index,
+                mirror=mirror_enabled,
+                frame_shape=display_frame.shape,
+                fps=snapshot.realtime_fps if snapshot.realtime_fps > 0 else source_fps,
+                hand_detections=hand_detections if hand_overlay_enabled else {},
+            )
+            kinematic_frame = kinematics_processor.process(pose_frame)
+            if session_writer.is_active:
+                session_writer.add_frame(pose_frame, kinematic_frame)
+            hyrox_features = None
+            hyrox_action_state = None
+            has_pose = bool(result.success and result.keypoints)
+            if (args.hyrox_debug or hyrox_action_enabled) and has_pose:
+                try:
+                    height, width = display_frame.shape[:2]
+                    hyrox_features = extract_basic_pose_features(result.keypoints, image_width=width, image_height=height)
+                except Exception as exc:
+                    hyrox_features = None
+                    if not hyrox_debug_error_printed:
+                        print(f"WARN: HYROX debug extraction failed: {exc}", file=sys.stderr)
+                        hyrox_debug_error_printed = True
+            if hyrox_analyzer is not None:
+                try:
+                    hyrox_action_state = hyrox_analyzer.update(hyrox_features if has_pose else None, timestamp_ms=timestamp_ms)
+                except Exception as exc:
+                    hyrox_action_state = None
+                    if not hyrox_action_error_printed:
+                        print(f"WARN: HYROX action analysis failed: {exc}", file=sys.stderr)
+                        hyrox_action_error_printed = True
+
+            if squat_mode_enabled and squat_detector is not None:
+                squat_measurement = build_squat_frame_from_pose(pose_frame, kinematic_frame)
+                last_squat_measurement = squat_measurement
+                if squat_calibration_builder is not None and squat_calibration_builder.active:
+                    calibration = squat_calibration_builder.add(squat_measurement)
+                    if calibration is not None:
+                        squat_detector.set_calibration(calibration)
+                        squat_calibration_status = calibration.status
+                        set_status(f"squat calibration {calibration.status}", seconds=3.0)
+                elif squat_active:
+                    completed_rep = squat_detector.update(squat_measurement)
+                    if squat_detector.frame_states:
+                        value = squat_detector.frame_states[-1].get("pelvis_displacement_normalized")
+                        try:
+                            last_squat_displacement = float(value) if value != "" else None
+                        except (TypeError, ValueError):
+                            last_squat_displacement = None
+                    if completed_rep is not None:
+                        set_status(f"squat rep {completed_rep.rep_index}", seconds=1.5)
+
+            if basketball_mode_enabled:
+                side = args.shooting_side
+                elbow_angle = getattr(kinematic_frame, f"{side}_elbow_angle", None)
+                wrist_speed = getattr(kinematic_frame, f"{side}_wrist_speed", None)
+                knee_angle = getattr(kinematic_frame, f"{side}_knee_angle", None)
+                try:
+                    elbow_value = float(elbow_angle)
+                except (TypeError, ValueError):
+                    elbow_value = float("nan")
+                try:
+                    wrist_value = float(wrist_speed)
+                except (TypeError, ValueError):
+                    wrist_value = float("nan")
+                try:
+                    knee_value = float(knee_angle)
+                except (TypeError, ValueError):
+                    knee_value = float("nan")
+                if not pose_frame.pose_detected:
+                    basketball_phase = "IDLE"
+                elif wrist_value == wrist_value and wrist_value > 0.7:
+                    basketball_phase = "RELEASE_PROXY" if basketball_manual_release_ms is not None else "ARM_EXTENSION"
+                elif elbow_value == elbow_value and elbow_value > 130:
+                    basketball_phase = "FOLLOW_THROUGH"
+                elif knee_value == knee_value and knee_value < 145:
+                    basketball_phase = "DIP"
+                else:
+                    basketball_phase = "SETUP"
 
             annotated = display_frame.copy()
-            draw_pose_result(annotated, result)
+            draw_pose_result_filtered(
+                annotated,
+                result,
+                visible_names=visible_keypoint_names_for_mode(display_mode),
+                highlight_names=highlight_keypoint_names_for_mode(display_mode),
+            )
+            if hand_overlay_enabled and hand_detections:
+                draw_hand_landmarks(
+                    annotated,
+                    {side: detection.landmarks for side, detection in hand_detections.items()},
+                )
             draw_bbox(annotated, result.bbox)
             overlay_status = status_message if time.perf_counter() < status_until else ""
             draw_realtime_overlay(
@@ -257,15 +666,97 @@ def main(argv: Sequence[str] | None = None) -> int:
                 result=result,
                 metrics=snapshot,
                 feedback=feedback,
-                recording=bool(args.record),
-                raw_recording=bool(args.record_raw),
+                recording=recording_enabled,
+                raw_recording=raw_recording_enabled,
                 angles=angles,
                 status_message=overlay_status,
             )
+            right_panel_x = max(14, annotated.shape[1] - 344)
+            detail_panel_x = max(14, annotated.shape[1] - 404)
+            if metrics_overlay_enabled:
+                draw_metrics_overlay(
+                    annotated,
+                    {
+                        "pose_detected": has_pose,
+                        "fps": snapshot.realtime_fps,
+                        "session_state": "RECORDING" if session_writer.is_active else "IDLE",
+                        "mirror": mirror_enabled,
+                        "right_elbow_angle": getattr(kinematic_frame, "right_elbow_angle", None),
+                        "right_knee_angle": getattr(kinematic_frame, "right_knee_angle", None),
+                        "right_wrist_speed": getattr(kinematic_frame, "right_wrist_speed", None),
+                        "pelvis_speed": getattr(kinematic_frame, "pelvis_speed", None),
+                        "motion_energy_proxy": getattr(kinematic_frame, "motion_energy_proxy", None),
+                    },
+                    origin=(right_panel_x, 28),
+                )
+            if squat_mode_enabled and squat_panel_enabled and squat_detector is not None:
+                if squat_calibration_builder is not None and squat_calibration_builder.active:
+                    calibration_label = f"CALIBRATING {squat_calibration_builder.progress(pose_frame.timestamp_ms) * 100.0:.0f}%"
+                else:
+                    calibration_label = squat_calibration_status
+                visibility = getattr(last_squat_measurement, "visibility_mean", None)
+                quality_label = "GOOD" if visibility is not None and visibility >= 0.75 else ("WARNING" if visibility is not None and visibility >= 0.55 else "N/A")
+                draw_squat_overlay(
+                    annotated,
+                    {
+                        "camera_view": args.camera_view,
+                        "calibration_status": calibration_label,
+                        "state": squat_detector.machine.state,
+                        "rep_count": squat_detector.machine.rep_count,
+                        "left_knee_angle": getattr(last_squat_measurement, "left_knee_angle", None),
+                        "right_knee_angle": getattr(last_squat_measurement, "right_knee_angle", None),
+                        "trunk_tilt_proxy": getattr(last_squat_measurement, "trunk_tilt_proxy", None),
+                        "pelvis_displacement": last_squat_displacement,
+                        "data_quality": quality_label,
+                    },
+                    origin=(detail_panel_x, 260 if metrics_overlay_enabled else 120),
+                )
+            if basketball_mode_enabled and basketball_panel_enabled:
+                visibility = getattr(kinematic_frame, "quality", {}).get("visibility_mean") if kinematic_frame is not None else None
+                quality_label = "GOOD" if visibility is not None and visibility >= 0.75 else ("WARNING" if visibility is not None and visibility >= 0.55 else "N/A")
+                release_label = f"{basketball_manual_release_ms} ms" if basketball_manual_release_ms is not None else "PENDING"
+                side = args.shooting_side
+                draw_basketball_overlay(
+                    annotated,
+                    {
+                        "shot_type": args.shot_type,
+                        "shooting_side": side,
+                        "camera_view": args.camera_view,
+                        "phase": basketball_phase,
+                        "knee_angle": getattr(kinematic_frame, f"{side}_knee_angle", None),
+                        "elbow_angle": getattr(kinematic_frame, f"{side}_elbow_angle", None),
+                        "pelvis_speed": getattr(kinematic_frame, "pelvis_speed", None),
+                        "wrist_speed": getattr(kinematic_frame, f"{side}_wrist_speed", None),
+                        "release_proxy": release_label,
+                        "data_quality": quality_label,
+                    },
+                    origin=(detail_panel_x, 260 if metrics_overlay_enabled else 120),
+                )
+            if args.hyrox_debug:
+                try:
+                    draw_hyrox_debug_overlay(annotated, hyrox_features, has_pose=has_pose)
+                except Exception as exc:
+                    if not hyrox_debug_error_printed:
+                        print(f"WARN: HYROX debug overlay failed: {exc}", file=sys.stderr)
+                        hyrox_debug_error_printed = True
+            if hyrox_action_enabled:
+                try:
+                    draw_hyrox_action_overlay(
+                        annotated,
+                        hyrox_action_state,
+                        origin=(250, 214 if args.hyrox_debug else 26),
+                    )
+                except Exception as exc:
+                    if not hyrox_action_error_printed:
+                        print(f"WARN: HYROX action overlay failed: {exc}", file=sys.stderr)
+                        hyrox_action_error_printed = True
 
-            if args.record:
+            if recording_enabled:
                 if record_writer is None:
-                    record_writer = create_writer(args.record, source_fps, annotated.shape)
+                    if not record_output_path:
+                        record_output_path = str(make_output_path("recordings", ".mp4", root=save_dir))
+                    record_writer = create_writer(record_output_path, source_fps, annotated.shape)
+                    print(f"Recording started: {record_output_path}")
                 record_writer.write(annotated)
 
             if not args.headless:
@@ -277,8 +768,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if key in (ord("b"), ord("B")):
                     allowed, reason = runtime_backend_switch_allowed(args)
                     if not allowed:
-                        status_message = f"switch disabled: {reason}"
-                        status_until = time.perf_counter() + 2.5
+                        set_status(f"switch disabled: {reason}")
                         print(f"Backend switch ignored: {reason}")
                         continue
 
@@ -287,8 +777,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     try:
                         new_backend, new_backend_device = create_runtime_backend(args, target_backend)
                     except Exception as exc:
-                        status_message = f"switch failed: {target_backend}"
-                        status_until = time.perf_counter() + 2.5
+                        set_status(f"switch failed: {target_backend}")
                         print(f"Backend switch failed: {exc}", file=sys.stderr)
                         continue
 
@@ -302,9 +791,144 @@ def main(argv: Sequence[str] | None = None) -> int:
                     runtime_backend_device = new_backend_device
                     metrics.set_backend(resolved_backend, runtime_backend_device)
                     smoother = create_runtime_smoother(args)
-                    status_message = f"backend switched to {resolved_backend}"
-                    status_until = time.perf_counter() + 2.5
+                    kinematics_processor.reset()
+                    set_status(f"backend switched to {resolved_backend}")
                     print(f"Backend switched: {resolved_backend} (device: {runtime_backend_device})")
+                elif key in (ord("m"), ord("M")):
+                    mirror_enabled = not mirror_enabled
+                    smoother.reset()
+                    kinematics_processor.reset()
+                    hand_detections = {}
+                    last_hand_detection_timestamp_ms = -1
+                    set_status(f"mirror {'on' if mirror_enabled else 'off'}")
+                    print(f"Mirror: {'ON' if mirror_enabled else 'OFF'}")
+                elif key in (ord("r"), ord("R")):
+                    if recording_enabled:
+                        recording_enabled = False
+                        saved_path = record_output_path
+                        if record_writer is not None:
+                            record_writer.release()
+                            record_writer = None
+                        set_status("record off")
+                        if saved_path:
+                            print(f"Recording saved: {saved_path}")
+                        if not args.record:
+                            record_output_path = ""
+                    else:
+                        if not record_output_path:
+                            record_output_path = str(make_output_path("recordings", ".mp4", root=save_dir))
+                        recording_enabled = True
+                        set_status("record on")
+                        print(f"Recording armed: {record_output_path}")
+                elif key in (ord("t"), ord("T")):
+                    if raw_recording_enabled:
+                        raw_recording_enabled = False
+                        saved_path = raw_record_output_path
+                        if raw_writer is not None:
+                            raw_writer.release()
+                            raw_writer = None
+                        set_status("raw record off")
+                        if saved_path:
+                            print(f"Raw recording saved: {saved_path}")
+                        raw_record_output_path = ""
+                    else:
+                        if not raw_record_output_path:
+                            raw_record_output_path = str(make_output_path("recordings", "_raw.mp4", root=save_dir))
+                        raw_recording_enabled = True
+                        set_status("raw record on")
+                        print(f"Raw recording armed: {raw_record_output_path}")
+                elif key in (ord("s"), ord("S")):
+                    try:
+                        screenshot_path = save_screenshot(annotated, root=save_dir)
+                        set_status("screenshot saved")
+                        print(f"Screenshot saved: {screenshot_path}")
+                    except Exception as exc:
+                        set_status("screenshot failed")
+                        print(f"Screenshot failed: {exc}", file=sys.stderr)
+                elif key == ord("1"):
+                    display_mode = "full"
+                    set_status("mode full skeleton")
+                elif key == ord("2"):
+                    display_mode = "shot"
+                    set_status("mode shot joints")
+                elif key == ord("3"):
+                    metrics_overlay_enabled = not metrics_overlay_enabled
+                    set_status(f"metrics {'on' if metrics_overlay_enabled else 'off'}")
+                elif key in (ord("f"), ord("F")):
+                    display_mode = "full" if display_mode == "no-face" else "no-face"
+                    set_status("face landmarks on" if display_mode == "full" else "face landmarks off")
+                elif key == ord("6"):
+                    display_mode = "no-face"
+                    set_status("mode no face")
+                elif key == ord("7"):
+                    display_mode = "upper-body"
+                    set_status("mode upper body")
+                elif key == ord("8"):
+                    display_mode = "lower-body"
+                    set_status("mode lower body")
+                elif key in (ord("h"), ord("H")):
+                    if hand_overlay_enabled:
+                        hand_overlay_enabled = False
+                        hand_detections = {}
+                        last_hand_detection_timestamp_ms = -1
+                        set_status("hands off")
+                    else:
+                        tracker = ensure_hand_tracker(required=False)
+                        if tracker is None:
+                            set_status(hand_tracker_error or "hand tracker unavailable", seconds=3.0)
+                        else:
+                            hand_overlay_enabled = True
+                            hand_detections = {}
+                            last_hand_detection_timestamp_ms = -1
+                            set_status("hands on")
+                elif key in (ord("c"), ord("C")):
+                    try:
+                        if session_writer.is_active:
+                            stop_session()
+                        else:
+                            start_session(display_frame.shape)
+                    except Exception as exc:
+                        set_status("session failed", seconds=3.0)
+                        print(f"Session operation failed: {exc}", file=sys.stderr)
+                elif key in (ord("k"), ord("K")):
+                    if squat_mode_enabled and squat_calibration_builder is not None:
+                        squat_calibration_builder.start()
+                        squat_calibration_status = "CALIBRATING"
+                        if squat_detector is not None:
+                            squat_detector.machine.reset(clear_calibration=True)
+                        set_status("squat calibration started")
+                    else:
+                        set_status("squat mode not enabled")
+                elif key in (ord("p"), ord("P")):
+                    if squat_mode_enabled:
+                        squat_active = not squat_active
+                        set_status(f"squat analysis {'on' if squat_active else 'off'}")
+                    else:
+                        set_status("squat mode not enabled")
+                elif key == ord("4"):
+                    if squat_mode_enabled:
+                        squat_panel_enabled = not squat_panel_enabled
+                        set_status(f"squat panel {'on' if squat_panel_enabled else 'off'}")
+                    else:
+                        set_status("squat mode not enabled")
+                elif key == ord("5"):
+                    if basketball_mode_enabled:
+                        basketball_panel_enabled = not basketball_panel_enabled
+                        set_status(f"basketball panel {'on' if basketball_panel_enabled else 'off'}")
+                    else:
+                        set_status("basketball mode not enabled")
+                elif key in (ord("j"), ord("J")):
+                    if basketball_mode_enabled:
+                        basketball_collecting = not basketball_collecting
+                        set_status(f"shot candidate {'on' if basketball_collecting else 'off'}")
+                    else:
+                        set_status("basketball mode not enabled")
+                elif key in (ord("l"), ord("L")):
+                    if basketball_mode_enabled:
+                        basketball_manual_release_ms = pose_frame.timestamp_ms
+                        set_status(f"release proxy {basketball_manual_release_ms} ms")
+                    else:
+                        set_status("basketball mode not enabled")
 
         if args.save_metrics:
             metrics.write_csv(args.save_metrics)
@@ -316,12 +940,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 1
     finally:
+        if session_writer.is_active:
+            path = session_writer.stop(final_mirror=mirror_enabled)
+            if path is not None:
+                print(f"Session saved: {path}")
         if record_writer is not None:
             record_writer.release()
         if raw_writer is not None:
             raw_writer.release()
         if fusion_runner is not None and hasattr(fusion_runner, "close"):
             fusion_runner.close()
+        if hand_tracker is not None:
+            hand_tracker.close()
         if backend is not None:
             backend.close()
         if capture is not None:

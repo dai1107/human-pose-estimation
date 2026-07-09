@@ -228,11 +228,21 @@ python main.py --backend mediapipe --person-detector yolo --fusion yolo-roi-medi
 - `--model`：MediaPipe `.task` 模型路径，默认 `models/pose_landmarker_full.task`。
 - `--yolo-pose-model`：YOLO Pose 权重，默认 `yolo11n-pose.pt`。
 - `--yolo-device`：YOLO Pose 推理设备，默认 `auto`；有 CUDA 时通常解析为 GPU `0`，可手动设为 `cpu`。
+- `--landmark-profile`：启动显示 profile，支持 `full`、`no-face`、`upper-body`、`lower-body`、`shot`；`main.py` 默认 `full`。
+- `--show-hands`、`--hand-model`、`--hand-detect-width`、`--max-hand-detect-fps`、`--max-hands`：手指点显示与独立手部检测参数。
+- `--save-dir`：截图、录屏、session 的输出根目录，默认 `outputs`。
+- `--hyrox-debug`：显示 HYROX 调试指标覆盖层。
+- `--hyrox-action`：启用 HYROX 实时动作分析，当前支持 `none`、`lunge`。
+- `--hyrox-sensitivity`：HYROX 动作灵敏度，支持 `low`、`medium`、`high`，默认 `medium`。
+- `--hyrox-config`：HYROX Lunge 配置文件路径，默认 `configs/hyrox/lunge.yaml`；文件缺失时自动回退到默认配置。
+- `--metrics-overlay`：启动时显示通用运动学信息面板。
+- `--session-autostart`：启动后自动开始一次 session 采集。
+- `--analysis-mode`、`--camera-view`、`--shot-type`、`--shooting-side`：深蹲 / 篮球专项实时模式参数。
 - `--smoothing`：`one-euro`、`ema` 或 `none`，默认 `one-euro`。
 - `--pose-hold-frames`：短暂丢 pose 时保留上一帧有效骨架的帧数，默认 `5`，设为 `0` 可关闭。
 - `--occlusion-guard` / `--no-occlusion-guard`：开启或关闭手部遮挡跳点保护，默认开启。
 - `--record`：保存带骨架和文字的标注视频。
-- `--record-raw`：保存原始输入画面，用于后续公平复跑。
+- `--record-raw`：启动后立即保存原始输入画面；运行中也可按 `T` 开始或停止原始视频录制，用于后续公平复跑。
 - `--save-metrics`：把本次运行的性能和稳定性指标追加到 CSV。
 - `--headless`：不打开 OpenCV 窗口，适合批量视频评估。
 
@@ -240,6 +250,25 @@ python main.py --backend mediapipe --person-detector yolo --fusion yolo-roi-medi
 
 ```text
 B：在 mediapipe / yolo-pose 之间切换当前姿态 backend
+S：保存截图
+R：开始或停止视频录制
+T：开始或停止原始视频录制
+M：切换镜像
+1：完整 33 点骨架模式
+2：关键关节高亮模式
+3：显示或隐藏运动学信息面板
+F：显示或隐藏面部点
+6：切换到 no-face 模式
+7：切换到 upper-body 模式
+8：切换到 lower-body 模式
+H：显示或隐藏手指点面板
+C：开始或停止运动学数据采集会话
+K：开始或重新进行深蹲站立校准
+P：开始或暂停深蹲专项分析
+4：显示或隐藏深蹲专项信息面板
+5：显示或隐藏篮球时序面板
+J：开始或停止投篮片段候选采集标记
+L：手动记录当前帧为出手代理时刻
 Q / ESC：退出
 ```
 
@@ -264,9 +293,9 @@ python -m src.realtime_pose --save-dir outputs
 python -m src.realtime_pose --smoothing 0.65
 python -m src.realtime_pose --model models\pose_landmarker_full.task
 python -m src.realtime_pose --landmark-profile full
-python app.py --analysis-mode squat --camera-view side
+python main.py --analysis-mode squat --camera-view side
 python -m src.realtime_pose --analysis-mode squat --camera-view front --metrics-overlay
-python app.py --analysis-mode basketball --shot-type set_shot --shooting-side right --camera-view side
+python main.py --analysis-mode basketball --shot-type set_shot --shooting-side right --camera-view side
 ```
 
 检查已保存会话：
@@ -358,7 +387,7 @@ python -m src.tools.create_reference `
   --action-type squat
 ```
 
-参数说明：
+下面这组参数主要对应 `python -m src.realtime_pose` 高级入口；`main.py` 请以上面的“参数速查”为准。
 
 - `--camera`：摄像头编号，默认 `0`。
 - `--mirror` / `--no-mirror`：开启或关闭镜像显示，默认开启。
@@ -368,7 +397,7 @@ python -m src.tools.create_reference `
 - `--record`：启动后立即录制视频。
 - `--smoothing`：关键点指数平滑系数，范围 `0` 到 `1`，`0` 表示关闭，默认 `0.65`。
 - `--model`：`.task` 模型文件路径，默认 `models/pose_landmarker_full.task`。
-- `--landmark-profile`：启动时显示和保存的姿态点集合，默认 `no-face`，可选 `full`、`no-face`、`upper-body`、`lower-body`、`shot`。
+- `--landmark-profile`：启动时显示和保存的姿态点集合；`src.realtime_pose` 默认 `no-face`，`main.py` 默认 `full`，可选 `full`、`no-face`、`upper-body`、`lower-body`、`shot`。
 - `--show-hands`：启动时直接显示五根手指点；不加该参数时也可按 `H` 开启或关闭。
 - `--hand-model`：手部 `.task` 模型文件路径，默认 `models/hand_landmarker.task`。
 - `--hand-detect-width`：手部检测输入宽度，默认 `416`；较小可降低延迟，`0` 表示使用完整画面。
@@ -393,7 +422,7 @@ python -m src.tools.create_reference `
 
 - 摄像头默认请求 `640x480`、`MJPG` / `60 FPS` 采集模式，缓冲请求设为 `1`，减少读取旧画面并提高动作节点刷新率。
 - 检测输入默认缩放到 `480` 宽，降低 CPU 推理延迟，同时仍使用原来的 `pose_landmarker_full.task` 模型。
-- 姿态点默认使用 `no-face` profile，跳过面部点绘制和保存；需要完整 33 点时可用 `--landmark-profile full` 或按 `1`。
+- `src.realtime_pose` 默认使用 `no-face` profile，`main.py` 默认使用 `full` profile；如果要减少面部点绘制和保存，可显式设置 `--landmark-profile no-face`，或运行中按 `F` / `6`。
 - MediaPipe 异步检测最多保留一个待处理任务，避免检测队列积压。
 - 过旧检测结果不会继续叠加到当前画面。
 - 关键点平滑会根据运动速度自适应：慢速时抑制抖动，快速时提高跟随速度。
@@ -414,14 +443,19 @@ python -m src.realtime_pose --detect-width 1280 --smoothing 0.65
 
 ## 快捷键
 
+- `B`：在 `main.py` 中切换当前姿态 backend。
 - `Q` 或 `ESC`：退出。
 - `S`：保存截图到 `outputs/screenshots/`。
 - `R`：开始或停止视频录制，文件保存到 `outputs/recordings/`。
+- `T`：开始或停止原始视频录制，文件保存到 `outputs/recordings/`，默认文件名带 `_raw.mp4`。
 - `M`：切换镜像显示。
 - `1`：完整 33 点骨架模式。
 - `2`：投篮关键关节高亮模式，突出肩、肘、腕、髋、膝、踝。
 - `3`：显示或隐藏运动学信息面板。
 - `F`：显示或隐藏面部点。
+- `6`：切换到 `no-face` 模式。
+- `7`：切换到 `upper-body` 模式。
+- `8`：切换到 `lower-body` 模式。
 - `H`：显示或隐藏手指点。
 - `C`：开始或停止一次运动学数据采集会话。
 - `K`：在深蹲模式下开始或重新进行站立校准。
@@ -493,7 +527,7 @@ DTW 距离小不代表动作一定更好；DTW 距离大也不代表动作一定
 
 ## 运动学信息面板
 
-按 `3` 后，画面会显示：
+按 `3`，或启动时加 `--metrics-overlay` 后，右上角会显示：
 
 - `POSE: YES / NO`
 - `FPS`
@@ -506,6 +540,67 @@ DTW 距离小不代表动作一定更好；DTW 距离大也不代表动作一定
 - 当前全身运动能量代理值
 
 不可用指标显示为 `N/A`。这些指标只表示视觉姿态数据派生出的运动学代理量。
+
+如果使用 `--analysis-mode squat`，右侧下方还会出现深蹲专项面板，显示左右膝角、躯干前倾代理角、骨盆位移代理、当前状态和次数。
+
+如果使用 `--analysis-mode basketball`，右侧下方还会出现篮球专项面板，显示投篮侧膝角、投篮侧肘角、骨盆速度、投篮侧手腕速度和出手代理时刻。
+
+如果启动时加 `--hyrox-debug`，画面上方还会额外显示一组 HYROX 调试值：`visible`、`lknee`、`rknee`、`lhip`、`rhip`、`torso`。
+
+如果启动时加 `--hyrox-action lunge`，画面上方还会显示 HYROX 弓步分析面板：`action`、`phase`、`reps` 和最多 2 条中文纠正提示。当前 `phase` 使用连续帧确认后的稳定阶段，不会因为单帧抖动立即切换。
+
+## HYROX Lunge 实时模式
+
+当前 HYROX 实时动作分析第一版支持弓步 `lunge`：
+
+```powershell
+python main.py --hyrox-action lunge
+python main.py --hyrox-action lunge --hyrox-sensitivity high
+python main.py --hyrox-action lunge --hyrox-debug
+python main.py --hyrox-action lunge --hyrox-config configs/hyrox/lunge.yaml
+```
+
+- `--hyrox-action lunge`：启用弓步动作分析。
+- `--hyrox-sensitivity low`：更保守，阶段确认更慢，误报更少。
+- `--hyrox-sensitivity medium`：默认档，连续 `3` 帧确认阶段。
+- `--hyrox-sensitivity high`：更敏感，适合动作幅度较小的测试。
+- `--hyrox-config configs/hyrox/lunge.yaml`：从配置文件读取弓步阈值，方便通过视频回放调规则而不改代码。
+
+当前弓步分析会输出：
+
+- `stand / descent / bottom / ascent / unknown` 稳定阶段。
+- `bottom -> stand` 的重复计数。
+- `LOW_VISIBILITY`、`NOT_DEEP_ENOUGH`、`LEAN_TOO_MUCH`、`STAND_EXTENSION` 4 类中文提示。
+- 动作面板会显示当前配置名，便于确认这次运行实际用了哪套阈值。
+
+稳定性规则：
+
+- 同一候选阶段需要连续多帧才会确认，默认 `medium=3` 帧。
+- 完成一次 rep 后有 `400ms` 冷却时间，避免抖动重复计数。
+- `LOW_VISIBILITY` 出现时会独占提示，并暂停其他动作判断。
+
+## HYROX 视频回放测试工具
+
+第五轮新增了本地视频回放工具，用于验证同一个 `LungeAnalyzer` 在回放视频上的表现。它只是测试工具，不替代摄像头实时主流程。
+
+运行示例：
+
+```powershell
+python tools/replay_hyrox_video.py --video "HYROX视频\弓步.mp4" --hyrox-action lunge
+python tools/replay_hyrox_video.py --video "HYROX视频\弓步.mp4" --hyrox-action lunge --speed 0.5
+python tools/replay_hyrox_video.py --video "HYROX视频\弓步.mp4" --hyrox-action lunge --save-debug-csv outputs\hyrox_replay_lunge.csv
+python tools/replay_hyrox_video.py --video "HYROX视频\弓步.mp4" --hyrox-action lunge --hyrox-config configs/hyrox/lunge.yaml
+```
+
+说明：
+
+- 固定复用 `MediaPipeBackend` 做逐帧姿态检测。
+- 固定复用 `hyrox/features.py` 和 `hyrox/actions/lunge.py`，不会单独维护第二套分析逻辑。
+- 回放窗口会显示原视频、骨架、当前阶段、次数和反馈提示。
+- 按 `Q` 或 `ESC` 可退出回放。
+- `--speed` 可设为 `0.5`、`1.0`、`2.0` 等正数，控制回放速度。
+- `--save-debug-csv` 会把每帧特征值、阶段结果和反馈写入 CSV，便于回看阈值与状态机输出。
+- `--hyrox-config` 和实时模式共用同一份配置文件，便于拿本地回放调阈值，再回到摄像头实时验证。
 
 ## 会话输出
 
@@ -527,7 +622,7 @@ outputs/sessions/2026-07-04_162530/
 文件说明：
 
 - `metadata.json`：会话 ID、开始/结束时间、摄像头、分辨率、平均 FPS、镜像、平滑参数、模型名、检测帧统计。
-- `landmarks.csv`：长表格式关键点数据，每帧每个已启用 profile 的关键点一行，包含 image/world/smoothed 坐标、可见度和 presence；默认 `no-face` 不保存面部点。
+- `landmarks.csv`：长表格式关键点数据，每帧每个已启用 profile 的关键点一行，包含 image/world/smoothed 坐标、可见度和 presence；保存时使用开始会话那一刻的当前 profile，`main.py` 默认 `full`，`src.realtime_pose` 默认 `no-face`。
 - `kinematics.csv`：每帧关节角、速度、角速度、运动能量代理值和姿态检测状态。
 - `summary.json`：角度统计、速度统计、有效姿态帧比例、运动能量代理峰值、可用峰值事件。
 - `sequence_summary.json`：峰值事件时间和通用顺序比较结果。

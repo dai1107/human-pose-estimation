@@ -5,6 +5,12 @@ import importlib
 
 def test_second_stage_modules_import() -> None:
     modules = (
+        "hyrox",
+        "hyrox.actions",
+        "hyrox.actions.lunge",
+        "hyrox.config",
+        "tools",
+        "tools.replay_hyrox_video",
         "src.realtime_pose",
         "src.biomechanics.types",
         "src.biomechanics.landmarks",

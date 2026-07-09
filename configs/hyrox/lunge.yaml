@@ -1,0 +1,12 @@
+config_name: lunge_default
+visibility_min: 0.45
+stand_knee_angle_min: 150.0
+stand_hip_angle_min: 145.0
+full_extension_knee_angle_min: 165.0
+full_extension_hip_angle_min: 160.0
+bottom_knee_angle_max: 115.0
+deep_knee_angle_max: 100.0
+torso_lean_warn: 20.0
+motion_tolerance: 3.0
+stable_frames: 3
+rep_cooldown_ms: 400
