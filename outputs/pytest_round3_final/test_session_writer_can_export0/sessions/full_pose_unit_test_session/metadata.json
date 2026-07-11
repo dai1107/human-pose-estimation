@@ -1,0 +1,22 @@
+{
+  "session_id": "full_pose_unit_test_session",
+  "started_at": "2026-07-11T14:41:06+08:00",
+  "ended_at": "2026-07-11T14:41:06+08:00",
+  "camera_index": 0,
+  "actual_resolution": {
+    "width": 1280,
+    "height": 720
+  },
+  "average_fps": 30.0,
+  "mirror": true,
+  "mirror_at_end": true,
+  "smoothing": 0.65,
+  "model_name": "pose_landmarker_full.task",
+  "landmark_profile": "full",
+  "hands_enabled": false,
+  "hand_model_name": null,
+  "landmark_frame_count": 1,
+  "pose_detected_frame_count": 1,
+  "pose_lost_frame_count": 0,
+  "hands_detected_frame_count": 0
+}

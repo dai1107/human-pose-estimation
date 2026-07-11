@@ -1,0 +1,13 @@
+action_name: farmers_carry
+config_name: farmers_carry_default
+visibility_min: 0.55
+shoulder_tilt_warn: 0.08
+hip_tilt_warn: 0.08
+torso_lean_warn: 25
+arms_down_margin: 0.05
+stable_frames: 3
+cooldown_ms: 350
+rest_timeout_ms: 1200
+feedback_limits:
+  max_messages: 2
+  low_visibility_exclusive: true

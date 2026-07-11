@@ -39,7 +39,8 @@ def test_main_defaults_to_auto_backend() -> None:
     assert args.hyrox_debug is False
     assert args.hyrox_action == "none"
     assert args.hyrox_sensitivity == "medium"
-    assert args.hyrox_config == "configs/hyrox/lunge.yaml"
+    assert args.hyrox_config == ""
+    assert args.normalized_pose_debug is False
     assert args.landmark_profile == "full"
     assert args.metrics_overlay is False
     assert args.session_autostart is False
@@ -61,10 +62,22 @@ def test_main_can_enable_hyrox_debug_overlay() -> None:
     assert args.hyrox_debug is True
 
 
+def test_main_can_enable_normalized_pose_debug() -> None:
+    args = parse_args(["--normalized-pose-debug"])
+
+    assert args.normalized_pose_debug is True
+
+
 def test_main_can_enable_hyrox_lunge_action() -> None:
     args = parse_args(["--hyrox-action", "lunge"])
 
     assert args.hyrox_action == "lunge"
+
+
+def test_main_can_enable_hyrox_wall_ball_action() -> None:
+    args = parse_args(["--hyrox-action", "wall_ball"])
+
+    assert args.hyrox_action == "wall_ball"
 
 
 def test_main_can_override_hyrox_sensitivity() -> None:

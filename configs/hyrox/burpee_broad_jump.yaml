@@ -1,0 +1,14 @@
+action_name: burpee_broad_jump
+config_name: burpee_broad_jump_default
+visibility_min: 0.55
+chest_down_body_height_max: 0.35
+bottom_torso_horizontal_min: 60
+jump_forward_min_delta_x: 0.08
+feet_stagger_warn: 0.08
+extra_step_window_ms: 500
+stable_frames: 3
+rep_cooldown_ms: 800
+min_phase_duration_ms: 100
+feedback_limits:
+  max_messages: 2
+  low_visibility_exclusive: true

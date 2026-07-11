@@ -1,0 +1,17 @@
+{
+  "session_id": "b",
+  "started_at": "2026-07-04T12:00:00+08:00",
+  "ended_at": "2026-07-04T12:00:02+08:00",
+  "camera_index": 0,
+  "actual_resolution": {
+    "width": 1280,
+    "height": 720
+  },
+  "average_fps": 20.0,
+  "mirror": true,
+  "smoothing": 0.65,
+  "model_name": "pose_landmarker_full.task",
+  "landmark_frame_count": 24,
+  "pose_detected_frame_count": 24,
+  "pose_lost_frame_count": 0
+}

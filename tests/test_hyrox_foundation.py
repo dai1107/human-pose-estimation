@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+import numpy as np
 
 from hyrox.actions import LungeAnalyzer
 from hyrox.actions.lunge import PHASE_CONFIRMATION_FRAMES
@@ -28,7 +29,7 @@ from hyrox.landmark_names import (
     RIGHT_WRIST,
 )
 from src.backends.base import Keypoint
-from src.utils.draw_utils import format_hyrox_action_lines, format_hyrox_debug_lines
+from src.utils.draw_utils import format_hyrox_action_lines, format_hyrox_debug_lines, put_text
 
 
 def _make_landmarks() -> list[dict[str, float]]:
@@ -89,7 +90,7 @@ def test_lunge_analyzer_can_initialize_from_config_dict() -> None:
             "stable_frames": 5,
             "rep_cooldown_ms": 520,
         },
-        sensitivity="high",
+        sensitivity="medium",
     )
 
     assert analyzer.config_name == "unit_test_cfg"
@@ -99,6 +100,30 @@ def test_lunge_analyzer_can_initialize_from_config_dict() -> None:
     assert analyzer.torso_lean_warn_angle == 17.0
     assert analyzer.confirmation_frames == 5
     assert analyzer.rep_cooldown_ms == 520
+
+
+def test_lunge_config_uses_file_stem_when_name_is_omitted(tmp_path) -> None:
+    path = tmp_path / "camera_side.yaml"
+    path.write_text("visibility_min: 0.52\n", encoding="utf-8")
+
+    config = load_lunge_config(path)
+
+    assert config["config_name"] == "camera_side"
+    assert config["visibility_min"] == 0.52
+
+
+def test_lunge_analyzer_invalid_config_values_fall_back_safely() -> None:
+    analyzer = LungeAnalyzer.from_config(
+        {
+            "visibility_min": "invalid",
+            "stable_frames": "invalid",
+            "rep_cooldown_ms": None,
+        }
+    )
+
+    assert analyzer.min_visible_score == 0.45
+    assert analyzer.confirmation_frames == 3
+    assert analyzer.rep_cooldown_ms == 400
 
 
 def test_geometry_handles_visibility_and_none() -> None:
@@ -124,14 +149,51 @@ def test_extract_basic_pose_features_returns_expected_fields() -> None:
     assert features["right_knee_angle"] == pytest.approx(180.0)
     assert features["left_hip_angle"] == pytest.approx(180.0)
     assert features["right_hip_angle"] == pytest.approx(180.0)
+    assert features["left_elbow_angle"] is not None
+    assert features["right_elbow_angle"] is not None
+    assert features["left_shoulder_angle"] is not None
+    assert features["right_shoulder_angle"] is not None
     assert features["torso_angle"] == pytest.approx(0.0)
     assert features["shoulder_tilt"] == pytest.approx(0.0)
     assert features["hip_tilt"] == pytest.approx(0.0)
+    assert features["body_center_x"] == pytest.approx(0.5)
+    assert features["body_center_y"] == pytest.approx(0.35)
+    assert features["body_height_norm"] == pytest.approx(0.75)
+    assert features["left_wrist_y"] == pytest.approx(0.36)
+    assert features["right_wrist_y"] == pytest.approx(0.36)
+    assert features["left_ankle_y"] == pytest.approx(0.95)
+    assert features["right_ankle_y"] == pytest.approx(0.95)
+    assert features["left_wrist_to_hip_y"] == pytest.approx(-0.14)
+    assert features["right_wrist_to_hip_y"] == pytest.approx(-0.14)
+    assert features["left_wrist_to_shoulder_y"] == pytest.approx(0.16)
+    assert features["right_wrist_to_shoulder_y"] == pytest.approx(0.16)
+    assert features["wrist_distance_norm"] == pytest.approx(0.32)
+    assert features["ankle_distance_norm"] == pytest.approx(0.20)
     assert features["min_knee_angle"] == pytest.approx(180.0)
     assert features["min_hip_angle"] == pytest.approx(180.0)
     assert features["hip_center_y"] == pytest.approx(0.5)
     assert features["knee_center_y"] == pytest.approx(0.75)
+    assert features["hip_knee_depth"] == pytest.approx(-0.25)
+    assert features["wrist_above_shoulder"] == pytest.approx(-0.16)
+    assert features["hip_width"] == pytest.approx(0.2)
+    assert features["knee_width"] == pytest.approx(0.2)
+    assert features["ankle_width"] == pytest.approx(0.2)
     assert features["visible_score"] == pytest.approx(0.95)
+    assert features["upper_body_visible_score"] == pytest.approx(0.95)
+    assert features["lower_body_visible_score"] == pytest.approx(0.95)
+    assert features["left_side_visible_score"] == pytest.approx(0.95)
+    assert features["right_side_visible_score"] == pytest.approx(0.95)
+
+
+def test_extract_basic_pose_features_handles_missing_landmarks() -> None:
+    features = extract_basic_pose_features(None, image_width=640, image_height=480)
+
+    assert features["left_shoulder_angle"] is None
+    assert features["body_center_x"] is None
+    assert features["left_wrist_y"] is None
+    assert features["wrist_distance_norm"] is None
+    assert features["visible_score"] == 0.0
+    assert features["upper_body_visible_score"] == 0.0
 
 
 def test_base_action_analyzer_produces_minimal_state() -> None:
@@ -193,6 +255,14 @@ def test_hyrox_debug_lines_show_pose_values_or_no_pose() -> None:
     assert lines[1] == "lknee: 179.4"
     assert lines[-1] == "torso: 2.3"
     assert format_hyrox_debug_lines(None, has_pose=False) == ["No pose"]
+
+
+def test_put_text_renders_chinese_feedback_without_crashing() -> None:
+    frame = np.zeros((80, 420, 3), dtype=np.uint8)
+
+    put_text(frame, "提示：保持核心稳定", (12, 42), (80, 230, 120))
+
+    assert np.count_nonzero(frame) > 0
 
 
 def test_lunge_analyzer_counts_reps_and_reports_extension_feedback() -> None:
@@ -379,6 +449,63 @@ def test_lunge_analyzer_sensitivity_profiles_change_confirmation_frames() -> Non
     assert LungeAnalyzer(sensitivity="high").confirmation_frames == 2
 
 
+def test_lunge_analyzer_sensitivity_adjusts_loaded_default_config() -> None:
+    low = LungeAnalyzer.from_config_path("configs/hyrox/lunge.yaml", sensitivity="low")
+    high = LungeAnalyzer.from_config_path("configs/hyrox/lunge.yaml", sensitivity="high")
+
+    assert low.confirmation_frames == 4
+    assert high.confirmation_frames == 2
+    assert low.bottom_knee_angle == pytest.approx(105.0)
+    assert high.bottom_knee_angle == pytest.approx(125.0)
+
+
+def test_lunge_bottom_requires_hip_drop_when_stand_reference_is_available() -> None:
+    analyzer = LungeAnalyzer(confirmation_frames=1, hip_drop_min=0.035)
+    stand = {
+        "visible_score": 0.95,
+        "left_knee_angle": 175.0,
+        "right_knee_angle": 176.0,
+        "left_hip_angle": 171.0,
+        "right_hip_angle": 172.0,
+        "torso_angle": 4.0,
+        "hip_center_y": 0.45,
+    }
+    not_low = {
+        **stand,
+        "left_knee_angle": 92.0,
+        "left_hip_angle": 132.0,
+        "hip_center_y": 0.46,
+    }
+    low = {**not_low, "hip_center_y": 0.50}
+
+    assert analyzer.update(stand, timestamp_ms=100)["phase"] == "stand"
+    rejected = analyzer.update(not_low, timestamp_ms=150)
+    accepted = analyzer.update(low, timestamp_ms=200)
+
+    assert rejected["phase"] == "descent"
+    assert rejected["debug"]["hip_drop"] == pytest.approx(0.01)
+    assert accepted["phase"] == "bottom"
+    assert accepted["debug"]["hip_drop"] == pytest.approx(0.05)
+
+
+def test_lunge_stand_phase_uses_both_knees_not_occluded_hip_angle() -> None:
+    analyzer = LungeAnalyzer(confirmation_frames=1)
+
+    state = analyzer.update(
+        {
+            "visible_score": 0.95,
+            "left_knee_angle": 166.0,
+            "right_knee_angle": 168.0,
+            "left_hip_angle": 132.0,
+            "right_hip_angle": 170.0,
+            "torso_angle": 4.0,
+        },
+        timestamp_ms=100,
+    )
+
+    assert state["phase"] == "stand"
+
+
 def test_hyrox_action_lines_show_state_and_feedback() -> None:
     state = {
         "action": "Lunge",
@@ -394,9 +521,10 @@ def test_hyrox_action_lines_show_state_and_feedback() -> None:
 
     assert lines[0][0] == "action: Lunge"
     assert lines[1][0] == "cfg: lunge_default"
-    assert lines[2][0] == "phase: ascent"
-    assert lines[3][0] == "reps: 2"
-    assert lines[4][0] == "tip: 躯干前倾过多，保持核心稳定"
+    assert lines[2][0] == "view: unknown / unknown"
+    assert lines[3][0] == "phase: ascent"
+    assert lines[4][0] == "reps: 2"
+    assert lines[5][0] == "tip: 躯干前倾过多，保持核心稳定"
 
 
 def test_hyrox_action_lines_limit_feedback_to_two_messages() -> None:
@@ -414,4 +542,4 @@ def test_hyrox_action_lines_limit_feedback_to_two_messages() -> None:
         }
     )
 
-    assert [line for line, _ in lines[4:]] == ["tip: A", "tip: B"]
+    assert [line for line, _ in lines[5:]] == ["tip: A", "tip: B"]

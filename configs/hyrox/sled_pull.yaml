@@ -1,0 +1,14 @@
+action_name: sled_pull
+config_name: sled_pull_default
+visibility_min: 0.55
+not_standing_knee_angle_max: 95
+not_standing_body_center_y_max: 0.75
+over_lean_back_angle: 35
+pull_elbow_delta_min: 25
+hip_knee_drive_delta_min: 8
+wrist_asymmetry_warn: 0.08
+stable_frames: 3
+pull_cooldown_ms: 350
+feedback_limits:
+  max_messages: 2
+  low_visibility_exclusive: true

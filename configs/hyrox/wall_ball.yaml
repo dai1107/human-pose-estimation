@@ -1,0 +1,22 @@
+action_name: wall_ball
+config_name: wall_ball_default
+visibility_min: 0.45
+stand_knee_angle_min: 150.0
+stand_hip_angle_min: 145.0
+bottom_knee_angle_max: 110.0
+hip_below_knee_margin: -0.05
+throw_knee_angle_min: 150.0
+throw_hip_angle_min: 145.0
+throw_elbow_angle_min: 125.0
+wrist_above_shoulder_min: 0.03
+full_extension_knee_angle_min: 165.0
+full_extension_hip_angle_min: 160.0
+knee_cave_ratio_max: 0.72
+minimum_frontal_ankle_width: 0.08
+motion_tolerance: 3.0
+hip_motion_tolerance: 0.004
+stable_frames: 3
+rep_cooldown_ms: 400
+feedback_limits:
+  max_messages: 2
+  low_visibility_exclusive: true

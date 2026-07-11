@@ -1,0 +1,14 @@
+action_name: rowing
+config_name: rowing_default
+visibility_min: 0.55
+catch_knee_angle_max: 105
+finish_knee_angle_min: 145
+finish_torso_lean_max: 35
+too_much_back_lean: 45
+early_arm_pull_elbow_angle: 120
+stable_frames: 3
+stroke_cooldown_ms: 500
+min_phase_duration_ms: 120
+feedback_limits:
+  max_messages: 2
+  low_visibility_exclusive: true

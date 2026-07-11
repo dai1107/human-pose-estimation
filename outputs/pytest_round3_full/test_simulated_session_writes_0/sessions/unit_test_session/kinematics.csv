@@ -1,0 +1,3 @@
+frame_index,timestamp_ms,left_elbow_angle,right_elbow_angle,left_knee_angle,right_knee_angle,left_hip_angle,right_hip_angle,left_shoulder_angle,right_shoulder_angle,trunk_tilt_proxy,left_wrist_speed,right_wrist_speed,left_ankle_speed,right_ankle_speed,pelvis_speed,shoulder_center_speed,left_elbow_angular_velocity,right_elbow_angular_velocity,left_knee_angular_velocity,right_knee_angular_velocity,left_hip_angular_velocity,right_hip_angular_velocity,motion_energy_proxy,pose_detected,visibility_mean,missing_ratio
+1,1100,180,180,180,180,180,180,90,90,0,,,,,,,,,,,,,,1,1,0.63636364
+2,1200,180,180,180,180,180,180,90,90,0,1,1,1,1,1,1,0,0,0,0,0,0,3.5,1,1,0.63636364

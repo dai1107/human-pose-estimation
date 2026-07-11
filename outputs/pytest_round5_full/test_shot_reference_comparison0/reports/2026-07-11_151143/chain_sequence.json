@@ -1,0 +1,111 @@
+{
+  "template_name": "set_shot_chain_v1",
+  "expected_order": [
+    "pelvis_upward_speed_peak",
+    "shooting_side_knee_extension_peak",
+    "shooting_side_hip_extension_peak",
+    "shoulder_elevation_peak",
+    "shooting_side_elbow_extension_peak",
+    "shooting_side_wrist_speed_peak",
+    "release_proxy_time"
+  ],
+  "events": {
+    "pelvis_upward_speed_peak": {
+      "event": "pelvis_upward_speed_peak",
+      "timestamp_ms": 200,
+      "normalized_time_percent": 22.22222222222222,
+      "confidence": 0.8,
+      "source_signal": "pelvis_vertical_velocity_proxy",
+      "data_quality": "GOOD"
+    },
+    "right_knee_extension_peak": {
+      "event": "right_knee_extension_peak",
+      "timestamp_ms": 200,
+      "normalized_time_percent": 22.22222222222222,
+      "confidence": 0.8,
+      "source_signal": "shooting_knee_angular_velocity",
+      "data_quality": "GOOD"
+    },
+    "right_hip_extension_peak": {
+      "event": "right_hip_extension_peak",
+      "timestamp_ms": 200,
+      "normalized_time_percent": 22.22222222222222,
+      "confidence": 0.8,
+      "source_signal": "shooting_hip_angular_velocity",
+      "data_quality": "GOOD"
+    },
+    "shoulder_elevation_peak": {
+      "event": "shoulder_elevation_peak",
+      "timestamp_ms": 900,
+      "normalized_time_percent": 100.0,
+      "confidence": 0.8,
+      "source_signal": "shooting_shoulder_angle",
+      "data_quality": "GOOD"
+    },
+    "right_elbow_extension_peak": {
+      "event": "right_elbow_extension_peak",
+      "timestamp_ms": 600,
+      "normalized_time_percent": 66.66666666666666,
+      "confidence": 0.8,
+      "source_signal": "shooting_elbow_angular_velocity",
+      "data_quality": "GOOD"
+    },
+    "right_wrist_speed_peak": {
+      "event": "right_wrist_speed_peak",
+      "timestamp_ms": 600,
+      "normalized_time_percent": 66.66666666666666,
+      "confidence": 0.8,
+      "source_signal": "shooting_wrist_speed",
+      "data_quality": "GOOD"
+    },
+    "release_proxy_time": {
+      "event": "release_proxy_time",
+      "timestamp_ms": 600,
+      "normalized_time_percent": 66.66666666666666,
+      "confidence": 0.9,
+      "source_signal": "auto",
+      "data_quality": "GOOD"
+    }
+  },
+  "missing_events": [],
+  "pairwise_timing": [
+    {
+      "from": "pelvis_upward_speed_peak",
+      "to": "shooting_side_knee_extension_peak",
+      "delta_ms": 0,
+      "status": "overlap"
+    },
+    {
+      "from": "shooting_side_knee_extension_peak",
+      "to": "shooting_side_hip_extension_peak",
+      "delta_ms": 0,
+      "status": "overlap"
+    },
+    {
+      "from": "shooting_side_hip_extension_peak",
+      "to": "shoulder_elevation_peak",
+      "delta_ms": 700,
+      "status": "in_order"
+    },
+    {
+      "from": "shoulder_elevation_peak",
+      "to": "shooting_side_elbow_extension_peak",
+      "delta_ms": -300,
+      "status": "early"
+    },
+    {
+      "from": "shooting_side_elbow_extension_peak",
+      "to": "shooting_side_wrist_speed_peak",
+      "delta_ms": 0,
+      "status": "overlap"
+    },
+    {
+      "from": "shooting_side_wrist_speed_peak",
+      "to": "release_proxy_time",
+      "delta_ms": 0,
+      "status": "overlap"
+    }
+  ],
+  "order_consistent_with_template": false,
+  "interpretation_note": "Events describe keypoint speed and angular-velocity timing only; they do not measure real force or joint torque."
+}

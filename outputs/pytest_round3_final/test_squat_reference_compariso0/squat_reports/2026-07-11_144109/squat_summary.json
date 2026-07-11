@@ -1,0 +1,45 @@
+{
+  "complete_rep_count": 1,
+  "valid_rep_count": 1,
+  "data_quality_warning_count": 0,
+  "frame_count": 12,
+  "average_total_duration_ms": 600.0,
+  "average_descent_duration_ms": 300.0,
+  "average_ascent_duration_ms": 300.0,
+  "average_pelvis_vertical_displacement_normalized": 0.8749999999999999,
+  "average_left_right_knee_difference_mean": 0.0,
+  "reference_comparison": {
+    "status": "PASS",
+    "reference_id": "2026-07-11_144109_squat_reference",
+    "feature_names": [
+      "left_elbow_angle",
+      "right_elbow_angle",
+      "left_knee_angle",
+      "right_knee_angle",
+      "left_hip_angle",
+      "right_hip_angle",
+      "trunk_tilt_proxy"
+    ],
+    "rep_comparisons": [
+      {
+        "rep_index": 1,
+        "normalized_dtw_distance": 3.596092681713579,
+        "top_difference_features": [
+          {
+            "feature": "left_knee_angle",
+            "mean_absolute_error": 4.7571548821548815
+          },
+          {
+            "feature": "right_knee_angle",
+            "mean_absolute_error": 4.7571548821548815
+          },
+          {
+            "feature": "left_hip_angle",
+            "mean_absolute_error": 4.7571548821548815
+          }
+        ]
+      }
+    ],
+    "message": "relative kinematic comparison only"
+  }
+}

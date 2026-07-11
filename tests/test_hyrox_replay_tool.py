@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 from tools.replay_hyrox_video import (
@@ -26,6 +28,9 @@ def test_replay_tool_parser_supports_expected_arguments() -> None:
             "custom_lunge.yaml",
             "--speed",
             "2.0",
+            "--smoothing",
+            "ema",
+            "--headless",
             "--save-debug-csv",
             "debug.csv",
         ]
@@ -36,6 +41,8 @@ def test_replay_tool_parser_supports_expected_arguments() -> None:
     assert args.hyrox_sensitivity == "high"
     assert args.hyrox_config == "custom_lunge.yaml"
     assert args.speed == 2.0
+    assert args.smoothing == "ema"
+    assert args.headless is True
     assert args.save_debug_csv == "debug.csv"
 
 
@@ -72,6 +79,8 @@ def test_replay_tool_serializes_feedback_and_debug_rows() -> None:
         "left_hip_angle": 138.0,
         "right_hip_angle": 172.0,
         "torso_angle": 24.0,
+        "shoulder_tilt": 0.02,
+        "body_center_x": 0.51,
         "min_knee_angle": 101.0,
         "min_hip_angle": 138.0,
         "hip_center_y": 0.62,
@@ -84,6 +93,8 @@ def test_replay_tool_serializes_feedback_and_debug_rows() -> None:
     assert row["frame_index"] == 12
     assert row["pose_detected"] == 1
     assert row["phase"] == "bottom"
+    assert row["shoulder_tilt"] == 0.02
+    assert row["body_center_x"] == 0.51
     assert row["feedback_codes"] == "LEAN_TOO_MUCH | NOT_DEEP_ENOUGH"
     assert row["raw_phase"] == "bottom"
     assert row["last_rep_time_ms"] == 800
@@ -117,3 +128,25 @@ def test_replay_tool_uses_shared_lunge_analyzer() -> None:
     assert analyzer.action == "Lunge"
     assert analyzer.sensitivity == "low"
     assert analyzer.config_name == "lunge_default"
+
+
+def test_replay_tool_uses_shared_wall_ball_analyzer() -> None:
+    analyzer = create_analyzer("wall_ball", "medium")
+
+    assert analyzer.action == "Wall Ball"
+    assert analyzer.config_name == "wall_ball_default"
+
+
+def test_replay_tool_supports_documented_direct_script_invocation() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    completed = subprocess.run(
+        [sys.executable, str(project_root / "tools" / "replay_hyrox_video.py"), "--help"],
+        cwd=project_root,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "--headless" in completed.stdout

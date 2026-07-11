@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from src.utils.time_utils import make_session_id, now_iso
+from src.version import __version__
 
 from .hand_landmarks import SUPPLEMENTAL_FINGER_JOINTS, empty_hand_landmarks, hand_landmark_name
 from .landmarks import LANDMARK_NAMES, empty_landmarks
@@ -37,6 +38,9 @@ class SessionConfig:
     landmark_profile: str = "no-face"
     hands_enabled: bool = False
     hand_model_name: str | None = None
+    program_version: str = __version__
+    schema_version: int = 1
+    camera_view: str = "unknown"
 
 
 def _number(value: float | int | None) -> str:
@@ -126,10 +130,13 @@ class SessionWriter:
         hands_detected = sum(1 for frame in self.pose_frames if frame.hands_detected)
         fps_values = [frame.fps for frame in self.pose_frames if isfinite(frame.fps) and frame.fps > 0]
         return {
+            "schema_version": self.config.schema_version,
+            "program_version": self.config.program_version,
             "session_id": self.session_id,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "camera_index": self.config.camera_index,
+            "camera_view": self.config.camera_view,
             "actual_resolution": {"width": self.config.width, "height": self.config.height},
             "average_fps": sum(fps_values) / len(fps_values) if fps_values else 0.0,
             "mirror": self.config.mirror,

@@ -10,8 +10,10 @@ from typing import Sequence
 
 import cv2
 
-from hyrox.actions import LungeAnalyzer
+from hyrox.action_names import HYROX_ACTION_NAMES, action_from_menu_key, next_hyrox_action
 from hyrox.features import extract_basic_pose_features
+from hyrox.registry import create_action_analyzer
+from hyrox.view_policy import CAMERA_VIEWS, next_camera_view
 from src.backends.base import PoseBackend, PoseResult
 from src.backends.factory import create_backend
 from src.biomechanics.landmarks import LANDMARK_NAMES
@@ -26,16 +28,18 @@ from src.fitness.squat.realtime_overlay import draw_squat_overlay
 from src.fitness.squat.rep_detector import SquatRepDetector
 from src.fitness.squat.schema import load_squat_config
 from src.fusion.yolo_roi_mediapipe import FusionFrameStats, YoloRoiMediaPipeFusion
+from src.pose.adapters import format_normalized_pose_debug, normalize_backend_pose_result
 from src.realtime.feedback_engine import FeedbackEngine
 from src.runtime_hand import DEFAULT_HAND_DETECT_WIDTH, DEFAULT_MAX_HAND_DETECT_FPS, HandDetection, MediaPipeHandTracker
 from src.sports.basketball.realtime_overlay import draw_basketball_overlay
 from src.utils.angle_utils import body_angles
 from src.utils.backend_policy import resolve_backend_choice
-from src.utils.draw_utils import draw_bbox, draw_hand_landmarks, draw_hyrox_action_overlay, draw_hyrox_debug_overlay, draw_pose_result_filtered, draw_realtime_overlay
+from src.utils.draw_utils import draw_bbox, draw_hand_landmarks, draw_hyrox_action_overlay, draw_hyrox_action_selector, draw_hyrox_debug_overlay, draw_pose_result_filtered, draw_realtime_overlay
 from src.utils.device import resolve_torch_device
 from src.utils.metrics import RealtimeMetrics
 from src.utils.smoothing import KeypointSmoother
 from src.ui.metrics_overlay import draw_metrics_overlay
+from src.version import __version__
 
 
 RUNTIME_BACKENDS = ("mediapipe", "yolo-pose")
@@ -101,6 +105,7 @@ DRAW_MODE_KEYPOINT_NAMES: dict[str, frozenset[str] | None] = {
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Realtime-first human keypoint detection baseline.")
+    parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--backend", default="auto", choices=("auto", "mediapipe", "yolo-pose"), help="Pose backend. Default: auto.")
     parser.add_argument("--action-type", default="auto", help="Action type for --backend auto, e.g. squat, rowing, ski_erg, or HYROX video stem.")
     parser.add_argument("--model", default="models/pose_landmarker_full.task", help="MediaPipe pose model path.")
@@ -123,14 +128,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--save-metrics", default="", help="Append final metrics to this CSV path.")
     parser.add_argument("--save-dir", default="outputs", help="Directory for sessions, screenshots, and recordings. Default: outputs.")
     parser.add_argument("--headless", action="store_true", help="Do not open an OpenCV window; useful for input-video batch evaluation.")
+    parser.add_argument("--normalized-pose-debug", action="store_true", help="Print the unified NormalizedPose summary every 30 frames. Default: off.")
     parser.add_argument("--hyrox-debug", action="store_true", help="Show HYROX debug pose features overlay. Default: off.")
-    parser.add_argument("--hyrox-action", default="none", choices=("none", "lunge"), help="Enable HYROX action analysis. Default: none.")
+    parser.add_argument("--hyrox-action", default="none", choices=("none", *HYROX_ACTION_NAMES), help="Enable HYROX action analysis. Default: none.")
     parser.add_argument("--hyrox-sensitivity", default="medium", choices=("low", "medium", "high"), help="HYROX action sensitivity. Default: medium.")
-    parser.add_argument("--hyrox-config", default="configs/hyrox/lunge.yaml", help="HYROX analyzer config path. Missing file falls back to defaults.")
+    parser.add_argument("--hyrox-config", default="", help="HYROX analyzer config path. Empty selects the action-specific default.")
     parser.add_argument("--metrics-overlay", action="store_true", help="Show kinematic metrics panel at startup.")
     parser.add_argument("--session-autostart", action="store_true", help="Start a kinematic data session automatically.")
     parser.add_argument("--analysis-mode", default="pose", choices=("pose", "squat", "basketball"), help="Optional realtime analysis mode. Default: pose.")
-    parser.add_argument("--camera-view", default="unknown", choices=("side", "front", "front_left", "front_right", "unknown"), help="Camera view for view-sensitive analysis. Default: unknown.")
+    parser.add_argument("--camera-view", default="unknown", choices=CAMERA_VIEWS, help="Camera view used by view-sensitive evaluation: front, side, front_left, front_right, or unknown. Default: unknown.")
     parser.add_argument("--shot-type", default="set_shot", choices=("set_shot", "jump_shot"), help="Basketball shot type for realtime panel. Default: set_shot.")
     parser.add_argument("--shooting-side", default="right", choices=("right", "left"), help="Basketball shooting side. Default: right.")
     parser.add_argument("--person-detector", default="none", choices=("none", "yolo"), help="Optional person detector. Default: none.")
@@ -346,6 +352,16 @@ def runtime_backend_switch_allowed(args: argparse.Namespace) -> tuple[bool, str]
     return True, ""
 
 
+def runtime_hyrox_config_path(
+    action_name: str,
+    *,
+    startup_action: str,
+    startup_config: str | None,
+) -> str | None:
+    """Only reuse an explicit config for the action it was supplied for."""
+    return startup_config if startup_config and action_name == startup_action else None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     backend = None
@@ -376,8 +392,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     hand_detections: dict[str, HandDetection] = {}
     hand_detection_error_printed = False
     last_hand_detection_timestamp_ms = -1
+    startup_hyrox_action = args.hyrox_action
+    startup_hyrox_config = args.hyrox_config or None
     hyrox_action_enabled = args.hyrox_action != "none"
-    hyrox_analyzer = LungeAnalyzer.from_config_path(args.hyrox_config, sensitivity=args.hyrox_sensitivity) if args.hyrox_action == "lunge" else None
+    try:
+        hyrox_analyzer = (
+            create_action_analyzer(
+                args.hyrox_action,
+                runtime_hyrox_config_path(
+                    args.hyrox_action,
+                    startup_action=startup_hyrox_action,
+                    startup_config=startup_hyrox_config,
+                ),
+                sensitivity=args.hyrox_sensitivity,
+                camera_view=args.camera_view,
+            )
+            if hyrox_action_enabled
+            else None
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
     squat_mode_enabled = args.analysis_mode == "squat"
     squat_config = load_squat_config() if squat_mode_enabled else None
     squat_detector = SquatRepDetector(squat_config, None, camera_view=args.camera_view) if squat_mode_enabled else None
@@ -431,14 +466,48 @@ def main(argv: Sequence[str] | None = None) -> int:
         frame_index = 0
         hyrox_debug_error_printed = False
         hyrox_action_error_printed = False
+        normalized_pose_error_printed = False
         window_name = "Realtime Keypoint Baseline"
         status_message = ""
         status_until = 0.0
+        hyrox_action_selector_open = False
 
         def set_status(message: str, seconds: float = 2.5) -> None:
             nonlocal status_message, status_until
             status_message = message
             status_until = time.perf_counter() + seconds
+
+        def switch_hyrox_action(action_name: str) -> bool:
+            nonlocal hyrox_action_enabled, hyrox_analyzer, hyrox_action_error_printed
+            if action_name == args.hyrox_action:
+                set_status(f"action remains {action_name}")
+                return True
+            try:
+                new_analyzer = (
+                    create_action_analyzer(
+                        action_name,
+                        runtime_hyrox_config_path(
+                            action_name,
+                            startup_action=startup_hyrox_action,
+                            startup_config=startup_hyrox_config,
+                        ),
+                        sensitivity=args.hyrox_sensitivity,
+                        camera_view=args.camera_view,
+                    )
+                    if action_name != "none"
+                    else None
+                )
+            except (FileNotFoundError, ValueError) as exc:
+                set_status(f"action switch failed: {action_name}", seconds=3.0)
+                print(f"Action switch failed: {exc}", file=sys.stderr)
+                return False
+            hyrox_analyzer = new_analyzer
+            args.hyrox_action = action_name
+            hyrox_action_enabled = action_name != "none"
+            hyrox_action_error_printed = False
+            set_status(f"action {action_name}", seconds=3.0)
+            print(f"HYROX action: {action_name}")
+            return True
 
         def ensure_hand_tracker(*, required: bool) -> MediaPipeHandTracker | None:
             nonlocal hand_tracker, hand_tracker_error
@@ -478,6 +547,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 landmark_profile=display_mode,
                 hands_enabled=hand_overlay_enabled,
                 hand_model_name=hand_model_path.name if hand_tracker is not None else None,
+                camera_view=args.camera_view,
             )
             session_id = session_writer.start(config)
             set_status(f"session {session_id}", seconds=3.0)
@@ -491,7 +561,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if not args.headless:
             cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        print("Controls: Q/ESC quit, B backend, S screenshot, R record, T raw record, M mirror, 1 full, 2 shot, 3 metrics, F face, 6 no-face, 7 upper, 8 lower, H hands, C session, K squat calibration, P squat analysis, 4 squat panel, 5 basketball panel, J shot clip marker, L release proxy marker")
+        print("Controls: Q/ESC quit, A action menu, N next action, B backend, V camera view, S screenshot, R record, T raw record, M mirror, 1 full, 2 shot, 3 metrics, F face, 6 no-face, 7 upper, 8 lower, H hands, C session, K squat calibration, P squat analysis, 4 squat panel, 5 basketball panel, J shot clip marker, L release proxy marker")
         if args.show_hands:
             ensure_hand_tracker(required=True)
             hand_overlay_enabled = True
@@ -525,6 +595,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             else:
                 result = backend.detect(display_frame, timestamp_ms=timestamp_ms)
                 fusion_stats = FusionFrameStats()
+            normalized_pose = None
+            try:
+                frame_height, frame_width = display_frame.shape[:2]
+                normalized_pose = normalize_backend_pose_result(
+                    result,
+                    image_width=frame_width,
+                    image_height=frame_height,
+                    timestamp_ms=result.timestamp_ms if result.timestamp_ms is not None else timestamp_ms,
+                    frame_id=frame_index,
+                    latency_ms=result.inference_time_ms,
+                )
+            except Exception as exc:
+                if not normalized_pose_error_printed:
+                    print(f"WARN: normalized pose conversion failed: {exc}", file=sys.stderr)
+                    normalized_pose_error_printed = True
+            if args.normalized_pose_debug and (frame_index == 1 or frame_index % 30 == 0):
+                print(format_normalized_pose_debug(normalized_pose))
             result = smoother.smooth_result(result)
             if hand_overlay_enabled:
                 tracker = ensure_hand_tracker(required=False)
@@ -586,7 +673,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         hyrox_debug_error_printed = True
             if hyrox_analyzer is not None:
                 try:
-                    hyrox_action_state = hyrox_analyzer.update(hyrox_features if has_pose else None, timestamp_ms=timestamp_ms)
+                    hyrox_action_state = hyrox_analyzer.attach_view_context(
+                        hyrox_analyzer.update(hyrox_features if has_pose else None, timestamp_ms=timestamp_ms)
+                    )
                 except Exception as exc:
                     hyrox_action_state = None
                     if not hyrox_action_error_printed:
@@ -750,6 +839,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if not hyrox_action_error_printed:
                         print(f"WARN: HYROX action overlay failed: {exc}", file=sys.stderr)
                         hyrox_action_error_printed = True
+            if hyrox_action_selector_open:
+                draw_hyrox_action_selector(annotated, args.hyrox_action)
 
             if recording_enabled:
                 if record_writer is None:
@@ -763,8 +854,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                 cv2.imshow(window_name, annotated)
                 delay = 1 if input_mode == "camera" else max(1, int(round(1000.0 / max(source_fps, 1.0))))
                 key = cv2.waitKey(delay) & 0xFF
-                if key in (27, ord("q"), ord("Q")):
+                if key in (ord("q"), ord("Q")):
                     break
+                if hyrox_action_selector_open:
+                    if key in (27, ord("a"), ord("A")):
+                        hyrox_action_selector_open = False
+                        set_status("action selection cancelled")
+                    else:
+                        selected_action = action_from_menu_key(key)
+                        if selected_action is not None:
+                            switch_hyrox_action(selected_action)
+                            hyrox_action_selector_open = False
+                    continue
+                if key == 27:
+                    break
+                if key in (ord("a"), ord("A")):
+                    hyrox_action_selector_open = True
+                    set_status("select action 0-8", seconds=10.0)
+                    continue
+                if key in (ord("n"), ord("N")):
+                    switch_hyrox_action(next_hyrox_action(args.hyrox_action))
+                    continue
                 if key in (ord("b"), ord("B")):
                     allowed, reason = runtime_backend_switch_allowed(args)
                     if not allowed:
@@ -802,6 +912,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                     last_hand_detection_timestamp_ms = -1
                     set_status(f"mirror {'on' if mirror_enabled else 'off'}")
                     print(f"Mirror: {'ON' if mirror_enabled else 'OFF'}")
+                elif key in (ord("v"), ord("V")):
+                    if session_writer.is_active:
+                        set_status("stop session before changing view", seconds=3.0)
+                        print("Camera view switch ignored while a session is active.")
+                        continue
+                    args.camera_view = next_camera_view(args.camera_view)
+                    if hyrox_analyzer is not None:
+                        hyrox_analyzer.set_camera_view(args.camera_view)
+                        hyrox_analyzer.reset()
+                    if squat_detector is not None:
+                        squat_detector.camera_view = args.camera_view
+                        squat_detector.machine.reset(clear_calibration=True)
+                        squat_calibration_status = "RECALIBRATE"
+                    if squat_calibration_builder is not None:
+                        squat_calibration_builder.camera_view = args.camera_view
+                        squat_calibration_builder.frames = []
+                        squat_calibration_builder.started_at_ms = None
+                    set_status(f"camera view {args.camera_view}", seconds=3.0)
+                    print(f"Camera view: {args.camera_view}")
                 elif key in (ord("r"), ord("R")):
                     if recording_enabled:
                         recording_enabled = False

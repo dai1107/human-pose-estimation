@@ -1,0 +1,13 @@
+frame_index,timestamp_ms,state,rep_count,pose_detected,pelvis_displacement_normalized,paused,message
+0,0,READY,0,1,0,0,
+1,50,READY,0,1,0,0,
+2,100,READY,0,1,0,0,
+3,150,READY,0,1,0,0,
+4,200,READY,0,1,0,0,
+5,250,DESCENT,0,1,0.25,0,
+6,350,DESCENT,0,1,0.55,0,
+7,450,DESCENT,0,1,0.85,0,
+8,550,DESCENT,0,1,0.875,0,
+9,650,BOTTOM,0,1,0.75,0,
+10,750,ASCENT,0,1,0.4,0,
+11,850,READY,1,1,0.1,0,

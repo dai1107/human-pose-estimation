@@ -1,18 +1,81 @@
 from __future__ import annotations
 
+from functools import lru_cache
+from pathlib import Path
 from typing import Mapping, Sequence
 
 import cv2
 import numpy as np
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ModuleNotFoundError:  # pragma: no cover - OpenCV ASCII fallback remains available.
+    Image = None
+    ImageDraw = None
+    ImageFont = None
 
 from src.backends.base import PoseResult
 from src.biomechanics.hand_landmarks import SUPPLEMENTAL_FINGER_CONNECTIONS, SUPPLEMENTAL_FINGER_DISPLAY_INDICES
 from src.biomechanics.types import LandmarkPoint
 from src.realtime.feedback_engine import FeedbackState
 from src.utils.metrics import RealtimeMetricsSnapshot
+from hyrox.action_names import HYROX_ACTION_LABELS, HYROX_ACTION_OPTIONS
 
 
 HAND_TIP_INDICES = frozenset({4, 8, 12, 16, 20})
+
+
+@lru_cache(maxsize=1)
+def _load_unicode_font() -> object | None:
+    if ImageFont is None:
+        return None
+    candidates = (
+        Path("C:/Windows/Fonts/msyh.ttc"),
+        Path("C:/Windows/Fonts/simhei.ttf"),
+        Path("/System/Library/Fonts/PingFang.ttc"),
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+        Path("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"),
+    )
+    for path in candidates:
+        if not path.exists():
+            continue
+        try:
+            return ImageFont.truetype(str(path), 18)
+        except (OSError, ValueError):
+            continue
+    return None
+
+
+def _put_unicode_text(
+    frame: np.ndarray,
+    text: str,
+    origin: tuple[int, int],
+    color: tuple[int, int, int],
+) -> bool:
+    font = _load_unicode_font()
+    if font is None or Image is None or ImageDraw is None:
+        return False
+    x, y = origin
+    rgb_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(rgb_image)
+    try:
+        bbox = draw.textbbox((x, y), text, font=font, anchor="ls")
+    except (TypeError, ValueError):
+        bbox = draw.textbbox((x, y - 18), text, font=font)
+    top_left = (max(0, bbox[0] - 5), max(0, bbox[1] - 5))
+    bottom_right = (min(frame.shape[1] - 1, bbox[2] + 5), min(frame.shape[0] - 1, bbox[3] + 5))
+    overlay = frame.copy()
+    cv2.rectangle(overlay, top_left, bottom_right, (20, 22, 24), -1)
+    cv2.addWeighted(overlay, 0.62, frame, 0.38, 0, frame)
+    rgb_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(rgb_image)
+    rgb_color = (color[2], color[1], color[0])
+    try:
+        draw.text((x, y), text, font=font, fill=rgb_color, anchor="ls")
+    except (TypeError, ValueError):
+        draw.text((x, y - 18), text, font=font, fill=rgb_color)
+    frame[:] = cv2.cvtColor(np.asarray(rgb_image), cv2.COLOR_RGB2BGR)
+    return True
 
 
 def to_pixel(x: float, y: float, width: int, height: int) -> tuple[int, int]:
@@ -99,6 +162,8 @@ def draw_bbox(frame: np.ndarray, bbox: tuple[float, float, float, float] | None)
 
 
 def put_text(frame: np.ndarray, text: str, origin: tuple[int, int], color: tuple[int, int, int] = (245, 245, 245)) -> None:
+    if any(ord(character) > 127 for character in text) and _put_unicode_text(frame, text, origin, color):
+        return
     font = cv2.FONT_HERSHEY_SIMPLEX
     scale = 0.55
     thickness = 2
@@ -220,9 +285,12 @@ def format_hyrox_action_lines(state: Mapping[str, object] | None) -> list[tuple[
 
     debug = state.get("debug", {}) if isinstance(state, Mapping) else {}
     config_name = debug.get("config_name") if isinstance(debug, Mapping) else None
+    camera_view = debug.get("camera_view") if isinstance(debug, Mapping) else None
+    view_profile = debug.get("view_profile") if isinstance(debug, Mapping) else None
     lines: list[tuple[str, tuple[int, int, int]]] = [
         (f"action: {state.get('action', 'unknown')}", (245, 245, 245)),
         (f"cfg: {config_name or 'default'}", (180, 220, 255)),
+        (f"view: {camera_view or 'unknown'} / {view_profile or 'unknown'}", (180, 220, 255)),
         (f"phase: {state.get('phase', 'unknown')}", (245, 245, 245)),
         (f"reps: {state.get('rep_count', 0)}", (245, 245, 245)),
     ]
@@ -236,7 +304,7 @@ def format_hyrox_action_lines(state: Mapping[str, object] | None) -> list[tuple[
             elif level == "error":
                 color = (60, 80, 255)
             lines.append((f"tip: {text}", color))
-    if len(lines) == 4:
+    if len(lines) == 5:
         lines.append(("tip: 动作稳定", (80, 230, 120)))
     return lines
 
@@ -248,4 +316,38 @@ def draw_hyrox_action_overlay(
     origin: tuple[int, int] = (250, 26),
 ) -> None:
     for row, (line, color) in enumerate(format_hyrox_action_lines(state)):
+        put_text(frame, line, (origin[0], origin[1] + row * 27), color)
+
+
+def format_hyrox_action_selector_lines(current_action: str) -> list[tuple[str, tuple[int, int, int]]]:
+    lines: list[tuple[str, tuple[int, int, int]]] = [
+        ("选择动作 / Select action (0-8)", (80, 230, 255)),
+    ]
+    for index, action_name in enumerate(HYROX_ACTION_OPTIONS):
+        marker = ">" if action_name == current_action else " "
+        color = (80, 230, 120) if action_name == current_action else (245, 245, 245)
+        lines.append((f"{marker} {index}: {HYROX_ACTION_LABELS[action_name]}", color))
+    lines.append(("A/ESC: 取消   N: 快速切换下一个", (180, 220, 255)))
+    return lines
+
+
+def draw_hyrox_action_selector(
+    frame: np.ndarray,
+    current_action: str,
+    *,
+    origin: tuple[int, int] = (24, 48),
+) -> None:
+    lines = format_hyrox_action_selector_lines(current_action)
+    panel_width = min(max(430, frame.shape[1] // 2), max(1, frame.shape[1] - origin[0] - 8))
+    panel_height = min(len(lines) * 29 + 18, max(1, frame.shape[0] - origin[1] + 18))
+    overlay = frame.copy()
+    cv2.rectangle(
+        overlay,
+        (origin[0] - 12, origin[1] - 28),
+        (origin[0] - 12 + panel_width, origin[1] - 28 + panel_height),
+        (12, 16, 20),
+        -1,
+    )
+    cv2.addWeighted(overlay, 0.86, frame, 0.14, 0, frame)
+    for row, (line, color) in enumerate(lines):
         put_text(frame, line, (origin[0], origin[1] + row * 27), color)

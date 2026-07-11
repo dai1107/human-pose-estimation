@@ -83,6 +83,9 @@ def test_simulated_session_writes_metadata_and_csv(tmp_path) -> None:
     assert (session_dir / "velocity_curves.png").exists()
 
     metadata = json.loads((session_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["schema_version"] == 1
+    assert metadata["program_version"]
+    assert metadata["camera_view"] == "unknown"
     assert metadata["landmark_frame_count"] == 2
     assert metadata["pose_detected_frame_count"] == 2
 
