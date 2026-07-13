@@ -36,12 +36,6 @@ from src.biomechanics.normalization import normalize_landmarks
 from src.biomechanics.session_writer import SessionConfig, SessionWriter
 from src.biomechanics.types import KinematicFrame, LandmarkPoint, PoseFrame
 from src.biomechanics.velocity import KinematicsProcessor
-from src.fitness.squat.calibration import StandingCalibrationBuilder
-from src.fitness.squat.phase_metrics import build_squat_frame_from_pose
-from src.fitness.squat.realtime_overlay import draw_squat_overlay
-from src.fitness.squat.rep_detector import SquatRepDetector
-from src.fitness.squat.schema import load_squat_config
-from src.sports.basketball.realtime_overlay import draw_basketball_overlay
 from src.ui.metrics_overlay import draw_metrics_overlay
 
 
@@ -83,23 +77,6 @@ POSE_CONNECTIONS: tuple[tuple[int, int], ...] = (
     (28, 32),
 )
 
-SHOT_JOINTS: frozenset[int] = frozenset({11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28})
-HIGHLIGHT_JOINTS: frozenset[int] = SHOT_JOINTS
-SHOT_CONNECTIONS: tuple[tuple[int, int], ...] = (
-    (11, 12),
-    (11, 13),
-    (13, 15),
-    (12, 14),
-    (14, 16),
-    (11, 23),
-    (12, 24),
-    (23, 24),
-    (23, 25),
-    (25, 27),
-    (24, 26),
-    (26, 28),
-)
-
 BODY_JOINTS: frozenset[int] = frozenset(range(11, 33))
 UPPER_BODY_JOINTS: frozenset[int] = frozenset({11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24})
 LOWER_BODY_JOINTS: frozenset[int] = frozenset({23, 24, 25, 26, 27, 28, 29, 30, 31, 32})
@@ -108,14 +85,12 @@ LANDMARK_PROFILES: dict[str, frozenset[int]] = {
     "no-face": BODY_JOINTS,
     "upper-body": UPPER_BODY_JOINTS,
     "lower-body": LOWER_BODY_JOINTS,
-    "shot": SHOT_JOINTS,
 }
 PROFILE_LABELS: dict[str, str] = {
     "full": "FULL",
     "no-face": "NO FACE",
     "upper-body": "UPPER BODY",
     "lower-body": "LOWER BODY",
-    "shot": "SHOT JOINTS",
 }
 HAND_TIP_INDICES: frozenset[int] = frozenset({4, 8, 12, 16, 20})
 POSE_HAND_OCCLUSION_INDICES: frozenset[int] = frozenset({15, 16, 17, 18, 19, 20, 21, 22})
@@ -356,10 +331,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--save-dir", default="outputs", help="Directory for sessions, screenshots, and recordings.")
     parser.add_argument("--metrics-overlay", action="store_true", help="Show kinematic metrics panel at startup.")
     parser.add_argument("--session-autostart", action="store_true", help="Start a kinematic data session automatically.")
-    parser.add_argument("--analysis-mode", default="pose", choices=("pose", "squat", "basketball"), help="Optional realtime analysis mode. Default: pose.")
     parser.add_argument("--camera-view", default="unknown", choices=("side", "front", "front_left", "front_right", "unknown"), help="Camera view for view-sensitive analysis. Default: unknown.")
-    parser.add_argument("--shot-type", default="set_shot", choices=("set_shot", "jump_shot"), help="Basketball shot type for realtime panel. Default: set_shot.")
-    parser.add_argument("--shooting-side", default="right", choices=("right", "left"), help="Basketball shooting side. Default: right.")
     parser.add_argument("--detect-width", type=int, default=DEFAULT_DETECT_WIDTH, help=f"Resize detector input to this width for lower latency. Use 0 for full frame. Default: {DEFAULT_DETECT_WIDTH}.")
     parser.add_argument("--max-detect-fps", type=float, default=DEFAULT_MAX_DETECT_FPS, help=f"Maximum pose detector submissions per second. Default: {DEFAULT_MAX_DETECT_FPS:g}.")
     parser.add_argument("--max-pending-ms", type=int, default=180, help="Timeout for one pending async detection before submitting a new frame. Default: 180.")
@@ -491,10 +463,7 @@ def to_pixel(landmark: DrawLandmark, width: int, height: int) -> tuple[int, int]
 def draw_pose(frame: np.ndarray, landmarks: Sequence[DrawLandmark], mode: str, point_indices: Iterable[int]) -> None:
     height, width = frame.shape[:2]
     point_set = set(point_indices)
-    if mode == "shot":
-        connections: Iterable[tuple[int, int]] = SHOT_CONNECTIONS
-    else:
-        connections = POSE_CONNECTIONS
+    connections: Iterable[tuple[int, int]] = POSE_CONNECTIONS
 
     for start, end in connections:
         if start not in point_set or end not in point_set:
@@ -742,7 +711,7 @@ def build_pose_frame(
 
 
 def print_controls() -> None:
-    print("Controls: Q/ESC quit, S screenshot, R record, M mirror, 1 full, F face on/off, 2 shot, 3 metrics, 6 no-face, 7 upper, 8 lower, H hands, C session, K squat calibration, P squat analysis, 4 squat panel, 5 basketball panel, J shot clip marker, L release proxy marker")
+    print("Controls: Q/ESC quit, S screenshot, R record, M mirror, 1 full, F face on/off, 3 metrics, 6 no-face, 7 upper, 8 lower, H hands, C session")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -871,24 +840,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     recorder = VideoRecorder(save_dir / "recordings")
     session_writer = SessionWriter(save_dir)
     kinematics_processor = KinematicsProcessor()
-    squat_mode_enabled = args.analysis_mode == "squat"
-    squat_config = load_squat_config() if squat_mode_enabled else None
-    squat_detector = SquatRepDetector(squat_config, None, camera_view=args.camera_view) if squat_mode_enabled else None
-    squat_calibration_builder = (
-        StandingCalibrationBuilder(camera_view=args.camera_view, minimum_visibility=float(squat_config.get("data_quality", {}).get("minimum_landmark_visibility", 0.65)))
-        if squat_mode_enabled and squat_config is not None
-        else None
-    )
-    squat_panel_enabled = squat_mode_enabled
-    squat_active = squat_mode_enabled
-    squat_calibration_status = "N/A"
-    last_squat_measurement = None
-    last_squat_displacement = None
-    basketball_mode_enabled = args.analysis_mode == "basketball"
-    basketball_panel_enabled = basketball_mode_enabled
-    basketball_collecting = False
-    basketball_manual_release_ms: int | None = None
-    basketball_phase = "IDLE"
     mode = args.landmark_profile
     mirror = bool(args.mirror)
     metrics_overlay_enabled = bool(args.metrics_overlay)
@@ -1091,52 +1042,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     kinematic_frame = kinematics_processor.process(pose_frame)
                     if session_writer.is_active:
                         session_writer.add_frame(pose_frame, kinematic_frame)
-                    if squat_mode_enabled and squat_detector is not None:
-                        squat_measurement = build_squat_frame_from_pose(pose_frame, kinematic_frame)
-                        last_squat_measurement = squat_measurement
-                        if squat_calibration_builder is not None and squat_calibration_builder.active:
-                            calibration = squat_calibration_builder.add(squat_measurement)
-                            if calibration is not None:
-                                squat_detector.set_calibration(calibration)
-                                squat_calibration_status = calibration.status
-                                flash(f"Squat calibration: {calibration.status}", (80, 230, 120) if calibration.status == "PASS" else (0, 190, 255), seconds=3.0)
-                        elif squat_active:
-                            completed_rep = squat_detector.update(squat_measurement)
-                            if squat_detector.frame_states:
-                                value = squat_detector.frame_states[-1].get("pelvis_displacement_normalized")
-                                try:
-                                    last_squat_displacement = float(value) if value != "" else None
-                                except (TypeError, ValueError):
-                                    last_squat_displacement = None
-                            if completed_rep is not None:
-                                flash(f"Squat rep: {completed_rep.rep_index}", (80, 230, 120), seconds=1.5)
-                    if basketball_mode_enabled:
-                        side = args.shooting_side
-                        elbow_angle = getattr(kinematic_frame, f"{side}_elbow_angle", None)
-                        wrist_speed = getattr(kinematic_frame, f"{side}_wrist_speed", None)
-                        knee_angle = getattr(kinematic_frame, f"{side}_knee_angle", None)
-                        try:
-                            elbow_value = float(elbow_angle)
-                        except (TypeError, ValueError):
-                            elbow_value = float("nan")
-                        try:
-                            wrist_value = float(wrist_speed)
-                        except (TypeError, ValueError):
-                            wrist_value = float("nan")
-                        try:
-                            knee_value = float(knee_angle)
-                        except (TypeError, ValueError):
-                            knee_value = float("nan")
-                        if not pose_frame.pose_detected:
-                            basketball_phase = "IDLE"
-                        elif wrist_value == wrist_value and wrist_value > 0.7:
-                            basketball_phase = "RELEASE_PROXY" if basketball_manual_release_ms is not None else "ARM_EXTENSION"
-                        elif elbow_value == elbow_value and elbow_value > 130:
-                            basketball_phase = "FOLLOW_THROUGH"
-                        elif knee_value == knee_value and knee_value < 145:
-                            basketball_phase = "DIP"
-                        else:
-                            basketball_phase = "SETUP"
                     last_processed_result_timestamp_ms = result_timestamp_ms
                 elif new_result:
                     last_processed_result_timestamp_ms = result_timestamp_ms
@@ -1173,51 +1078,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                             "motion_energy_proxy": getattr(kinematic_frame, "motion_energy_proxy", None),
                         },
                         origin=(14, 260),
-                    )
-
-                if squat_mode_enabled and squat_panel_enabled and squat_detector is not None:
-                    if squat_calibration_builder is not None and squat_calibration_builder.active:
-                        calibration_label = f"CALIBRATING {squat_calibration_builder.progress(timestamp_ms) * 100.0:.0f}%"
-                    else:
-                        calibration_label = squat_calibration_status
-                    visibility = getattr(last_squat_measurement, "visibility_mean", None)
-                    quality_label = "GOOD" if visibility is not None and visibility >= 0.75 else ("WARNING" if visibility is not None and visibility >= 0.55 else "N/A")
-                    draw_squat_overlay(
-                        frame,
-                        {
-                            "camera_view": args.camera_view,
-                            "calibration_status": calibration_label,
-                            "state": squat_detector.machine.state,
-                            "rep_count": squat_detector.machine.rep_count,
-                            "left_knee_angle": getattr(last_squat_measurement, "left_knee_angle", None),
-                            "right_knee_angle": getattr(last_squat_measurement, "right_knee_angle", None),
-                            "trunk_tilt_proxy": getattr(last_squat_measurement, "trunk_tilt_proxy", None),
-                            "pelvis_displacement": last_squat_displacement,
-                            "data_quality": quality_label,
-                        },
-                        origin=(14, 470 if metrics_overlay_enabled else 280),
-                    )
-
-                if basketball_mode_enabled and basketball_panel_enabled:
-                    side = args.shooting_side
-                    visibility = getattr(kinematic_frame, "quality", {}).get("visibility_mean") if kinematic_frame is not None else None
-                    quality_label = "GOOD" if visibility is not None and visibility >= 0.75 else ("WARNING" if visibility is not None and visibility >= 0.55 else "N/A")
-                    release_label = f"{basketball_manual_release_ms} ms" if basketball_manual_release_ms is not None else "PENDING"
-                    draw_basketball_overlay(
-                        frame,
-                        {
-                            "shot_type": args.shot_type,
-                            "shooting_side": side,
-                            "camera_view": args.camera_view,
-                            "phase": basketball_phase,
-                            "knee_angle": getattr(kinematic_frame, f"{side}_knee_angle", None),
-                            "elbow_angle": getattr(kinematic_frame, f"{side}_elbow_angle", None),
-                            "pelvis_speed": getattr(kinematic_frame, "pelvis_speed", None),
-                            "wrist_speed": getattr(kinematic_frame, f"{side}_wrist_speed", None),
-                            "release_proxy": release_label,
-                            "data_quality": quality_label,
-                        },
-                        origin=(14, 470 if metrics_overlay_enabled else 280),
                     )
 
                 if time.perf_counter() < flash_until and flash_text:
@@ -1269,10 +1129,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     mode = "full"
                     pose_draw_indices = resolve_pose_draw_indices(mode, args.include_landmarks, args.exclude_landmarks)
                     flash("Mode: full skeleton")
-                elif key == ord("2"):
-                    mode = "shot"
-                    pose_draw_indices = resolve_pose_draw_indices(mode, args.include_landmarks, args.exclude_landmarks)
-                    flash("Mode: shot joints")
                 elif key == ord("3"):
                     metrics_overlay_enabled = not metrics_overlay_enabled
                     flash(f"Metrics panel: {'ON' if metrics_overlay_enabled else 'OFF'}")
@@ -1313,45 +1169,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                     except Exception as exc:
                         flash(f"Session failed: {exc}", (60, 80, 255), seconds=3.0)
                         print(f"ERROR: session operation failed: {exc}", file=sys.stderr)
-                elif key in (ord("k"), ord("K")):
-                    if squat_mode_enabled and squat_calibration_builder is not None:
-                        squat_calibration_builder.start()
-                        squat_calibration_status = "CALIBRATING"
-                        if squat_detector is not None:
-                            squat_detector.machine.reset(clear_calibration=True)
-                        flash("Squat calibration started", (80, 230, 120))
-                    else:
-                        flash("Squat mode is not enabled", (0, 190, 255))
-                elif key in (ord("p"), ord("P")):
-                    if squat_mode_enabled:
-                        squat_active = not squat_active
-                        flash(f"Squat analysis: {'ON' if squat_active else 'OFF'}")
-                    else:
-                        flash("Squat mode is not enabled", (0, 190, 255))
-                elif key == ord("4"):
-                    if squat_mode_enabled:
-                        squat_panel_enabled = not squat_panel_enabled
-                        flash(f"Squat panel: {'ON' if squat_panel_enabled else 'OFF'}")
-                    else:
-                        flash("Squat mode is not enabled", (0, 190, 255))
-                elif key == ord("5"):
-                    if basketball_mode_enabled:
-                        basketball_panel_enabled = not basketball_panel_enabled
-                        flash(f"Basketball panel: {'ON' if basketball_panel_enabled else 'OFF'}")
-                    else:
-                        flash("Basketball mode is not enabled", (0, 190, 255))
-                elif key in (ord("j"), ord("J")):
-                    if basketball_mode_enabled:
-                        basketball_collecting = not basketball_collecting
-                        flash(f"Shot candidate capture: {'ON' if basketball_collecting else 'OFF'}")
-                    else:
-                        flash("Basketball mode is not enabled", (0, 190, 255))
-                elif key in (ord("l"), ord("L")):
-                    if basketball_mode_enabled:
-                        basketball_manual_release_ms = last_processed_result_timestamp_ms if last_processed_result_timestamp_ms >= 0 else timestamp_ms
-                        flash(f"Release proxy marked: {basketball_manual_release_ms} ms", (80, 230, 120))
-                    else:
-                        flash("Basketball mode is not enabled", (0, 190, 255))
     finally:
         if session_writer.is_active:
             path = session_writer.stop(final_mirror=mirror)

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>HYROX 服务状态</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="status-body">
+  <main class="status-card">
+    <span class="ok">服务运行正常</span>
+    <h1>HYROX 姿态分析服务</h1>
+    <p>此页面只显示容量状态，不包含用户数据。</p>
+    <dl>
+      <dt>当前匿名会话</dt><dd>{{ stats.sessions }} / {{ stats.max_sessions }}</dd>
+      <dt>实时分析会话</dt><dd>{{ stats.active_realtime }} / {{ stats.max_active_realtime }}</dd>
+      <dt>服务运行时长</dt><dd>{{ stats.uptime_seconds }} 秒</dd>
+      {% if stats.process_memory_mb is defined %}<dt>进程内存</dt><dd>{{ stats.process_memory_mb }} MB</dd>{% endif %}
+      {% if stats.system_cpu_percent is defined %}<dt>系统 CPU</dt><dd>{{ stats.system_cpu_percent }}%</dd>{% endif %}
+      {% if stats.system_memory_percent is defined %}<dt>系统内存</dt><dd>{{ stats.system_memory_percent }}%</dd>{% endif %}
+      {% if stats.gpu is defined %}<dt>GPU</dt><dd>{{ stats.gpu }}</dd>{% endif %}
+      {% if stats.gpu_memory_reserved_mb is defined %}<dt>GPU 已预留显存</dt><dd>{{ stats.gpu_memory_reserved_mb }} MB</dd>{% endif %}
+    </dl>
+  </main>
+</body>
+</html>

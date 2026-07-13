@@ -1,8 +1,0 @@
-{
-  "comparison_id": "2026-07-11_145327",
-  "created_at": "2026-07-11T14:53:27+08:00",
-  "reference_dir": "C:\\Users\\dell\\Desktop\\pose estimation\\outputs\\pytest_round4_full\\test_compare_session_writes_js0\\references\\2026-07-11_145327_reference",
-  "candidate_session_dir": "C:\\Users\\dell\\Desktop\\pose estimation\\outputs\\pytest_round4_full\\test_compare_session_writes_js0\\sessions\\candidate_session",
-  "target_length": 100,
-  "window_ratio": 0.15
-}

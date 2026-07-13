@@ -12,5 +12,16 @@ __pycache__/
 logs/
 *.log
 
+# Generated analysis and test artifacts
+outputs/pytest_*/
+outputs/*_smoke.csv
+outputs/comparisons/hyrox_smoke/
+outputs/comparisons/hyrox_gpu_smoke/
+outputs/comparisons/hyrox_gpu_smoke_roi/
+outputs/web_sessions/
+outputs/web_uploads/
+outputs/screenshots/
+outputs/recordings/
+
 .env
 .env.*

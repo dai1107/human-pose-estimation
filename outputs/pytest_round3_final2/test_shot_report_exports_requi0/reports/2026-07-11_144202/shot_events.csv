@@ -1,8 +1,0 @@
-event,timestamp_ms,normalized_time_percent,confidence,source_signal,data_quality
-pelvis_upward_speed_peak,200,22.222222,0.8,pelvis_vertical_velocity_proxy,GOOD
-right_knee_extension_peak,200,22.222222,0.8,shooting_knee_angular_velocity,GOOD
-right_hip_extension_peak,200,22.222222,0.8,shooting_hip_angular_velocity,GOOD
-shoulder_elevation_peak,900,100,0.8,shooting_shoulder_angle,GOOD
-right_elbow_extension_peak,600,66.666667,0.8,shooting_elbow_angular_velocity,GOOD
-right_wrist_speed_peak,600,66.666667,0.8,shooting_wrist_speed,GOOD
-release_proxy_time,600,66.666667,0.9,auto,GOOD

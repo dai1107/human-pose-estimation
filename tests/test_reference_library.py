@@ -16,7 +16,7 @@ def test_create_reference_from_session_writes_library_files(tmp_path) -> None:
         start_ms=1100,
         end_ms=1700,
         name="unit reference",
-        action_type="squat",
+        action_type="lunge",
         camera_view="side",
         movement_side="bilateral",
     )
@@ -29,11 +29,10 @@ def test_create_reference_from_session_writes_library_files(tmp_path) -> None:
 
     reference = load_reference(reference_dir)
     assert reference.name == "unit reference"
-    assert reference.action_type == "squat"
+    assert reference.action_type == "lunge"
     assert reference.source_session_ids == ["session_a"]
     assert reference.quality_summary["status"] == "PASS"
     assert len(list_references(tmp_path / "references")) == 1
 
     payload = json.loads((reference_dir / "reference.json").read_text(encoding="utf-8"))
     assert payload["normalization_method"] == "body_relative"
-

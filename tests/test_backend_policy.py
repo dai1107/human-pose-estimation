@@ -11,7 +11,6 @@ from src.utils.backend_policy import resolve_backend_choice
 
 def test_backend_auto_defaults_to_mediapipe_for_unknown_actions() -> None:
     assert resolve_backend_choice("auto") == "mediapipe"
-    assert resolve_backend_choice("auto", action_type="squat") == "mediapipe"
 
 
 def test_backend_auto_uses_hyrox_policy_from_action_type() -> None:
@@ -44,10 +43,7 @@ def test_main_defaults_to_auto_backend() -> None:
     assert args.landmark_profile == "full"
     assert args.metrics_overlay is False
     assert args.session_autostart is False
-    assert args.analysis_mode == "pose"
     assert args.camera_view == "unknown"
-    assert args.shot_type == "set_shot"
-    assert args.shooting_side == "right"
     assert args.save_dir == "outputs"
     assert args.show_hands is False
     assert args.hand_model == "models/hand_landmarker.task"
@@ -133,11 +129,11 @@ def test_make_output_path_uses_expected_directory_and_suffix(tmp_path: Path) -> 
     assert path.suffix == ".mp4"
 
 
-def test_main_can_parse_realtime_overlay_and_analysis_options() -> None:
+def test_main_can_parse_realtime_overlay_options() -> None:
     args = parse_args(
         [
             "--landmark-profile",
-            "shot",
+            "upper-body",
             "--show-hands",
             "--hand-detect-width",
             "640",
@@ -147,30 +143,21 @@ def test_main_can_parse_realtime_overlay_and_analysis_options() -> None:
             "1",
             "--metrics-overlay",
             "--session-autostart",
-            "--analysis-mode",
-            "basketball",
             "--camera-view",
             "front_left",
-            "--shot-type",
-            "jump_shot",
-            "--shooting-side",
-            "left",
             "--save-dir",
             "custom_outputs",
         ]
     )
 
-    assert args.landmark_profile == "shot"
+    assert args.landmark_profile == "upper-body"
     assert args.show_hands is True
     assert args.hand_detect_width == 640
     assert args.max_hand_detect_fps == 12.0
     assert args.max_hands == 1
     assert args.metrics_overlay is True
     assert args.session_autostart is True
-    assert args.analysis_mode == "basketball"
     assert args.camera_view == "front_left"
-    assert args.shot_type == "jump_shot"
-    assert args.shooting_side == "left"
     assert args.save_dir == "custom_outputs"
 
 
