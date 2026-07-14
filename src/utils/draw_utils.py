@@ -96,6 +96,8 @@ def draw_pose_result_filtered(
     min_confidence: float = 0.2,
     visible_names: set[str] | None = None,
     highlight_names: set[str] | None = None,
+    line_color: tuple[int, int, int] = (80, 220, 120),
+    point_color: tuple[int, int, int] = (255, 210, 80),
 ) -> None:
     if not result.success:
         return
@@ -111,14 +113,14 @@ def draw_pose_result_filtered(
             continue
         if a.confidence < min_confidence or b.confidence < min_confidence:
             continue
-        cv2.line(frame, to_pixel(a.x, a.y, width, height), to_pixel(b.x, b.y, width, height), (80, 220, 120), 2, cv2.LINE_AA)
+        cv2.line(frame, to_pixel(a.x, a.y, width, height), to_pixel(b.x, b.y, width, height), line_color, 2, cv2.LINE_AA)
     for point in result.keypoints:
         if visible_names and point.name not in visible_names:
             continue
         if point.confidence < min_confidence:
             continue
         radius = 7 if point.name in highlight_names else 4
-        color = (0, 170, 255) if point.name in highlight_names else (255, 210, 80)
+        color = (0, 170, 255) if point.name in highlight_names else point_color
         cv2.circle(frame, to_pixel(point.x, point.y, width, height), radius, color, -1, cv2.LINE_AA)
 
 

@@ -141,7 +141,7 @@ def test_wall_ball_knee_cave_feedback_is_low_confidence_warning() -> None:
     assert message.confidence <= 0.45
 
 
-def test_wall_ball_reports_incomplete_extension_on_return() -> None:
+def test_wall_ball_waits_until_throw_before_judging_extension() -> None:
     analyzer = WallBallAnalyzer.from_config({**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1})
     analyzer.update(_features(), 100)
     analyzer.update(
@@ -154,7 +154,7 @@ def test_wall_ball_reports_incomplete_extension_on_return() -> None:
         ),
         150,
     )
-    state = analyzer.update(
+    rising = analyzer.update(
         _features(
             left_knee_angle=155.0,
             right_knee_angle=156.0,
@@ -163,7 +163,23 @@ def test_wall_ball_reports_incomplete_extension_on_return() -> None:
         ),
         600,
     )
+    state = analyzer.update(
+        _features(
+            left_knee_angle=155.0,
+            right_knee_angle=156.0,
+            left_hip_angle=150.0,
+            right_hip_angle=151.0,
+            left_elbow_angle=160.0,
+            right_elbow_angle=162.0,
+            wrist_above_shoulder=0.10,
+        ),
+        650,
+    )
 
+    assert rising["phase"] == "drive"
+    assert rising["rep_count"] == 0
+    assert rising["feedback_messages"] == []
+    assert state["phase"] == "throw_extension"
     assert state["rep_count"] == 1
     assert [message.code for message in state["feedback_messages"]] == ["NOT_FULL_EXTENSION"]
 
@@ -199,13 +215,18 @@ def test_wall_ball_rep_cooldown_prevents_duplicate_counting() -> None:
         right_hip_angle=106.0,
         hip_knee_depth=0.02,
     )
+    extension = _features(
+        left_elbow_angle=168.0,
+        right_elbow_angle=170.0,
+        wrist_above_shoulder=0.12,
+    )
 
     analyzer.update(_features(), 100)
     analyzer.update(bottom, 150)
-    assert analyzer.update(_features(), 600)["rep_count"] == 1
+    assert analyzer.update(extension, 600)["rep_count"] == 1
 
     analyzer.update(bottom, 650)
-    assert analyzer.update(_features(), 800)["rep_count"] == 1
+    assert analyzer.update(extension, 800)["rep_count"] == 1
 
     analyzer.update(bottom, 900)
-    assert analyzer.update(_features(), 1050)["rep_count"] == 2
+    assert analyzer.update(extension, 1050)["rep_count"] == 2

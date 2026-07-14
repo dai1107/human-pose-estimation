@@ -18,7 +18,7 @@
       <div class="top-status" aria-live="polite">
         <span class="status-dot" id="statusDot"></span>
         <span id="topStatus">系统就绪</span>
-        <span class="privacy-tag">不采集音频 · 不保存画面</span>
+        <span class="privacy-tag">不采集音频 · 服务器不保存画面</span>
       </div>
     </header>
 
@@ -39,7 +39,7 @@
           <div class="source-pane active" data-pane="camera">
             <div class="camera-privacy">
               <strong>摄像头用途说明</strong>
-              <p>仅将压缩画面传给本服务做实时姿态分析；不请求麦克风、不保存画面。分析报告保留 10 分钟。</p>
+              <p>仅将压缩画面传给本服务做实时姿态分析；不请求麦克风、服务器不保存画面。分析报告保留 10 分钟。</p>
             </div>
             <label for="cameraDevice">本机摄像头</label>
             <select id="cameraDevice" disabled><option value="">开启后可选择设备</option></select>
@@ -50,8 +50,10 @@
             <p class="permission-state" id="cameraPermission" data-state="idle" role="status">尚未申请摄像头权限</p>
           </div>
           <div class="source-pane" data-pane="sample">
-            <label for="sampleVideo">项目示例</label>
-            <select id="sampleVideo"><option value="">正在读取…</option></select>
+            <div class="sample-note">
+              <strong>动作与示例已联动</strong>
+              <p>直接在下方选择 HYROX 动作，系统会自动加载同名示例，不需要重复选择。</p>
+            </div>
           </div>
           <div class="source-pane" data-pane="upload">
             <label class="upload-box" for="videoFile">
@@ -95,14 +97,23 @@
               </select>
             </div>
             <div class="control-group">
-              <label for="profileSelect">骨架显示</label>
+              <label for="profileSelect">骨架设置</label>
               <select id="profileSelect">
                 <option value="full">完整骨架</option>
-                <option value="no-face">隐藏面部</option>
                 <option value="upper-body">仅上半身</option>
                 <option value="lower-body">仅下半身</option>
               </select>
             </div>
+            <label class="switch-row">
+              <span><strong>显示手指节点</strong><small>显示拇指、食指和小指姿态点</small></span>
+              <input id="fingerToggle" type="checkbox" checked>
+              <span class="switch" aria-hidden="true"></span>
+            </label>
+            <label class="switch-row">
+              <span><strong>隐藏面部</strong><small>不显示面部姿态节点</small></span>
+              <input id="faceToggle" type="checkbox">
+              <span class="switch" aria-hidden="true"></span>
+            </label>
             <label class="switch-row">
               <span><strong>镜像画面</strong><small>摄像头自拍时更直观</small></span>
               <input id="mirrorToggle" type="checkbox" checked>
@@ -111,9 +122,6 @@
           </div>
         </details>
 
-        <button class="primary-button" id="startButton" type="button">
-          <span>开始分析</span><span aria-hidden="true">→</span>
-        </button>
         <p class="local-note">上传视频分析完成后立即删除；结构化结果 10 分钟后自动清除。</p>
       </aside>
 
@@ -124,7 +132,9 @@
             <h1 id="stageTitle">准备开始训练分析</h1>
           </div>
           <div class="stage-actions">
+            <button class="primary-button toolbar-start" id="startButton" type="button"><span>开始实时分析</span><span aria-hidden="true">→</span></button>
             <button class="icon-button" id="pauseButton" type="button" disabled title="暂停或继续"><span id="pauseIcon">Ⅱ</span><small>暂停</small></button>
+            <button class="icon-button" id="recordButton" type="button" disabled title="在当前设备录制带骨架画面"><span class="record-symbol"></span><small>录制</small></button>
             <button class="icon-button" id="screenshotButton" type="button" disabled title="保存当前画面"><span>□</span><small>截图</small></button>
             <button class="stop-button" id="stopButton" type="button" disabled>停止摄像头</button>
           </div>
@@ -148,16 +158,28 @@
             <span><i class="live-dot"></i> LIVE</span>
             <span id="sourceBadge">摄像头 0</span>
           </div>
+          <div class="video-rep-badge" id="videoRepBadge" hidden aria-live="polite">
+            <span>完成次数</span><strong id="videoRepCount">0</strong>
+          </div>
           <div class="loading-overlay" id="loadingOverlay" hidden><span class="spinner"></span><strong>正在加载模型</strong><small>首次启动可能需要几秒</small></div>
         </div>
         <div class="progress-track" id="progressTrack" hidden><span id="progressBar"></span></div>
+        <div class="recording-review" id="recordingReview" hidden>
+          <video id="recordingPlayback" controls playsinline></video>
+          <div><strong>本机录像已就绪</strong><small>录像包含姿态节点，仅保存在当前设备内存中。</small><a id="downloadRecording" download>保存录像</a></div>
+        </div>
 
-        <div class="runtime-strip runtime-five">
+        <div class="runtime-strip runtime-six">
           <div><span>识别模型</span><strong id="backendMetric">—</strong></div>
-          <div><span>实时帧率</span><strong><b id="fpsMetric">0.0</b> FPS</strong></div>
+          <div><span>摄像头采集</span><strong id="captureMetric">—</strong></div>
+          <div><span>分析帧率</span><strong><b id="fpsMetric">0.0</b> FPS</strong></div>
           <div><span>推理耗时</span><strong><b id="latencyMetric">0.0</b> ms</strong></div>
           <div><span>连接质量</span><strong id="connectionMetric" class="neutral">未连接</strong></div>
           <div><span>姿态状态</span><strong id="poseMetric" class="neutral">等待画面</strong></div>
+        </div>
+        <div class="report-ready-banner" id="reportReadyBanner" hidden>
+          <span><strong>分析数据已就绪</strong><small>可查看简要结论并下载完整文字报告</small></span>
+          <button id="openReportButton" type="button">生成并查看报告</button>
         </div>
       </section>
 
@@ -186,18 +208,26 @@
           </div>
         </div>
 
+        <div class="standards-card">
+          <div class="section-title"><span>动作标准</span><small id="standardsPhase">切换动作时更新</small></div>
+          <div id="standardsList" class="standards-list"><p>正在读取动作标准…</p></div>
+        </div>
+
         <div class="tips-card">
           <span class="tips-icon">!</span>
           <div><strong>拍摄小贴士</strong><p id="cameraTip">侧面适合观察躯干角度、髋铰链和步幅。</p></div>
         </div>
 
         <div class="report-card">
-          <div><strong>分析结果</strong><p>JSON 含关键点明细，CSV 便于表格查看；均不包含视频画面。</p></div>
+          <div><strong>自动分析报告</strong><p>按每次动作说明做得好的地方和需要改进的地方，并区分官方规则与训练建议；不包含视频画面。</p></div>
           <div class="report-actions">
+            <button id="generateReportButton" type="button" disabled>生成报告</button>
+            <a id="downloadText" href="/api/report.txt" download aria-disabled="true">文字报告</a>
             <a id="downloadJson" href="/api/report.json" download aria-disabled="true">JSON</a>
             <a id="downloadCsv" href="/api/report.csv" download aria-disabled="true">CSV</a>
             <button id="deleteSessionButton" type="button">删除本次数据</button>
           </div>
+          <div class="report-preview" id="reportPreview" hidden></div>
         </div>
       </aside>
     </main>
@@ -205,7 +235,7 @@
     <footer class="privacy-footer">
       <details>
         <summary>隐私与摄像头说明</summary>
-        <p>摄像头只会在你点击“开启摄像头”后启用。浏览器只请求视频权限，音频始终关闭。摄像头帧仅用于实时计算，不写入服务器磁盘；关闭、切换设备或离开页面时会立即停止所有视频轨道。上传视频仅作为临时分析输入，完成后删除。结构化分析结果最多保留 10 分钟，你也可以随时点击“删除本次数据”。</p>
+        <p>摄像头只会在你点击“开启摄像头”后启用。浏览器只请求视频权限，音频始终关闭。摄像头帧仅用于实时计算，不写入服务器磁盘；关闭、切换设备或离开页面时会立即停止所有视频轨道。你主动使用“录制”时，带骨架画面只在浏览器内生成并供你本机回放或保存，不上传服务器。上传视频仅作为临时分析输入，完成后删除。结构化分析结果最多保留 10 分钟，你也可以随时点击“删除本次数据”。</p>
       </details>
     </footer>
   </div>

@@ -27,6 +27,7 @@ from src.backends.yolo_pose_backend import YoloPoseBackend
 from src.utils.backend_policy import resolve_backend_choice
 from src.utils.device import resolve_torch_device
 from src.utils.smoothing import KeypointSmoother
+from webui.analysis import assess_action, enrich_report, visible_feedback
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +36,7 @@ MAX_FRAME_BYTES = 512 * 1024
 MAX_FRAME_WIDTH = 1280
 MAX_FRAME_HEIGHT = 720
 MAX_FRAME_PIXELS = MAX_FRAME_WIDTH * MAX_FRAME_HEIGHT
-DEFAULT_RECEIVE_FPS = 15.0
+DEFAULT_RECEIVE_FPS = 30.0
 REPORT_RETENTION_SECONDS = 10 * 60
 DISCONNECT_GRACE_SECONDS = 30
 
@@ -54,6 +55,7 @@ FACE_NAMES = {
     "nose", "left_eye_inner", "left_eye", "left_eye_outer", "right_eye_inner",
     "right_eye", "right_eye_outer", "left_ear", "right_ear", "mouth_left", "mouth_right",
 }
+FINGER_NAMES = {"left_pinky", "right_pinky", "left_index", "right_index", "left_thumb", "right_thumb"}
 UPPER_BODY_NAMES = {
     "left_shoulder", "right_shoulder", "left_elbow", "right_elbow", "left_wrist",
     "right_wrist", "left_pinky", "right_pinky", "left_index", "right_index",
@@ -149,6 +151,7 @@ def validate_settings(values: Mapping[str, Any]) -> dict[str, Any]:
         "sensitivity": sensitivity,
         "backend": backend,
         "landmark_profile": profile,
+        "show_fingers": bool(values.get("show_fingers", True)),
         "mirror": bool(values.get("mirror", True)),
         "paused": bool(values.get("paused", False)),
     }
@@ -170,7 +173,7 @@ def default_backend_factory(requested: str, action: str) -> tuple[Any, str]:
     raise RealtimeProtocolError("invalid_backend", "无法选择识别模型")
 
 
-def _feedback_items(state: Mapping[str, Any] | None) -> list[dict[str, str]]:
+def _feedback_items(state: Mapping[str, Any] | None) -> list[dict[str, Any]]:
     if not state:
         return []
     messages = state.get("feedback_messages") or []
@@ -180,23 +183,30 @@ def _feedback_items(state: Mapping[str, Any] | None) -> list[dict[str, str]]:
             text = str(message.get("text", ""))
             level = str(message.get("level", "info"))
             code = str(message.get("code", ""))
+            confidence = message.get("confidence")
         else:
             text = str(getattr(message, "text", ""))
             level = str(getattr(message, "level", "info"))
             code = str(getattr(message, "code", ""))
+            confidence = getattr(message, "confidence", None)
         if text:
-            items.append({"level": level, "code": code, "text": text})
+            item: dict[str, Any] = {"level": level, "code": code, "text": text}
+            if isinstance(confidence, (int, float)):
+                item["confidence"] = round(max(0.0, min(1.0, float(confidence))), 3)
+            items.append(item)
     return items
 
 
-def _profile_names(profile: str, all_names: set[str]) -> set[str]:
+def _profile_names(profile: str, all_names: set[str], *, show_fingers: bool = True) -> set[str]:
     if profile == "no-face":
-        return all_names - FACE_NAMES
-    if profile == "upper-body":
-        return all_names & UPPER_BODY_NAMES
-    if profile == "lower-body":
-        return all_names & LOWER_BODY_NAMES
-    return all_names
+        visible = all_names - FACE_NAMES
+    elif profile == "upper-body":
+        visible = all_names & UPPER_BODY_NAMES
+    elif profile == "lower-body":
+        visible = all_names & LOWER_BODY_NAMES
+    else:
+        visible = set(all_names)
+    return visible if show_fingers else visible - FINGER_NAMES
 
 
 class RealtimePoseSession:
@@ -399,7 +409,7 @@ class RealtimePoseSession:
         with self._lock:
             frames = list(self._history)
             state = dict(self._state)
-        return {
+        return enrich_report({
             "schema_version": 1,
             "generated_at_unix_ms": int(time.time() * 1000),
             "retention_minutes": self._retention_seconds // 60,
@@ -414,7 +424,7 @@ class RealtimePoseSession:
                 "backend": state["backend"],
             },
             "frames": frames,
-        }
+        })
 
     def report_csv(self) -> str:
         report = self.report()
@@ -566,12 +576,17 @@ class RealtimePoseSession:
             )
             analyzer_key = next_analyzer_key
         action_state: Mapping[str, Any] | None = None
+        features = None
         if analyzer is not None:
             features = extract_basic_pose_features(result.keypoints, width, height) if has_pose else None
             action_state = analyzer.attach_view_context(analyzer.update(features, timestamp_ms=int(time.monotonic() * 1000)))
 
         all_names = {point.name for point in result.keypoints}
-        visible_names = _profile_names(str(settings["landmark_profile"]), all_names)
+        visible_names = _profile_names(
+            str(settings["landmark_profile"]),
+            all_names,
+            show_fingers=bool(settings["show_fingers"]),
+        )
         keypoints = [
             {
                 "name": point.name,
@@ -594,6 +609,11 @@ class RealtimePoseSession:
         ]
         phase = "idle" if action_state is None else str(action_state.get("phase", "unknown"))
         reps = 0 if action_state is None else int(action_state.get("rep_count", 0))
+        action_debug = action_state.get("debug") if isinstance(action_state, Mapping) else None
+        evaluation_phase = str(action_debug.get("raw_phase", phase)) if isinstance(action_debug, Mapping) else phase
+        detected_issues = _feedback_items(action_state)
+        feedback = visible_feedback(detected_issues, evaluation_phase)
+        assessment = assess_action(str(settings["action"]), evaluation_phase, features, feedback)
         server_ms = (time.perf_counter() - started) * 1000.0
         return {
             "type": "result",
@@ -604,7 +624,9 @@ class RealtimePoseSession:
             "phase": phase,
             "reps": reps,
             "pose_detected": has_pose,
-            "feedback": _feedback_items(action_state),
+            "feedback": feedback,
+            "detected_issues": detected_issues,
+            "assessment": assessment,
             "keypoints": keypoints,
             "connections": connections,
             "metrics": {

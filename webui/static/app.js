@@ -9,7 +9,7 @@ const ui = {
   stateTimer: null,
   lastStatus: "idle",
   csrfToken: "",
-  realtimeConfig: { frame_width: 640, frame_height: 480, target_fps: 10 },
+  realtimeConfig: { frame_width: 640, frame_height: 480, target_fps: 30, camera_fps: 60 },
   mediaStream: null,
   socket: null,
   captureTimer: null,
@@ -21,14 +21,25 @@ const ui = {
   pendingFrames: new Map(),
   latestResult: null,
   lastResultAt: 0,
-  captureFps: 10,
+  captureFps: 30,
+  samplesByAction: new Map(),
+  standards: {},
+  officialRules: {},
+  recorder: null,
+  recordingCanvas: null,
+  recordingAnimation: null,
+  recordingChunks: [],
+  recordingUrl: "",
 };
 
 const phaseLabels = {
-  idle: "等待开始", ready: "准备就绪", no_pose: "未检测到姿态", low_visibility: "可见度不足",
-  stand: "站立", standing: "站立", squat_down: "下蹲", bottom: "最低点", drive: "发力",
-  reset: "复位", recovery: "恢复", pull: "拉动", catch: "起始", finish: "完成",
-  walking: "行走", airborne: "腾空", landing: "落地", support: "支撑",
+  idle: "等待开始", unknown: "识别中", ready: "准备就绪", no_pose: "未检测到姿态", low_visibility: "可见度不足",
+  stand: "站立", standing: "站立", descent: "下降", ascent: "起身", squat_down: "下蹲", bottom: "最低点", drive: "发力",
+  throw_extension: "投球伸展", reset: "复位", recovery: "恢复", carrying: "负重行走", rest: "停步休息",
+  pull: "拉动", pull_down: "下拉", return: "回位", catch: "起始", finish: "完成", top: "顶部",
+  setup: "准备", step: "蹬地迈步", hands_down: "双手撑地", chest_down: "俯卧最低点",
+  step_or_jump_in: "收腿", broad_jump_takeoff: "跳远起跳", flight_or_move: "腾空或移动",
+  reach: "前伸取绳", recover: "向前移动回位", walking: "行走", airborne: "腾空", landing: "落地", support: "支撑",
 };
 const viewTips = {
   unknown: "选择实际拍摄视角后，可获得更准确的动作反馈。",
@@ -62,13 +73,14 @@ async function loadOptions() {
     const options = await api("/api/options");
     ui.csrfToken = options.csrf_token;
     ui.realtimeConfig = options.realtime || ui.realtimeConfig;
+    ui.samplesByAction = new Map((options.samples || []).map(item => [item.action, item]));
+    ui.standards = options.standards || {};
+    ui.officialRules = options.official_rules || {};
     $("#actionSelect").innerHTML = options.actions.map(item => `<option value="${item.value}">${item.label}</option>`).join("");
     $("#actionSelect").value = "lunge";
     $("#viewSelect").innerHTML = options.views.map(item => `<option value="${item.value}">${item.label}</option>`).join("");
     $("#viewSelect").value = "side";
-    $("#sampleVideo").innerHTML = options.samples.length
-      ? options.samples.map(item => `<option value="${item.id}">${item.name}</option>`).join("")
-      : `<option value="">未找到示例视频</option>`;
+    renderStandards($("#actionSelect").value);
   } catch (error) {
     toast(error.message, true);
   }
@@ -80,10 +92,31 @@ function settingsPayload() {
     camera_view: $("#viewSelect").value,
     sensitivity: $("#sensitivitySelect").value,
     backend: $("#backendSelect").value,
-    landmark_profile: $("#profileSelect").value,
+    landmark_profile: selectedLandmarkProfile(),
+    show_fingers: $("#fingerToggle").checked,
     mirror: $("#mirrorToggle").checked,
     paused: ui.paused,
   };
+}
+
+function selectedLandmarkProfile() {
+  const profile = $("#profileSelect").value;
+  return $("#faceToggle").checked && profile === "full" ? "no-face" : profile;
+}
+
+function renderStandards(action) {
+  const list = $("#standardsList");
+  if (!list) return;
+  const standards = ui.standards[action] || [];
+  const officialRules = ui.officialRules[action] || [];
+  $("#standardsPhase").textContent = $("#actionSelect")?.selectedOptions[0]?.textContent || "动作标准";
+  const ruleRows = officialRules.length
+    ? `<div class="official-rule-list"><b>HYROX 26/27 官方要求</b>${officialRules.map(item => `<p><span>${item.pose_observable ? "可视觉判断" : "需现场确认"}</span>${escapeHtml(item.text)}</p>`).join("")}</div>`
+    : "";
+  const standardRows = standards.length
+    ? standards.map(item => `<div class="standard-row"><strong>${escapeHtml(item.label)}</strong><b>${escapeHtml(item.range_text)}</b><small>${escapeHtml(item.category_text || "训练参考")} · ${escapeHtml(item.phase_text)}${item.note ? ` · ${escapeHtml(item.note)}` : ""}</small></div>`).join("")
+    : `<p>该模式没有可由人体关键点直接判断的角度标准。</p>`;
+  list.innerHTML = ruleRows + standardRows;
 }
 
 function selectSource(mode) {
@@ -95,15 +128,22 @@ function selectSource(mode) {
   $("#mirrorToggle").checked = mode === "camera";
   $("#startButton span:first-child").textContent = mode === "camera" ? "开始实时分析" : "开始分析";
   $("#stopButton").textContent = mode === "camera" ? "停止摄像头" : "停止";
+  if (mode === "sample" && !ui.samplesByAction.has($("#actionSelect").value)) {
+    const firstAction = ui.samplesByAction.keys().next().value;
+    if (firstAction) $("#actionSelect").value = firstAction;
+  }
+  renderStandards($("#actionSelect").value);
 }
 
 function setRunning(running) {
   ui.running = running;
+  $("#videoRepBadge").hidden = !running;
   $("#startButton").disabled = running;
   $("#stopButton").disabled = !running && !ui.mediaStream;
   $("#pauseButton").disabled = !running;
+  $("#recordButton").disabled = !running || !window.MediaRecorder;
   $("#screenshotButton").disabled = !running;
-  $$("#sourceTabs button, #sampleVideo, #videoFile, #backendSelect, #openCameraButton").forEach(node => { node.disabled = running; });
+  $$("#sourceTabs button, #videoFile, #backendSelect, #openCameraButton").forEach(node => { node.disabled = running; });
   $("#switchCameraButton").disabled = !ui.mediaStream;
   $("#cameraDevice").disabled = !ui.mediaStream;
 }
@@ -129,9 +169,10 @@ async function openCamera({ deviceId = "", facingMode = ui.facingMode } = {}) {
   }
   setPermissionState("requesting", "正在等待你确认浏览器摄像头权限…");
   stopMediaTracks();
+  const requestedCameraFps = ui.realtimeConfig.camera_fps || 60;
   const videoConstraint = deviceId
-    ? { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 10, max: 15 } }
-    : { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 10, max: 15 } };
+    ? { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: requestedCameraFps, max: requestedCameraFps } }
+    : { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: requestedCameraFps, max: requestedCameraFps } };
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
     ui.mediaStream = stream;
@@ -146,6 +187,8 @@ async function openCamera({ deviceId = "", facingMode = ui.facingMode } = {}) {
     $("#emptyStage").hidden = true;
     $("#videoBadges").hidden = false;
     $("#sourceBadge").textContent = stream.getVideoTracks()[0]?.label || "本机摄像头";
+    const actualFps = Number(stream.getVideoTracks()[0]?.getSettings().frameRate || 0);
+    $("#captureMetric").textContent = actualFps > 0 ? `${actualFps.toFixed(0)} FPS` : "设备自适应";
     $("#openCameraButton").textContent = "关闭摄像头";
     $("#switchCameraButton").disabled = false;
     $("#cameraDevice").disabled = false;
@@ -187,6 +230,7 @@ function closeCamera() {
   $("#openCameraButton").textContent = "开启摄像头";
   $("#switchCameraButton").disabled = true;
   $("#cameraDevice").disabled = true;
+  $("#captureMetric").textContent = "—";
   if (ui.sourceMode === "camera") {
     $("#emptyStage").hidden = false;
     $("#videoBadges").hidden = true;
@@ -252,7 +296,7 @@ function connectRealtime() {
       } else if (message.type === "state") {
         updateState(message.state);
       } else if (message.type === "frame_dropped") {
-        ui.captureFps = Math.max(5, ui.captureFps - 1);
+        ui.captureFps = Math.max(15, ui.captureFps - 2);
         $("#connectionMetric").textContent = "正在自适应";
         $("#connectionMetric").className = "neutral";
       } else if (message.type === "error") {
@@ -288,9 +332,9 @@ function scheduleReconnect() {
 
 function startCaptureLoop() {
   stopCaptureLoop();
-  ui.captureFps = Math.min(ui.realtimeConfig.target_fps || 10, ui.captureFps || 10);
+  ui.captureFps = ui.realtimeConfig.target_fps || 30;
   const capture = async () => {
-    const interval = Math.max(67, Math.round(1000 / ui.captureFps));
+    const interval = Math.max(34, Math.ceil(1000 / ui.captureFps));
     if (!ui.running || !ui.mediaStream || ui.paused || ui.socket?.readyState !== WebSocket.OPEN) {
       ui.captureTimer = setTimeout(capture, interval);
       return;
@@ -341,8 +385,8 @@ function handleRealtimeResult(result) {
   let qualityClass = "good";
   if (roundTrip > 500) { quality = "网络较慢"; qualityClass = "bad"; }
   else if (roundTrip > 250) { quality = "一般"; qualityClass = "neutral"; }
-  if (roundTrip > 500) ui.captureFps = Math.max(5, ui.captureFps - 1);
-  else if (roundTrip < 200 && result.sequence % 30 === 0) ui.captureFps = Math.min(ui.realtimeConfig.target_fps || 10, ui.captureFps + 1);
+  if (roundTrip > 500) ui.captureFps = Math.max(15, ui.captureFps - 2);
+  else if (roundTrip < 200 && result.sequence % 30 === 0) ui.captureFps = Math.min(ui.realtimeConfig.target_fps || 30, ui.captureFps + 1);
   $("#connectionMetric").textContent = `${quality} · ${Math.round(roundTrip)} ms`;
   $("#connectionMetric").className = qualityClass;
   $("#loadingOverlay").hidden = true;
@@ -365,7 +409,9 @@ function handleRealtimeResult(result) {
     frame_index: result.sequence,
   });
   drawSkeleton(result);
-  $$("#downloadJson, #downloadCsv").forEach(link => link.setAttribute("aria-disabled", "false"));
+  $$("#downloadText, #downloadJson, #downloadCsv").forEach(link => link.setAttribute("aria-disabled", "false"));
+  $("#generateReportButton").disabled = false;
+  $("#reportReadyBanner").hidden = false;
 }
 
 function resizeOverlay() {
@@ -410,7 +456,11 @@ function drawSkeleton(result) {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.lineWidth = Math.max(2, canvas.width / 430);
-  ctx.strokeStyle = "rgba(201, 255, 56, .92)";
+  const formStatus = result.assessment?.status || "unknown";
+  const formColor = formStatus === "bad"
+    ? "rgba(244, 62, 54, .96)"
+    : formStatus === "good" ? "rgba(72, 222, 116, .96)" : "rgba(244, 190, 67, .94)";
+  ctx.strokeStyle = formColor;
   for (const [startName, endName] of result.connections || []) {
     const start = points.get(startName);
     const end = points.get(endName);
@@ -424,11 +474,25 @@ function drawSkeleton(result) {
     const [x, y] = xy(point);
     ctx.beginPath();
     ctx.arc(x, y, Math.max(3, canvas.width / 260), 0, Math.PI * 2);
-    ctx.fillStyle = point.visibility >= 0.55 ? "#f04a23" : "#f0a023";
+    ctx.fillStyle = point.visibility >= 0.55 ? formColor : "#f0a023";
     ctx.fill();
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = "rgba(255,255,255,.9)";
     ctx.stroke();
+  }
+  ctx.font = `${Math.max(11, canvas.width / 70)}px Inter, sans-serif`;
+  ctx.textBaseline = "bottom";
+  for (const angle of result.assessment?.angles || []) {
+    const point = points.get(angle.anchor);
+    if (!point || point.visibility < 0.2) continue;
+    const [x, y] = xy(point);
+    const label = `${angle.label} ${Math.round(angle.value)}°`;
+    const color = angle.status === "bad" ? "#ff5b50" : angle.status === "good" ? "#59e481" : "#f5f5ef";
+    const width = ctx.measureText(label).width;
+    ctx.fillStyle = "rgba(20,20,18,.72)";
+    ctx.fillRect(x + 6, y - 22, width + 10, 20);
+    ctx.fillStyle = color;
+    ctx.fillText(label, x + 11, y - 5);
   }
   canvas.hidden = false;
 }
@@ -455,6 +519,9 @@ async function uploadSelectedVideo() {
 }
 
 async function startAnalysis() {
+  $("#reportPreview").hidden = true;
+  $("#reportReadyBanner").hidden = true;
+  $$("#downloadText, #downloadJson, #downloadCsv").forEach(link => link.setAttribute("aria-disabled", "true"));
   try {
     $("#startButton").disabled = true;
     $("#startButton span:first-child").textContent = "正在启动…";
@@ -468,7 +535,14 @@ async function startAnalysis() {
       await connectRealtime();
       return;
     }
-    let videoId = ui.sourceMode === "sample" ? $("#sampleVideo").value : await uploadSelectedVideo();
+    let videoId;
+    if (ui.sourceMode === "sample") {
+      const sample = ui.samplesByAction.get($("#actionSelect").value);
+      if (!sample) throw new Error("当前动作没有可用的示例视频");
+      videoId = sample.id;
+    } else {
+      videoId = await uploadSelectedVideo();
+    }
     const payload = { source_mode: ui.sourceMode, video_id: videoId, ...settingsPayload() };
     const state = await api("/api/start", { method: "POST", body: JSON.stringify(payload) });
     setRunning(true);
@@ -493,6 +567,7 @@ async function startAnalysis() {
 async function stopAnalysis() {
   ui.manualStop = true;
   clearTimeout(ui.reconnectTimer);
+  stopLocalRecording();
   try {
     if (ui.sourceMode === "camera") {
       sendSocket({ type: "stop" });
@@ -503,6 +578,7 @@ async function stopAnalysis() {
       $("#connectionMetric").textContent = "已断开";
       $("#connectionMetric").className = "neutral";
       toast("摄像头已停止并释放");
+      if (ui.latestResult) setTimeout(() => generateReport({ auto: true }), 500);
     } else {
       const state = await api("/api/stop", { method: "POST", body: "{}" });
       updateState(state);
@@ -517,10 +593,13 @@ function resetStage(clearImage = true) {
   ui.stateTimer = null;
   stopCaptureLoop();
   setRunning(false);
+  $("#videoRepCount").textContent = "0";
   ui.paused = false;
   $("#pauseButton").classList.remove("active");
   $("#pauseIcon").textContent = "Ⅱ";
   $("#pauseButton small").textContent = "暂停";
+  $("#recordButton").classList.remove("active");
+  $("#recordButton small").textContent = "录制";
   if (clearImage) {
     $("#streamImage").src = "";
     $("#streamImage").hidden = true;
@@ -575,6 +654,112 @@ function takeScreenshot() {
   }, "image/png");
 }
 
+function recordingMimeType() {
+  const candidates = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+  return candidates.find(value => MediaRecorder.isTypeSupported(value)) || "";
+}
+
+function drawRecordingFrame() {
+  if (!ui.recordingCanvas || !ui.recorder || ui.recorder.state === "inactive") return;
+  const canvas = ui.recordingCanvas;
+  const ctx = canvas.getContext("2d", { alpha: false });
+  const source = ui.sourceMode === "camera" ? $("#localVideo") : $("#streamImage");
+  const sourceWidth = source.videoWidth || source.naturalWidth || 0;
+  const sourceHeight = source.videoHeight || source.naturalHeight || 0;
+  ctx.fillStyle = "#171816";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (sourceWidth && sourceHeight) {
+    const scale = Math.min(canvas.width / sourceWidth, canvas.height / sourceHeight);
+    const width = sourceWidth * scale;
+    const height = sourceHeight * scale;
+    const x = (canvas.width - width) / 2;
+    const y = (canvas.height - height) / 2;
+    if (ui.sourceMode === "camera" && $("#mirrorToggle").checked) {
+      ctx.save(); ctx.translate(canvas.width, 0); ctx.scale(-1, 1);
+      ctx.drawImage(source, canvas.width - x - width, y, width, height);
+      ctx.restore();
+    } else {
+      ctx.drawImage(source, x, y, width, height);
+    }
+  }
+  if (ui.sourceMode === "camera" && !$("#overlayCanvas").hidden) {
+    ctx.drawImage($("#overlayCanvas"), 0, 0, canvas.width, canvas.height);
+  }
+  ui.recordingAnimation = requestAnimationFrame(drawRecordingFrame);
+}
+
+function startLocalRecording() {
+  if (!ui.running) { toast("请先开始分析", true); return; }
+  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
+    toast("当前浏览器不支持本机画面录制", true); return;
+  }
+  const stage = $("#videoStage");
+  const canvas = document.createElement("canvas");
+  const scale = Math.min(2, 1280 / Math.max(1, stage.clientWidth));
+  canvas.width = Math.max(320, Math.round(stage.clientWidth * scale));
+  canvas.height = Math.max(180, Math.round(stage.clientHeight * scale));
+  const mimeType = recordingMimeType();
+  ui.recordingCanvas = canvas;
+  ui.recordingChunks = [];
+  const recorder = new MediaRecorder(canvas.captureStream(25), mimeType ? { mimeType, videoBitsPerSecond: 3_000_000 } : undefined);
+  ui.recorder = recorder;
+  recorder.ondataavailable = event => { if (event.data?.size) ui.recordingChunks.push(event.data); };
+  recorder.onstop = () => {
+    cancelAnimationFrame(ui.recordingAnimation);
+    const blob = new Blob(ui.recordingChunks, { type: recorder.mimeType || "video/webm" });
+    if (ui.recordingUrl) URL.revokeObjectURL(ui.recordingUrl);
+    ui.recordingUrl = URL.createObjectURL(blob);
+    $("#recordingPlayback").src = ui.recordingUrl;
+    $("#downloadRecording").href = ui.recordingUrl;
+    $("#downloadRecording").download = `hyrox-pose-${new Date().toISOString().replaceAll(":", "-")}.webm`;
+    $("#recordingReview").hidden = false;
+    $("#recordButton").classList.remove("active");
+    $("#recordButton small").textContent = "录制";
+    ui.recorder = null;
+    ui.recordingCanvas = null;
+    toast("带姿态节点的录像已生成，可直接回放或保存");
+  };
+  recorder.start(500);
+  $("#recordButton").classList.add("active");
+  $("#recordButton small").textContent = "结束";
+  drawRecordingFrame();
+  toast("正在本机录制带姿态节点的画面");
+}
+
+function stopLocalRecording() {
+  if (ui.recorder && ui.recorder.state !== "inactive") ui.recorder.stop();
+}
+
+function toggleRecording() {
+  if (ui.recorder && ui.recorder.state !== "inactive") stopLocalRecording();
+  else startLocalRecording();
+}
+
+async function generateReport(options = {}) {
+  const auto = options?.auto === true;
+  const button = $("#generateReportButton");
+  button.disabled = true;
+  button.textContent = "正在生成…";
+  try {
+    const report = await api("/api/report");
+    const analysis = report.analysis || {};
+    const rate = analysis.compliance_rate == null ? "暂无" : `${analysis.compliance_rate}%`;
+    $("#reportPreview").innerHTML = `
+      <div class="report-heading"><div><small>本次训练结论</small><h3>${escapeHtml(report.summary?.action_label || "动作")} · ${escapeHtml(analysis.overall_status || "已完成")}</h3></div><strong>${rate}</strong></div>
+      <div class="report-metrics"><span><b>${Number(report.summary?.reps || 0)}</b>完整动作</span><span><b>${Number(analysis.evaluable_frames || 0)}</b>可评价画面</span><span><b>${Number(analysis.nonstandard_frames || 0)}</b>明显偏离画面</span></div>
+      <p class="report-explanation">${escapeHtml(analysis.compliance_explanation || "")}</p>
+      <p class="report-download-tip">做得好的地方、优先改进建议和逐次动作表现已写入文字报告，请点击上方“文字报告”下载查看。</p>`;
+    $("#reportPreview").hidden = false;
+    if (!auto) $("#reportPreview").scrollIntoView({ behavior: "smooth", block: "center" });
+    toast(auto ? "分析完成，文字报告已自动生成" : "分析报告已更新");
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    button.textContent = "重新生成";
+    button.disabled = false;
+  }
+}
+
 async function pollState() {
   try {
     const state = await api("/api/state");
@@ -583,10 +768,14 @@ async function pollState() {
       clearInterval(ui.stateTimer);
       ui.stateTimer = null;
       setRunning(false);
+      $("#videoRepBadge").hidden = state.status !== "completed";
       $("#loadingOverlay").hidden = true;
       if (state.status === "completed") {
-        $$("#downloadJson, #downloadCsv").forEach(link => link.setAttribute("aria-disabled", "false"));
+        $$("#downloadText, #downloadJson, #downloadCsv").forEach(link => link.setAttribute("aria-disabled", "false"));
+        $("#generateReportButton").disabled = false;
+        $("#reportReadyBanner").hidden = false;
         toast("视频分析完成，上传文件已删除");
+        await generateReport({ auto: true });
       }
       if (state.status === "error") toast(state.error || "分析出错", true);
     }
@@ -609,6 +798,8 @@ function updateState(state) {
   $("#poseMetric").textContent = state.pose_detected ? "已锁定人体" : state.running ? "正在寻找人体" : "等待画面";
   $("#poseMetric").className = state.pose_detected ? "good" : state.running ? "bad" : "neutral";
   $("#repCount").textContent = state.reps ?? 0;
+  $("#videoRepCount").textContent = state.reps ?? 0;
+  $("#videoRepBadge").hidden = !(state.running || state.status === "completed");
   $("#actionLabel").textContent = state.action_label || "动作指导关闭";
   const phase = state.phase || "idle";
   $("#phaseValue").textContent = phaseLabels[phase] || phase.replaceAll("_", " ");
@@ -659,15 +850,20 @@ $("#cameraDevice").addEventListener("change", event => openCamera({ deviceId: ev
 $("#startButton").addEventListener("click", startAnalysis);
 $("#stopButton").addEventListener("click", stopAnalysis);
 $("#pauseButton").addEventListener("click", togglePause);
+$("#recordButton").addEventListener("click", toggleRecording);
 $("#screenshotButton").addEventListener("click", takeScreenshot);
+$("#generateReportButton").addEventListener("click", generateReport);
+$("#openReportButton").addEventListener("click", generateReport);
 $("#deleteSessionButton").addEventListener("click", deleteCurrentSession);
-$("#actionSelect").addEventListener("change", event => updateLiveSetting("action", event.target.value));
+$("#actionSelect").addEventListener("change", event => { renderStandards(event.target.value); updateLiveSetting("action", event.target.value); });
 $("#viewSelect").addEventListener("change", event => { updateLiveSetting("camera_view", event.target.value); $("#cameraTip").textContent = viewTips[event.target.value]; });
 $("#sensitivitySelect").addEventListener("change", event => updateLiveSetting("sensitivity", event.target.value));
-$("#profileSelect").addEventListener("change", event => updateLiveSetting("landmark_profile", event.target.value));
+$("#profileSelect").addEventListener("change", () => updateLiveSetting("landmark_profile", selectedLandmarkProfile()));
+$("#fingerToggle").addEventListener("change", event => updateLiveSetting("show_fingers", event.target.checked));
+$("#faceToggle").addEventListener("change", () => updateLiveSetting("landmark_profile", selectedLandmarkProfile()));
 $("#mirrorToggle").addEventListener("change", event => updateLiveSetting("mirror", event.target.checked));
 window.addEventListener("resize", resizeOverlay);
-window.addEventListener("pagehide", () => { ui.manualStop = true; stopMediaTracks(); ui.socket?.close(); });
+window.addEventListener("pagehide", () => { ui.manualStop = true; stopLocalRecording(); stopMediaTracks(); ui.socket?.close(); if (ui.recordingUrl) URL.revokeObjectURL(ui.recordingUrl); });
 document.addEventListener("visibilitychange", () => { if (document.hidden && ui.mediaStream) stopAnalysis(); });
 
 loadOptions();

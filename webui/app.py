@@ -33,8 +33,9 @@ from src.backends.mediapipe_backend import MediaPipeBackend
 from src.backends.yolo_pose_backend import YoloPoseBackend
 from src.utils.backend_policy import resolve_backend_choice
 from src.utils.device import resolve_torch_device
-from src.utils.draw_utils import draw_hyrox_action_overlay, draw_pose_result_filtered
+from src.utils.draw_utils import draw_hyrox_action_overlay, draw_pose_result_filtered, to_pixel
 from src.utils.smoothing import KeypointSmoother
+from webui.analysis import assess_action, enrich_report, official_rules_for, render_text_report, standards_for, visible_feedback
 from webui.realtime import (
     BrowserSession,
     RealtimePoseSession,
@@ -62,6 +63,16 @@ ACTION_LABELS = {
     "sled_push": "推雪橇",
     "sled_pull": "拉雪橇",
 }
+ACTION_BY_SAMPLE_STEM = {
+    "负重箭步蹲": "lunge",
+    "投掷药球": "wall_ball",
+    "农夫行走": "farmers_carry",
+    "划船机": "rowing",
+    "滑雪机": "skierg",
+    "波比跳远": "burpee_broad_jump",
+    "推雪橇": "sled_push",
+    "拉雪橇": "sled_pull",
+}
 VIEW_LABELS = {
     "unknown": "自动 / 未指定",
     "front": "正面",
@@ -82,6 +93,14 @@ FACE_KEYPOINTS = {
     "right_ear",
     "mouth_left",
     "mouth_right",
+}
+FINGER_KEYPOINTS = {
+    "left_pinky",
+    "right_pinky",
+    "left_index",
+    "right_index",
+    "left_thumb",
+    "right_thumb",
 }
 UPPER_BODY_KEYPOINTS = {
     "left_shoulder",
@@ -123,25 +142,77 @@ def _visible_names(profile: str) -> set[str] | None:
     return None
 
 
-def _feedback_items(state: Mapping[str, object] | None) -> list[dict[str, str]]:
+def _result_visible_names(profile: str, result_names: set[str], *, show_fingers: bool) -> set[str]:
+    visible = _visible_names(profile)
+    if profile == "no-face":
+        visible = result_names - FACE_KEYPOINTS
+    if visible is None:
+        visible = set(result_names)
+    else:
+        visible &= result_names
+    if not show_fingers:
+        visible -= FINGER_KEYPOINTS
+    return visible
+
+
+def _feedback_items(state: Mapping[str, object] | None, *, phase_aware: bool = True) -> list[dict[str, Any]]:
     if not state:
         return []
     messages = state.get("feedback_messages")
     if not isinstance(messages, Sequence) or isinstance(messages, (str, bytes)):
         return []
-    items: list[dict[str, str]] = []
+    items: list[dict[str, Any]] = []
     for message in messages[:3]:
         if isinstance(message, Mapping):
             level = str(message.get("level", "info"))
             code = str(message.get("code", ""))
             text = str(message.get("text", ""))
+            confidence = message.get("confidence")
         else:
             level = str(getattr(message, "level", "info"))
             code = str(getattr(message, "code", ""))
             text = str(getattr(message, "text", ""))
+            confidence = getattr(message, "confidence", None)
         if text:
-            items.append({"level": level, "code": code, "text": text})
-    return items
+            item: dict[str, Any] = {"level": level, "code": code, "text": text}
+            if isinstance(confidence, (int, float)):
+                item["confidence"] = round(max(0.0, min(1.0, float(confidence))), 3)
+            items.append(item)
+    if not phase_aware:
+        return items
+    return visible_feedback(items, str(state.get("phase", "unknown")))
+
+
+def _draw_angle_overlay(frame: Any, result: Any, assessment: Mapping[str, Any]) -> None:
+    if not result.success:
+        return
+    height, width = frame.shape[:2]
+    points = {point.name: point for point in result.keypoints}
+    for item in list(assessment.get("angles") or [])[:5]:
+        point = points.get(str(item.get("anchor", "")))
+        if point is None or point.confidence < 0.2:
+            continue
+        x, y = to_pixel(point.x, point.y, width, height)
+        color = (70, 220, 110) if item.get("status") != "bad" else (50, 70, 245)
+        label = f"{float(item.get('value', 0)):.0f} deg"
+        origin = (x + 8, max(20, y - 8))
+        (text_width, text_height), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.48, 1)
+        cv2.rectangle(
+            frame,
+            (origin[0] - 3, origin[1] - text_height - 3),
+            (origin[0] + text_width + 3, origin[1] + baseline + 3),
+            (25, 25, 23),
+            -1,
+        )
+        cv2.putText(frame, label, origin, cv2.FONT_HERSHEY_SIMPLEX, 0.48, color, 1, cv2.LINE_AA)
+
+
+def _backend_plan(config: Mapping[str, Any]) -> tuple[str, str]:
+    """Keep the foreground athlete selected in the crowded lunge sample."""
+    requested = str(config.get("backend", "auto"))
+    if requested == "auto" and config.get("source_mode") == "sample" and config.get("action") == "lunge":
+        return "yolo-pose", "area"
+    return requested, "confidence"
 
 
 class PoseStreamEngine:
@@ -164,6 +235,7 @@ class PoseStreamEngine:
             "sensitivity": "medium",
             "mirror": True,
             "landmark_profile": "full",
+            "show_fingers": True,
             "paused": False,
         }
         self._state: dict[str, Any] = {
@@ -206,6 +278,7 @@ class PoseStreamEngine:
                     "sensitivity": config["sensitivity"],
                     "mirror": bool(config.get("mirror", True)),
                     "landmark_profile": config.get("landmark_profile", "full"),
+                    "show_fingers": bool(config.get("show_fingers", True)),
                     "paused": False,
                 }
             )
@@ -270,7 +343,7 @@ class PoseStreamEngine:
                     if value not in choices:
                         raise ValueError(f"invalid {key}: {value}")
                     self._settings[key] = value
-            for key in ("mirror", "paused"):
+            for key in ("mirror", "paused", "show_fingers"):
                 if key in values:
                     self._settings[key] = bool(values[key])
             self._state.update(
@@ -314,7 +387,7 @@ class PoseStreamEngine:
         with self._lock:
             frames = list(self._history)
             state = dict(self._state)
-        return {
+        return enrich_report({
             "schema_version": 1,
             "generated_at_unix_ms": int(time.time() * 1000),
             "retention_minutes": 10,
@@ -330,7 +403,7 @@ class PoseStreamEngine:
                 "backend": state["backend"],
             },
             "frames": frames,
-        }
+        })
 
     def report_csv(self) -> str:
         output = io.StringIO(newline="")
@@ -376,12 +449,19 @@ class PoseStreamEngine:
         total_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) if config["source_mode"] != "camera" else 0
         return capture, fps if fps > 0 else 30.0, max(0, total_frames)
 
-    def _create_backend(self, requested: str, action: str, source_path: str) -> tuple[Any, str]:
+    def _create_backend(
+        self,
+        requested: str,
+        action: str,
+        source_path: str,
+        *,
+        target_select: str = "confidence",
+    ) -> tuple[Any, str]:
         resolved = resolve_backend_choice(requested, action_type=action, input_video=source_path)
         if resolved == "mediapipe":
             return MediaPipeBackend(str(PROJECT_ROOT / "models" / "pose_landmarker_full.task")), resolved
         if resolved == "yolo-pose":
-            return YoloPoseBackend(str(PROJECT_ROOT / "yolo11n-pose.pt"), target_select="confidence", device=resolve_torch_device("auto")), resolved
+            return YoloPoseBackend(str(PROJECT_ROOT / "yolo11n-pose.pt"), target_select=target_select, device=resolve_torch_device("auto")), resolved
         raise ValueError(f"unknown backend: {resolved}")
 
     def _run(self, config: dict[str, Any]) -> None:
@@ -393,8 +473,19 @@ class PoseStreamEngine:
         try:
             source_path = str(config.get("video_path", ""))
             capture, source_fps, total_frames = self._open_capture(config)
-            backend, resolved_backend = self._create_backend(config["backend"], config["action"], source_path)
-            smoother = KeypointSmoother(mode="one-euro", max_missing_frames=5, occlusion_guard=True)
+            backend_request, target_select = _backend_plan(config)
+            backend, resolved_backend = self._create_backend(
+                backend_request,
+                config["action"],
+                source_path,
+                target_select=target_select,
+            )
+            smoother = KeypointSmoother(
+                mode="none" if config["source_mode"] == "sample" else "one-euro",
+                max_missing_frames=5,
+                occlusion_guard=True,
+            )
+            sample_frame_step = max(1, int(math.ceil(source_fps / 10.0))) if config["source_mode"] == "sample" else 1
             analyzer = None
             analyzer_key: tuple[str, str, str] | None = None
             started = time.perf_counter()
@@ -432,18 +523,38 @@ class PoseStreamEngine:
                     )
                     analyzer_key = key
                 action_state = None
+                features = None
                 if analyzer is not None:
-                    features = None
                     if has_pose:
                         height, width = frame.shape[:2]
                         features = extract_basic_pose_features(result.keypoints, image_width=width, image_height=height)
                     action_state = analyzer.attach_view_context(analyzer.update(features, timestamp_ms=timestamp_ms))
 
+                phase = "idle" if action_state is None else str(action_state.get("phase", "unknown"))
+                action_debug = action_state.get("debug") if isinstance(action_state, Mapping) else None
+                evaluation_phase = str(action_debug.get("raw_phase", phase)) if isinstance(action_debug, Mapping) else phase
+                all_feedback = _feedback_items(action_state, phase_aware=False)
+                feedback = visible_feedback(all_feedback, evaluation_phase)
+                assessment = assess_action(settings["action"], evaluation_phase, features, feedback)
                 annotated = frame.copy()
-                visible_names = _visible_names(settings["landmark_profile"])
-                if settings["landmark_profile"] == "no-face":
-                    visible_names = {point.name for point in result.keypoints if point.name not in FACE_KEYPOINTS}
-                draw_pose_result_filtered(annotated, result, visible_names=visible_names)
+                result_names = {point.name for point in result.keypoints}
+                visible_names = _result_visible_names(
+                    settings["landmark_profile"],
+                    result_names,
+                    show_fingers=bool(settings["show_fingers"]),
+                )
+                skeleton_color = {
+                    "bad": (50, 70, 245),
+                    "good": (70, 220, 110),
+                }.get(str(assessment["status"]), (70, 190, 240))
+                draw_pose_result_filtered(
+                    annotated,
+                    result,
+                    visible_names=visible_names,
+                    line_color=skeleton_color,
+                    point_color=skeleton_color,
+                )
+                _draw_angle_overlay(annotated, result, assessment)
                 if action_state is not None:
                     draw_hyrox_action_overlay(annotated, action_state, origin=(16, 32))
 
@@ -451,14 +562,12 @@ class PoseStreamEngine:
                 instant_fps = 1.0 / max(now - last_frame_time, 1e-6)
                 smooth_fps = instant_fps if smooth_fps <= 0 else smooth_fps * 0.85 + instant_fps * 0.15
                 last_frame_time = now
-                phase = "idle" if action_state is None else str(action_state.get("phase", "unknown"))
                 reps = 0 if action_state is None else int(action_state.get("rep_count", 0))
-                feedback = _feedback_items(action_state)
-                visible_names = _visible_names(settings["landmark_profile"])
-                if settings["landmark_profile"] == "no-face":
-                    visible_names = {point.name for point in result.keypoints if point.name not in FACE_KEYPOINTS}
-                if visible_names is None:
-                    visible_names = {point.name for point in result.keypoints}
+                visible_names = _result_visible_names(
+                    settings["landmark_profile"],
+                    result_names,
+                    show_fingers=bool(settings["show_fingers"]),
+                )
                 keypoints = [
                     {
                         "name": point.name,
@@ -498,6 +607,8 @@ class PoseStreamEngine:
                                 "reps": reps,
                                 "pose_detected": has_pose,
                                 "feedback": feedback,
+                                "detected_issues": all_feedback,
+                                "assessment": assessment,
                                 "keypoints": keypoints,
                                 "metrics": {
                                     "backend": resolved_backend,
@@ -532,9 +643,15 @@ class PoseStreamEngine:
                         )
                         self._frame_ready.notify_all()
 
+                if config["source_mode"] == "sample" and sample_frame_step > 1:
+                    for _ in range(sample_frame_step - 1):
+                        if not capture.grab():
+                            finished_normally = True
+                            break
+                        frame_index += 1
                 if config["source_mode"] != "camera":
                     elapsed = time.perf_counter() - frame_started
-                    time.sleep(max(0.0, (1.0 / source_fps) - elapsed))
+                    time.sleep(max(0.0, (sample_frame_step / source_fps) - elapsed))
         except Exception as exc:
             with self._frame_ready:
                 self._state.update({"running": False, "status": "error", "status_text": "运行出错", "error": str(exc), "recording": False})
@@ -569,7 +686,9 @@ def _discover_sample_videos() -> list[dict[str, str]]:
     samples: list[dict[str, str]] = []
     for index, path in enumerate(sorted(video_dir.iterdir(), key=lambda item: item.name)):
         if path.is_file() and path.suffix.lower() in ALLOWED_VIDEO_SUFFIXES:
-            samples.append({"id": f"sample-{index}", "name": path.stem, "path": str(path)})
+            action = ACTION_BY_SAMPLE_STEM.get(path.stem)
+            if action:
+                samples.append({"id": f"sample-{index}", "name": path.stem, "path": str(path), "action": action})
     return samples
 
 
@@ -590,7 +709,7 @@ def create_app(
         SESSION_COOKIE_SECURE=os.environ.get("POSE_SECURE_COOKIES", "").lower() in {"1", "true", "yes"},
     )
     samples = _discover_sample_videos()
-    sample_paths = {item["id"]: item["path"] for item in samples}
+    sample_lookup = {item["id"]: item for item in samples}
     storage_root = PROJECT_ROOT / "outputs" / "web_sessions"
 
     def make_engine(session_id: str) -> Any:
@@ -766,12 +885,15 @@ def create_app(
             {
                 "actions": [{"value": value, "label": ACTION_LABELS[value]} for value in ("none", *HYROX_ACTION_NAMES)],
                 "views": [{"value": value, "label": VIEW_LABELS[value]} for value in CAMERA_VIEWS],
-                "samples": [{"id": sample["id"], "name": sample["name"]} for sample in samples],
+                "samples": [{"id": sample["id"], "name": sample["name"], "action": sample["action"]} for sample in samples],
+                "standards": {action: standards_for(action) for action in HYROX_ACTION_NAMES},
+                "official_rules": {action: official_rules_for(action) for action in HYROX_ACTION_NAMES},
                 "csrf_token": item.csrf_token,
                 "realtime": {
                     "frame_width": 640,
                     "frame_height": 480,
-                    "target_fps": 10,
+                    "target_fps": 30,
+                    "camera_fps": 60,
                     "max_frame_bytes": 512 * 1024,
                     "report_retention_seconds": 600,
                 },
@@ -846,6 +968,7 @@ def create_app(
                 "sensitivity": sensitivity,
                 "backend": backend,
                 "landmark_profile": profile,
+                "show_fingers": bool(data.get("show_fingers", True)),
                 "mirror": bool(data.get("mirror", source_mode == "camera")),
             }
             if source_mode == "camera":
@@ -855,9 +978,12 @@ def create_app(
                 config.update({"camera_index": camera_index, "source_name": f"服务器摄像头 {camera_index}"})
             elif source_mode == "sample":
                 sample_id = str(data.get("video_id", ""))
-                if sample_id not in sample_paths:
+                if sample_id not in sample_lookup:
                     raise ValueError("请选择示例视频")
-                config.update({"video_path": sample_paths[sample_id], "source_name": Path(sample_paths[sample_id]).stem})
+                sample = sample_lookup[sample_id]
+                if action != sample["action"]:
+                    raise ValueError("所选动作与示例视频不一致")
+                config.update({"video_path": sample["path"], "source_name": Path(sample["path"]).stem})
             else:
                 upload_id = str(data.get("video_id", ""))
                 upload = item.uploads.pop(upload_id, None)
@@ -933,6 +1059,15 @@ def create_app(
         response.headers["Cache-Control"] = "private, no-store"
         return response
 
+    @app.get("/api/report")
+    def generated_report() -> tuple[Response, int] | Response:
+        report, _ = available_report(current_session())
+        if not report["frames"]:
+            return json_error("当前会话还没有可生成的分析结果", 409, "report_empty")
+        response = jsonify(enrich_report(report))
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
+
     @app.get("/api/report.csv")
     def download_csv_report() -> tuple[Response, int] | Response:
         report, csv_body = available_report(current_session())
@@ -940,6 +1075,16 @@ def create_app(
             return json_error("当前会话还没有可下载的分析结果", 409, "report_empty")
         response = Response("\ufeff" + csv_body, mimetype="text/csv")
         response.headers["Content-Disposition"] = "attachment; filename=hyrox-analysis.csv"
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
+
+    @app.get("/api/report.txt")
+    def download_text_report() -> tuple[Response, int] | Response:
+        report, _ = available_report(current_session())
+        if not report["frames"]:
+            return json_error("当前会话还没有可下载的分析结果", 409, "report_empty")
+        response = Response("\ufeff" + render_text_report(report), mimetype="text/plain")
+        response.headers["Content-Disposition"] = "attachment; filename=hyrox-analysis.txt"
         response.headers["Cache-Control"] = "private, no-store"
         return response
 
@@ -975,7 +1120,7 @@ def create_app(
                     "type": "connected",
                     "protocol_version": 1,
                     "max_frame_bytes": 512 * 1024,
-                    "max_receive_fps": 15,
+                    "max_receive_fps": 30,
                     "state": realtime.snapshot(),
                 },
                 ensure_ascii=False,

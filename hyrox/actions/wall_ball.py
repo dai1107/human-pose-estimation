@@ -242,6 +242,9 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         )
         if (self.bottom_seen or self.extension_pending or self.extension_seen) and throw_posture:
             return "throw_extension"
+        if self.bottom_seen or self.extension_pending:
+            if min_knee > self.bottom_knee_angle or lower_standing:
+                return "drive"
         if self.extension_seen and lower_standing and not throw_posture:
             return "reset"
         if min_knee <= self.bottom_knee_angle:
@@ -426,7 +429,9 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         if stable != previous:
             if stable == "stand":
                 self.stand_seen = True
-            if stable in {"stand", "throw_extension"} and self.bottom_seen:
+            if stable == "drive" and self.bottom_seen:
+                self.extension_pending = True
+            if stable == "throw_extension" and (self.bottom_seen or self.extension_pending):
                 self.just_finished_attempt = True
                 if self.bottom_depth_met and self._cooldown_elapsed(self.last_timestamp_ms):
                     self.rep_count += 1
@@ -434,7 +439,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
                     self.last_rep_time_ms = self.last_timestamp_ms
                 self.bottom_seen = False
                 self.bottom_depth_met = False
-                self.extension_pending = stable == "stand"
+                self.extension_pending = False
             if stable == "throw_extension":
                 self.extension_seen = True
                 self.extension_pending = False
@@ -447,7 +452,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         self.previous_min_knee_angle = min_knee
         self.previous_hip_center_y = hip_center_y
         feedback_messages = self._feedback(
-            stable_phase=stable,
+            stable_phase=raw_phase,
             depth_met=depth_met,
             hip_knee_depth=hip_knee_depth,
             knee_width=knee_width,

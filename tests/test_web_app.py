@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 from typing import Any
 
-from webui.app import create_app
+from webui.app import _backend_plan, create_app
 
 
 class FakeEngine:
@@ -55,9 +55,17 @@ def test_web_home_and_options_are_available() -> None:
 
     assert page.status_code == 200
     assert "HYROX 动作分析台" in page.get_data(as_text=True)
+    assert 'id="videoRepCount"' in page.get_data(as_text=True)
     assert options.status_code == 200
     assert {item["value"] for item in options.json["actions"]} >= {"lunge", "wall_ball", "rowing"}
     assert len(options.json["samples"]) == 8
+    assert {item["action"] for item in options.json["samples"]} == {
+        "lunge", "wall_ball", "farmers_carry", "rowing", "skierg", "burpee_broad_jump", "sled_push", "sled_pull"
+    }
+    assert options.json["standards"]["rowing"]
+    assert options.json["official_rules"]["wall_ball"]
+    assert options.json["realtime"]["target_fps"] == 30
+    assert options.json["realtime"]["camera_fps"] == 60
 
 
 def test_camera_analysis_can_be_started_and_stopped_from_api() -> None:
@@ -100,6 +108,42 @@ def test_start_rejects_unknown_action() -> None:
 
     assert response.status_code == 400
     assert "无效的动作" in response.json["error"]
+
+
+def test_sample_action_and_video_are_linked_by_the_api() -> None:
+    engine = FakeEngine()
+    client = create_app(engine).test_client()
+    options = client.get("/api/options")
+    sample = next(item for item in options.json["samples"] if item["action"] == "rowing")
+    headers = {"X-CSRF-Token": options.json["csrf_token"]}
+
+    started = client.post(
+        "/api/start",
+        headers=headers,
+        json={"source_mode": "sample", "video_id": sample["id"], "action": "rowing"},
+    )
+    mismatch = client.post(
+        "/api/start",
+        headers=headers,
+        json={"source_mode": "sample", "video_id": sample["id"], "action": "lunge"},
+    )
+
+    assert started.status_code == 200
+    assert engine.started_with is not None
+    assert engine.started_with["action"] == "rowing"
+    assert mismatch.status_code == 400
+    assert "不一致" in mismatch.json["error"]
+
+
+def test_crowded_lunge_sample_selects_the_largest_foreground_person() -> None:
+    assert _backend_plan({"source_mode": "sample", "action": "lunge", "backend": "auto"}) == (
+        "yolo-pose",
+        "area",
+    )
+    assert _backend_plan({"source_mode": "camera", "action": "lunge", "backend": "auto"}) == (
+        "auto",
+        "confidence",
+    )
 
 
 def test_server_screenshot_is_disabled_for_privacy() -> None:

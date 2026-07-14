@@ -19,7 +19,9 @@ from webui.realtime import (
     RealtimePoseSession,
     RealtimeProtocolError,
     unpack_frame,
+    validate_settings,
 )
+from webui.realtime import _profile_names
 
 
 class FakePoseBackend:
@@ -73,6 +75,13 @@ def test_latest_frame_queue_discards_stale_frame() -> None:
 
     assert result.sequence == 2
     assert frames.dropped == 1
+
+
+def test_finger_nodes_can_be_hidden_independently() -> None:
+    names = {"left_wrist", "left_index", "left_thumb", "right_pinky", "left_knee"}
+
+    assert validate_settings({"show_fingers": False})["show_fingers"] is False
+    assert _profile_names("full", names, show_fingers=False) == {"left_wrist", "left_knee"}
 
 
 def test_frame_protocol_validates_header_size_and_media_signature() -> None:
@@ -237,11 +246,15 @@ def test_report_download_and_session_deletion_are_scoped_to_cookie() -> None:
 
     json_report = client.get("/api/report.json")
     csv_report = client.get("/api/report.csv")
+    text_report = client.get("/api/report.txt")
     assert json_report.status_code == 200
     assert json_report.json["summary"]["processed_frames"] == 1
     assert "attachment;" in json_report.headers["Content-Disposition"]
     assert csv_report.status_code == 200
     assert csv_report.get_data(as_text=True).startswith("\ufeffsequence,")
+    assert text_report.status_code == 200
+    assert "HYROX 动作分析文字报告" in text_report.get_data(as_text=True)
+    assert "attachment;" in text_report.headers["Content-Disposition"]
 
     deleted = client.delete("/api/session", headers={"X-CSRF-Token": options.json["csrf_token"]})
     assert deleted.status_code == 200
