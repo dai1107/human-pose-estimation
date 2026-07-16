@@ -11,7 +11,7 @@ torso_lean_warn: 20.0
 motion_tolerance: 3.0
 hip_motion_tolerance: 0.004
 hip_drop_min: 0.035
-stable_frames: 3
+stable_frames: 2
 rep_cooldown_ms: 400
 feedback_limits:
   max_messages: 2

@@ -27,7 +27,7 @@ from src.backends.yolo_pose_backend import YoloPoseBackend
 from src.utils.backend_policy import resolve_backend_choice
 from src.utils.device import resolve_torch_device
 from src.utils.smoothing import KeypointSmoother
-from webui.analysis import assess_action, enrich_report, visible_feedback
+from webui.analysis import RepVoiceFeedbackTracker, assess_action, enrich_report, visible_feedback
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -165,7 +165,7 @@ def default_backend_factory(requested: str, action: str) -> tuple[Any, str]:
         return (
             YoloPoseBackend(
                 str(PROJECT_ROOT / "yolo11n-pose.pt"),
-                target_select="confidence",
+                target_select="tracking",
                 device=resolve_torch_device("auto"),
             ),
             resolved,
@@ -249,6 +249,7 @@ class RealtimePoseSession:
             "phase": "idle",
             "reps": 0,
             "feedback": [],
+            "voice_feedback": None,
             "frame_index": 0,
             "paused": False,
             "error": "",
@@ -259,6 +260,7 @@ class RealtimePoseSession:
         self._connected = False
         self._disconnected_at: float | None = None
         self._report_expires_at: float | None = None
+        self._voice_feedback = RepVoiceFeedbackTracker()
 
     @property
     def running(self) -> bool:
@@ -291,6 +293,7 @@ class RealtimePoseSession:
             if new_run:
                 self._history.clear()
                 self._frames = LatestFrameQueue()
+                self._voice_feedback.reset()
             self._settings.update(settings)
             self._state.update(
                 {
@@ -312,6 +315,7 @@ class RealtimePoseSession:
                             "phase": "idle",
                             "reps": 0,
                             "feedback": [],
+                            "voice_feedback": None,
                             "frame_index": 0,
                             "queue_dropped": 0,
                         }
@@ -519,6 +523,7 @@ class RealtimePoseSession:
                                 "phase": message["phase"],
                                 "reps": message["reps"],
                                 "feedback": message["feedback"],
+                                "voice_feedback": message["voice_feedback"],
                                 "frame_index": len(self._history),
                                 "queue_dropped": self._frames.dropped,
                                 "error": "",
@@ -570,6 +575,7 @@ class RealtimePoseSession:
                     next_analyzer_key[0],
                     sensitivity=next_analyzer_key[1],
                     camera_view=next_analyzer_key[2],
+                    live_mode=True,
                 )
                 if next_analyzer_key[0] != "none"
                 else None
@@ -614,6 +620,13 @@ class RealtimePoseSession:
         detected_issues = _feedback_items(action_state)
         feedback = visible_feedback(detected_issues, evaluation_phase)
         assessment = assess_action(str(settings["action"]), evaluation_phase, features, feedback)
+        voice_feedback = self._voice_feedback.update(
+            action=str(settings["action"]),
+            reps=reps,
+            assessment=assessment,
+            detected_issues=detected_issues,
+            timestamp_ms=int(time.time() * 1000),
+        )
         server_ms = (time.perf_counter() - started) * 1000.0
         return {
             "type": "result",
@@ -627,6 +640,7 @@ class RealtimePoseSession:
             "feedback": feedback,
             "detected_issues": detected_issues,
             "assessment": assessment,
+            "voice_feedback": voice_feedback,
             "keypoints": keypoints,
             "connections": connections,
             "metrics": {

@@ -179,6 +179,11 @@ fieldset { min-width: 0; }
 .feedback-section { margin-top: 22px; }
 .section-title { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 900; }
 .section-title small { color: #9a9a92; font-size: 8px; font-weight: 500; }
+.feedback-controls { display: flex; align-items: center; gap: 7px; }
+.voice-toggle { min-height: 25px; padding: 4px 7px; color: #33422f; background: #eef4e8; border: 1px solid #cbd9c2; border-radius: 999px; cursor: pointer; font-size: 8px; font-weight: 800; }
+.voice-toggle[aria-pressed="false"] { color: #77776f; background: #f2f2ec; border-color: #d8d8d0; }
+.voice-toggle:disabled { opacity: .55; cursor: default; }
+.voice-status { margin: 5px 0 0; color: #7c8b70; font-size: 8px; text-align: right; }
 .feedback-list { margin-top: 10px; display: grid; gap: 7px; }
 .feedback-empty { min-height: 92px; padding: 15px; display: flex; align-items: center; gap: 12px; color: #888; background: #f2f2ec; border-radius: 5px; }
 .feedback-empty span { flex: 0 0 26px; height: 26px; display: grid; place-items: center; color: var(--success); border: 1px solid #b9d9c9; border-radius: 50%; }

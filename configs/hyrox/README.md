@@ -22,7 +22,8 @@
 
 - `action_name`：配置所属动作，便于检查和追踪。
 - `visibility_min`：最低关键点可见度；提高后判断更保守。
-- `stable_frames`：阶段切换需连续满足的帧数；提高可减少抖动，但增加延迟。
+- `stable_frames`：阶段切换需连续满足的帧数，默认 2 帧；提高可减少抖动，但会增加延迟并更容易错过快速顶点。
+- 计数器会在短暂关键点丢失时保留当前动作进度，并允许跳过下降、回程等过渡相位；最低点、伸展点等关键端点仍不可跳过。
 - `*_cooldown_ms` / `cooldown_ms`：两次计数或事件之间的最短间隔。
 - `feedback_limits.max_messages`：单帧最多提示数，默认 2。
 - `feedback_limits.low_visibility_exclusive`：可见度不足时只显示取景提示，避免输出不可靠的技术结论。
@@ -35,7 +36,7 @@
 
 ```powershell
 python main.py --camera 0 --mirror --hyrox-action rowing --hyrox-config configs/hyrox/rowing.yaml --hyrox-debug
-python tools/replay_hyrox_video.py --video "HYROX视频\划船机.mp4" --hyrox-action rowing --save-debug-csv outputs/rowing_debug.csv
+python tools/replay_hyrox_video.py --video "HYROX视频\划船机.mp4" --hyrox-action rowing --camera-view side --save-debug-csv outputs/rowing_debug.csv
 ```
 
 ## 单摄像头无法可靠判断的项目

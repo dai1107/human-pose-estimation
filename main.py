@@ -119,7 +119,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--detector-every-n", type=int, default=5, help="Run YOLO every N frames. Default: 5.")
     parser.add_argument("--bbox-expand", type=float, default=1.25, help="Expand detector bbox by this scale. Default: 1.25.")
     parser.add_argument("--bbox-smoothing", type=float, default=0.6, help="BBox smoothing alpha. Default: 0.6.")
-    parser.add_argument("--target-select", default="confidence", choices=("confidence", "area"), help="Select person by confidence or area.")
+    parser.add_argument(
+        "--target-select",
+        default="tracking",
+        choices=("tracking", "confidence", "area"),
+        help="Select and track the athlete, or select each frame by confidence/area.",
+    )
     parser.add_argument("--fusion", default="none", choices=("none", "yolo-roi-mediapipe"), help="Fusion strategy. Default: none.")
     parser.add_argument("--smoothing", default="one-euro", choices=("none", "ema", "one-euro"), help="Keypoint smoothing mode.")
     parser.add_argument("--ema-alpha", type=float, default=0.6, help="EMA alpha. Default: 0.6.")

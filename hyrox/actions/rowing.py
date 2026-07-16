@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from hyrox.base import BaseActionAnalyzer
+from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_rowing_config
 from hyrox.feedback import FeedbackMessage
 
@@ -104,6 +104,9 @@ class RowingAnalyzer(BaseActionAnalyzer):
         self.last_rep_time_ms: int | None = None
         self.incomplete_leg_drive = False
         self.rushed_recovery = False
+        self.rep_sequence = PhaseSequenceTracker(
+            ("catch", "drive", "finish"), optional_phases=("drive",)
+        )
 
     def _visible_score(self, features: dict[str, object]) -> float:
         score = _safe_float(features.get("visible_score"))
@@ -144,25 +147,12 @@ class RowingAnalyzer(BaseActionAnalyzer):
         return timestamp_ms is None or self.last_rep_time_ms is None or timestamp_ms - self.last_rep_time_ms >= self.stroke_cooldown_ms
 
     def _advance_phase(self, raw_phase: str, timestamp_ms: int | None) -> tuple[str, int | None]:
-        previous = self.stable_phase
+        previous, _ = self._advance_confirmed_phase(raw_phase, self.confirmation_frames)
         previous_duration = None
-        if raw_phase == "unknown":
-            self.raw_phase = "unknown"
-            self.stable_phase = "unknown"
-            self.frames_in_phase = 1
-        else:
-            if raw_phase == self.raw_phase:
-                self.frames_in_phase += 1
-            else:
-                self.raw_phase = raw_phase
-                self.frames_in_phase = 1
-            if self.frames_in_phase >= self.confirmation_frames:
-                self.stable_phase = raw_phase
         if self.stable_phase != previous:
             if timestamp_ms is not None and self.phase_started_ms is not None:
                 previous_duration = max(0, timestamp_ms - self.phase_started_ms)
             self.phase_started_ms = timestamp_ms
-        self.phase = self.stable_phase
         return previous, previous_duration
 
     def _update_stroke_sequence(
@@ -173,16 +163,21 @@ class RowingAnalyzer(BaseActionAnalyzer):
         timestamp_ms: int | None,
     ) -> None:
         self.rushed_recovery = False
+        self.rep_sequence.just_completed = False
         if self.stable_phase == "drive" and knee_angle is not None:
             self.drive_seen = True
             self.max_drive_knee_angle = knee_angle if self.max_drive_knee_angle is None else max(self.max_drive_knee_angle, knee_angle)
         if self.stable_phase == previous_phase:
             return
+        sequence_completed = self.rep_sequence.update(self.stable_phase)
         if self.stable_phase == "drive":
             self.drive_seen = previous_phase == "catch" or self.drive_seen
             self.incomplete_leg_drive = False
         elif self.stable_phase == "finish" and self.drive_seen:
             self.finish_seen = True
+            if sequence_completed:
+                self.rep_count += 1
+                self.last_rep_time_ms = timestamp_ms
         elif self.stable_phase == "recovery":
             if self.drive_seen and not self.finish_seen:
                 self.incomplete_leg_drive = True
@@ -190,9 +185,6 @@ class RowingAnalyzer(BaseActionAnalyzer):
                 self.recovery_seen = True
         elif self.stable_phase == "catch":
             self.rushed_recovery = previous_phase == "recovery" and previous_duration is not None and previous_duration < self.min_phase_duration_ms
-            if self.drive_seen and self.finish_seen and self.recovery_seen and self._cooldown_elapsed(timestamp_ms):
-                self.rep_count += 1
-                self.last_rep_time_ms = timestamp_ms
             self.drive_seen = False
             self.finish_seen = False
             self.recovery_seen = False
@@ -268,6 +260,7 @@ class RowingAnalyzer(BaseActionAnalyzer):
                 "frames_in_phase": self.frames_in_phase,
                 "config_name": self.config_name,
                 "sensitivity": self.sensitivity,
+                **self.rep_sequence.debug(),
             },
         }
 

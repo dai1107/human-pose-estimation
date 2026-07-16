@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from hyrox.base import BaseActionAnalyzer
+from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_sled_pull_config
 from hyrox.feedback import FeedbackMessage
 
@@ -98,6 +98,7 @@ class SledPullAnalyzer(BaseActionAnalyzer):
         self.last_rep_time_ms: int | None = None
         self.no_clear_pull = False
         self.arms_only_pull = False
+        self.rep_sequence = PhaseSequenceTracker(("reach", "pull", "recover"))
 
     def _visible_score(self, features: dict[str, object]) -> float:
         score = _safe_float(features.get("visible_score"))
@@ -124,20 +125,7 @@ class SledPullAnalyzer(BaseActionAnalyzer):
         return "ready"
 
     def _advance_phase(self, raw_phase: str) -> str:
-        previous = self.stable_phase
-        if raw_phase == "unknown":
-            self.raw_phase = "unknown"
-            self.stable_phase = "unknown"
-            self.frames_in_phase = 1
-        else:
-            if raw_phase == self.raw_phase:
-                self.frames_in_phase += 1
-            else:
-                self.raw_phase = raw_phase
-                self.frames_in_phase = 1
-            if self.frames_in_phase >= self.confirmation_frames:
-                self.stable_phase = raw_phase
-        self.phase = self.stable_phase
+        previous, _ = self._advance_confirmed_phase(raw_phase, self.confirmation_frames)
         return previous
 
     def _cooldown_elapsed(self, timestamp_ms: int | None) -> bool:
@@ -154,6 +142,12 @@ class SledPullAnalyzer(BaseActionAnalyzer):
     ) -> None:
         self.no_clear_pull = False
         self.arms_only_pull = False
+        self.rep_sequence.just_completed = False
+        sequence_completed = (
+            self.rep_sequence.update(self.stable_phase)
+            if self.stable_phase != previous_phase
+            else False
+        )
         if self.stable_phase == "reach":
             if previous_phase != "reach":
                 self.reach_elbow_angle = elbow_angle
@@ -185,7 +179,7 @@ class SledPullAnalyzer(BaseActionAnalyzer):
             clear_pull = pull_amplitude >= self.pull_elbow_delta_min
             self.no_clear_pull = not clear_pull
             self.arms_only_pull = clear_pull and self.max_lower_body_delta < self.hip_knee_drive_delta_min
-            if clear_pull and self._cooldown_elapsed(timestamp_ms):
+            if sequence_completed:
                 self.rep_count += 1
                 self.last_rep_time_ms = timestamp_ms
 
@@ -269,6 +263,7 @@ class SledPullAnalyzer(BaseActionAnalyzer):
                 "frames_in_phase": self.frames_in_phase,
                 "config_name": self.config_name,
                 "sensitivity": self.sensitivity,
+                **self.rep_sequence.debug(),
             },
         }
 

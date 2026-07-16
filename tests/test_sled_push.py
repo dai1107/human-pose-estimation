@@ -69,12 +69,36 @@ def test_sled_push_phases_and_step_count() -> None:
             right_knee_angle=147,
             left_ankle_y=0.84,
         ),
-        300,
+        400,
     )
     assert step["phase"] == "step"
     assert step["rep_count"] == 1
+    assert step["debug"]["rep_completed"] is True
     assert step["debug"]["step_count"] == 1
     assert analyzer.update(_features(torso_angle=10), 500)["phase"] == "reset"
+
+
+def test_sled_push_counts_each_recurring_drive_step_cycle_at_step_phase() -> None:
+    analyzer = _analyzer()
+    analyzer.update(_features(), 0)
+    analyzer.update(_features(body_center_x=0.41, left_knee_angle=130, right_knee_angle=132), 100)
+    first = analyzer.update(
+        _features(body_center_x=0.42, left_knee_angle=145, right_knee_angle=147, left_ankle_y=0.84),
+        200,
+    )
+    analyzer.update(
+        _features(body_center_x=0.43, left_knee_angle=130, right_knee_angle=132, left_ankle_y=0.84),
+        400,
+    )
+    second = analyzer.update(
+        _features(body_center_x=0.44, left_knee_angle=145, right_knee_angle=147, left_ankle_y=0.76),
+        600,
+    )
+
+    assert first["rep_count"] == 1
+    assert second["phase"] == "step"
+    assert second["rep_count"] == 2
+    assert second["debug"]["rep_completed"] is True
 
 
 def test_sled_push_visibility_and_torso_feedback() -> None:

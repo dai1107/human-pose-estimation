@@ -57,6 +57,7 @@ def create_action_analyzer(
     *,
     sensitivity: str = "medium",
     camera_view: str = "unknown",
+    live_mode: bool = False,
 ) -> BaseActionAnalyzer:
     """Create an action analyzer using its default, file, or mapping config.
 
@@ -73,6 +74,15 @@ def create_action_analyzer(
     if configured_path and not Path(configured_path).is_file():
         raise FileNotFoundError(f"HYROX config not found: {configured_path}")
     config_data = dict(config) if isinstance(config, Mapping) else _ACTION_CONFIG_LOADERS[normalized_name](configured_path)
+    if live_mode and sensitivity != "low":
+        # Live inference commonly processes fewer frames than the camera captures.
+        # Requiring three processed frames for every short endpoint makes a valid
+        # movement easy to miss, so use a smaller debounce window in live mode.
+        configured_frames = config_data.get("stable_frames", 3)
+        try:
+            config_data["stable_frames"] = min(2, max(1, int(configured_frames)))
+        except (TypeError, ValueError, OverflowError):
+            config_data["stable_frames"] = 2
     analyzer = analyzer_class.from_config(config_data, sensitivity=sensitivity)
     analyzer.configure_feedback_limits(config_data)
     analyzer.set_camera_view(camera_view)

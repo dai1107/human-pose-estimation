@@ -7,7 +7,7 @@ over_lean_back_angle: 35
 pull_elbow_delta_min: 25
 hip_knee_drive_delta_min: 8
 wrist_asymmetry_warn: 0.08
-stable_frames: 3
+stable_frames: 2
 pull_cooldown_ms: 350
 feedback_limits:
   max_messages: 2

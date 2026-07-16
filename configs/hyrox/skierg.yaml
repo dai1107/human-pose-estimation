@@ -6,7 +6,7 @@ bottom_wrist_below_chest_margin: 0.05
 hip_hinge_torso_angle_min: 15
 too_much_squat_knee_angle_max: 110
 wrist_asymmetry_warn: 0.08
-stable_frames: 3
+stable_frames: 2
 pull_cooldown_ms: 350
 min_phase_duration_ms: 100
 feedback_limits:

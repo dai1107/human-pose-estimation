@@ -7,7 +7,7 @@ too_upright_angle: 20
 too_low_angle: 70
 leg_drive_knee_extension_min: 20
 short_step_ankle_delta_min: 0.04
-stable_frames: 3
+stable_frames: 2
 step_cooldown_ms: 250
 feedback_limits:
   max_messages: 2

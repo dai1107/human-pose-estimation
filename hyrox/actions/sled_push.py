@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from hyrox.base import BaseActionAnalyzer
+from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_sled_push_config
 from hyrox.feedback import FeedbackMessage
 
@@ -103,25 +103,17 @@ class SledPushAnalyzer(BaseActionAnalyzer):
         self.no_leg_drive = False
         self.short_steps = False
         self.hip_or_back_unstable = False
+        # setup is session preparation; each counted pushing step is the
+        # recurring drive -> step cycle.
+        self.rep_sequence = PhaseSequenceTracker(("drive", "step"))
 
     def _visible_score(self, features: dict[str, object]) -> float:
         score = _safe_float(features.get("visible_score"))
         return max(0.0, min(1.0, score or 0.0))
 
-    def _advance_phase(self, raw_phase: str) -> None:
-        if raw_phase == "unknown":
-            self.raw_phase = "unknown"
-            self.stable_phase = "unknown"
-            self.frames_in_phase = 1
-        else:
-            if raw_phase == self.raw_phase:
-                self.frames_in_phase += 1
-            else:
-                self.raw_phase = raw_phase
-                self.frames_in_phase = 1
-            if self.frames_in_phase >= self.confirmation_frames:
-                self.stable_phase = raw_phase
-        self.phase = self.stable_phase
+    def _advance_phase(self, raw_phase: str) -> str:
+        previous, _ = self._advance_confirmed_phase(raw_phase, self.confirmation_frames)
+        return previous
 
     def _step_cooldown_elapsed(self, timestamp_ms: int | None) -> bool:
         return timestamp_ms is None or self.last_step_time_ms is None or timestamp_ms - self.last_step_time_ms >= self.step_cooldown_ms
@@ -175,11 +167,6 @@ class SledPushAnalyzer(BaseActionAnalyzer):
         step_event = ankle_delta is not None and ankle_delta >= self.short_step_ankle_delta_min
         if step_event:
             self.step_hold_until_ms = None if current_timestamp is None else current_timestamp + STEP_PHASE_HOLD_MS
-            if self._step_cooldown_elapsed(current_timestamp):
-                self.rep_count += 1
-                self.last_step_time_ms = current_timestamp
-                extension = 0.0 if knee_angle is None or self.drive_start_knee_angle is None else max(0.0, knee_angle - self.drive_start_knee_angle)
-                self.no_leg_drive = extension < self.leg_drive_knee_extension_min
         step_held = step_event or (
             current_timestamp is not None
             and self.step_hold_until_ms is not None
@@ -204,7 +191,18 @@ class SledPushAnalyzer(BaseActionAnalyzer):
             raw_phase = "drive"
         else:
             raw_phase = "reset"
-        self._advance_phase(raw_phase)
+        self.rep_sequence.just_completed = False
+        previous_phase = self._advance_phase(raw_phase)
+        sequence_completed = (
+            self.rep_sequence.update(self.stable_phase)
+            if self.stable_phase != previous_phase
+            else False
+        )
+        if sequence_completed:
+            self.rep_count += 1
+            self.last_step_time_ms = current_timestamp
+            extension = 0.0 if knee_angle is None or self.drive_start_knee_angle is None else max(0.0, knee_angle - self.drive_start_knee_angle)
+            self.no_leg_drive = extension < self.leg_drive_knee_extension_min
 
         if self.stable_phase == "drive":
             if self.drive_start_knee_angle is None:
@@ -262,6 +260,7 @@ class SledPushAnalyzer(BaseActionAnalyzer):
                 "frames_in_phase": self.frames_in_phase,
                 "config_name": self.config_name,
                 "sensitivity": self.sensitivity,
+                **self.rep_sequence.debug(),
             },
         }
 

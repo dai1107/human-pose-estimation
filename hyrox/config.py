@@ -21,7 +21,7 @@ DEFAULT_LUNGE_CONFIG: dict[str, Any] = {
     "motion_tolerance": 3.0,
     "hip_motion_tolerance": 0.004,
     "hip_drop_min": 0.035,
-    "stable_frames": 3,
+    "stable_frames": 2,
     "rep_cooldown_ms": 400,
 }
 
@@ -43,7 +43,7 @@ DEFAULT_WALL_BALL_CONFIG: dict[str, Any] = {
     "minimum_frontal_ankle_width": 0.08,
     "motion_tolerance": 3.0,
     "hip_motion_tolerance": 0.004,
-    "stable_frames": 3,
+    "stable_frames": 2,
     "rep_cooldown_ms": 400,
 }
 
@@ -55,7 +55,7 @@ DEFAULT_FARMERS_CARRY_CONFIG: dict[str, Any] = {
     "hip_tilt_warn": 0.08,
     "torso_lean_warn": 25.0,
     "arms_down_margin": 0.05,
-    "stable_frames": 3,
+    "stable_frames": 2,
     "cooldown_ms": 350,
     "rest_timeout_ms": 1200,
 }
@@ -69,7 +69,7 @@ DEFAULT_ROWING_CONFIG: dict[str, Any] = {
     "finish_torso_lean_max": 35.0,
     "too_much_back_lean": 45.0,
     "early_arm_pull_elbow_angle": 120.0,
-    "stable_frames": 3,
+    "stable_frames": 2,
     "stroke_cooldown_ms": 500,
     "min_phase_duration_ms": 120,
 }
@@ -83,7 +83,7 @@ DEFAULT_SKIERG_CONFIG: dict[str, Any] = {
     "hip_hinge_torso_angle_min": 15.0,
     "too_much_squat_knee_angle_max": 110.0,
     "wrist_asymmetry_warn": 0.08,
-    "stable_frames": 3,
+    "stable_frames": 2,
     "pull_cooldown_ms": 350,
     "min_phase_duration_ms": 100,
 }
@@ -97,7 +97,7 @@ DEFAULT_BURPEE_BROAD_JUMP_CONFIG: dict[str, Any] = {
     "jump_forward_min_delta_x": 0.08,
     "feet_stagger_warn": 0.08,
     "extra_step_window_ms": 500,
-    "stable_frames": 3,
+    "stable_frames": 2,
     "rep_cooldown_ms": 800,
     "min_phase_duration_ms": 100,
 }
@@ -112,7 +112,7 @@ DEFAULT_SLED_PUSH_CONFIG: dict[str, Any] = {
     "too_low_angle": 70.0,
     "leg_drive_knee_extension_min": 20.0,
     "short_step_ankle_delta_min": 0.04,
-    "stable_frames": 3,
+    "stable_frames": 2,
     "step_cooldown_ms": 250,
 }
 
@@ -126,7 +126,7 @@ DEFAULT_SLED_PULL_CONFIG: dict[str, Any] = {
     "pull_elbow_delta_min": 25.0,
     "hip_knee_drive_delta_min": 8.0,
     "wrist_asymmetry_warn": 0.08,
-    "stable_frames": 3,
+    "stable_frames": 2,
     "pull_cooldown_ms": 350,
 }
 

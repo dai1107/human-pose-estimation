@@ -10,7 +10,7 @@ from src.utils.roi import clamp_bbox, expand_bbox, smooth_bbox
 from src.utils.ultralytics_config import ensure_ultralytics_config_dir
 
 
-TargetSelect = Literal["confidence", "area"]
+TargetSelect = Literal["tracking", "confidence", "area"]
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ class YoloPersonDetector:
         every_n: int = 5,
         bbox_expand: float = 1.25,
         bbox_smoothing: float = 0.6,
-        target_select: TargetSelect = "confidence",
+        target_select: TargetSelect = "tracking",
         max_reuse_frames: int | None = None,
         device: str = "",
     ) -> None:
@@ -41,8 +41,8 @@ class YoloPersonDetector:
                 "未安装 ultralytics，请先运行 pip install ultralytics，或使用 --person-detector none。"
             ) from exc
 
-        if target_select not in {"confidence", "area"}:
-            raise ValueError("--target-select must be confidence or area")
+        if target_select not in {"tracking", "confidence", "area"}:
+            raise ValueError("--target-select must be tracking, confidence or area")
         self.model = YOLO(model_path)
         self.model_path = model_path
         self.every_n = max(1, int(every_n))
@@ -135,4 +135,65 @@ class YoloPersonDetector:
             return None
         if self.target_select == "area":
             return max(candidates, key=lambda item: item[1])[2]
-        return max(candidates, key=lambda item: item[0])[2]
+        if self.target_select == "confidence":
+            return max(candidates, key=lambda item: item[0])[2]
+        if self._last_bbox is not None:
+            compatible = [
+                item
+                for item in candidates
+                if _bbox_iou(self._last_bbox, item[2]) >= 0.08
+                or _relative_center_distance(self._last_bbox, item[2]) <= 0.45
+            ]
+            if not compatible:
+                return None
+            return max(
+                compatible,
+                key=lambda item: (
+                    0.75 * _bbox_iou(self._last_bbox, item[2])
+                    + 0.15 * (1.0 - min(1.0, _relative_center_distance(self._last_bbox, item[2])))
+                    + 0.10 * item[0]
+                ),
+            )[2]
+        max_area = max(item[1] for item in candidates)
+        return max(
+            candidates,
+            key=lambda item: _initial_athlete_score(item[0], item[1], item[2], width, height, max_area),
+        )[2]
+
+
+def _bbox_iou(first: tuple[float, float, float, float], second: tuple[float, float, float, float]) -> float:
+    left = max(first[0], second[0])
+    top = max(first[1], second[1])
+    right = min(first[2], second[2])
+    bottom = min(first[3], second[3])
+    intersection = max(0.0, right - left) * max(0.0, bottom - top)
+    first_area = max(0.0, first[2] - first[0]) * max(0.0, first[3] - first[1])
+    second_area = max(0.0, second[2] - second[0]) * max(0.0, second[3] - second[1])
+    union = first_area + second_area - intersection
+    return intersection / union if union > 0.0 else 0.0
+
+
+def _relative_center_distance(
+    first: tuple[float, float, float, float],
+    second: tuple[float, float, float, float],
+) -> float:
+    dx = (first[0] + first[2] - second[0] - second[2]) / 2.0
+    dy = (first[1] + first[3] - second[1] - second[3]) / 2.0
+    scale = max(1.0, ((first[2] - first[0]) ** 2 + (first[3] - first[1]) ** 2) ** 0.5)
+    return (dx * dx + dy * dy) ** 0.5 / scale
+
+
+def _initial_athlete_score(
+    confidence: float,
+    area: float,
+    bbox: tuple[float, float, float, float],
+    width: int,
+    height: int,
+    max_area: float,
+) -> float:
+    center_x = (bbox[0] + bbox[2]) / 2.0
+    center_y = (bbox[1] + bbox[3]) / 2.0
+    dx = abs(center_x - width / 2.0) / max(1.0, width / 2.0)
+    dy = abs(center_y - height / 2.0) / max(1.0, height / 2.0)
+    center_score = 1.0 - min(1.0, (dx * dx + dy * dy) ** 0.5 / 2**0.5)
+    return 0.35 * (area / max(1.0, max_area)) + 0.45 * center_score + 0.20 * confidence

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from hyrox.base import BaseActionAnalyzer
+from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_skierg_config
 from hyrox.feedback import FeedbackMessage
 
@@ -98,6 +98,10 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
         self.last_rep_time_ms: int | None = None
         self.rushed_return = False
         self.arms_not_high_enough = False
+        self.rep_sequence = PhaseSequenceTracker(
+            ("top", "pull_down", "bottom", "return", "top"),
+            optional_phases=("pull_down", "return"),
+        )
 
     def _visible_score(self, features: dict[str, object]) -> float:
         score = _safe_float(features.get("upper_body_visible_score"))
@@ -139,25 +143,12 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
         return "unknown"
 
     def _advance_phase(self, raw_phase: str, timestamp_ms: int | None) -> tuple[str, int | None]:
-        previous = self.stable_phase
+        previous, _ = self._advance_confirmed_phase(raw_phase, self.confirmation_frames)
         previous_duration = None
-        if raw_phase == "unknown":
-            self.raw_phase = "unknown"
-            self.stable_phase = "unknown"
-            self.frames_in_phase = 1
-        else:
-            if raw_phase == self.raw_phase:
-                self.frames_in_phase += 1
-            else:
-                self.raw_phase = raw_phase
-                self.frames_in_phase = 1
-            if self.frames_in_phase >= self.confirmation_frames:
-                self.stable_phase = raw_phase
         if self.stable_phase != previous:
             if timestamp_ms is not None and self.phase_started_ms is not None:
                 previous_duration = max(0, timestamp_ms - self.phase_started_ms)
             self.phase_started_ms = timestamp_ms
-        self.phase = self.stable_phase
         return previous, previous_duration
 
     def _cooldown_elapsed(self, timestamp_ms: int | None) -> bool:
@@ -166,8 +157,10 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
     def _update_sequence(self, previous: str, previous_duration: int | None, timestamp_ms: int | None) -> None:
         self.rushed_return = False
         self.arms_not_high_enough = False
+        self.rep_sequence.just_completed = False
         if self.stable_phase == previous:
             return
+        sequence_completed = self.rep_sequence.update(self.stable_phase)
         if self.stable_phase == "pull_down":
             if previous == "return":
                 self.arms_not_high_enough = True
@@ -178,7 +171,7 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
             self.return_seen = True
         elif self.stable_phase == "top":
             self.rushed_return = previous == "return" and previous_duration is not None and previous_duration < self.min_phase_duration_ms
-            if self.pull_down_seen and self.bottom_seen and self.return_seen and self._cooldown_elapsed(timestamp_ms):
+            if sequence_completed:
                 self.rep_count += 1
                 self.last_rep_time_ms = timestamp_ms
             self.pull_down_seen = False
@@ -262,6 +255,7 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
                 "frames_in_phase": self.frames_in_phase,
                 "config_name": self.config_name,
                 "sensitivity": self.sensitivity,
+                **self.rep_sequence.debug(),
             },
         }
 

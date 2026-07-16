@@ -100,6 +100,7 @@ def test_skierg_counts_complete_pull_sequence() -> None:
     completed = analyzer.update(_features(), 600)
     assert completed["phase"] == "top"
     assert completed["rep_count"] == 1
+    assert completed["debug"]["rep_completed"] is True
     assert completed["debug"]["pull_count"] == 1
 
 

@@ -5,7 +5,7 @@ import numpy as np
 
 from hyrox.actions import LungeAnalyzer
 from hyrox.actions.lunge import PHASE_CONFIRMATION_FRAMES
-from hyrox.base import BaseActionAnalyzer
+from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import DEFAULT_LUNGE_CONFIG, load_lunge_config
 from hyrox.features import extract_basic_pose_features
 from hyrox.geometry import PosePoint, angle_3pts, midpoint, safe_distance
@@ -122,7 +122,7 @@ def test_lunge_analyzer_invalid_config_values_fall_back_safely() -> None:
     )
 
     assert analyzer.min_visible_score == 0.45
-    assert analyzer.confirmation_frames == 3
+    assert analyzer.confirmation_frames == 2
     assert analyzer.rep_cooldown_ms == 400
 
 
@@ -310,12 +310,12 @@ def test_lunge_analyzer_counts_reps_and_reports_extension_feedback() -> None:
     assert analyzer.update(ascent, timestamp_ms=650)["phase"] == "ascent"
 
     analyzer.update(shallow_stand, timestamp_ms=700)
-    analyzer.update(shallow_stand, timestamp_ms=750)
-    completed = analyzer.update(shallow_stand, timestamp_ms=800)
+    completed = analyzer.update(shallow_stand, timestamp_ms=750)
 
     assert completed["phase"] == "stand"
     assert completed["rep_count"] == 1
-    assert completed["debug"]["last_rep_time_ms"] == 800
+    assert completed["debug"]["rep_completed"] is True
+    assert completed["debug"]["last_rep_time_ms"] == 750
     assert {message.code for message in completed["feedback_messages"]} == {"STAND_EXTENSION"}
 
 
@@ -395,7 +395,7 @@ def test_lunge_analyzer_debounces_phase_changes_before_confirming() -> None:
     assert analyzer.confirmation_frames == PHASE_CONFIRMATION_FRAMES
 
 
-def test_lunge_analyzer_respects_rep_cooldown() -> None:
+def test_lunge_counts_each_complete_ordered_sequence_without_terminal_lag() -> None:
     analyzer = LungeAnalyzer()
 
     stand = {
@@ -414,47 +414,61 @@ def test_lunge_analyzer_respects_rep_cooldown() -> None:
         "right_hip_angle": 171.0,
         "torso_angle": 6.0,
     }
+    descent = {**stand, "left_knee_angle": 138.0, "left_hip_angle": 148.0}
+    ascent = {**stand, "left_knee_angle": 132.0, "left_hip_angle": 146.0}
 
     for timestamp_ms in (100, 150, 200):
         analyzer.update(stand, timestamp_ms=timestamp_ms)
     for timestamp_ms in (250, 300, 350):
-        analyzer.update(bottom, timestamp_ms=timestamp_ms)
+        analyzer.update(descent, timestamp_ms=timestamp_ms)
     for timestamp_ms in (400, 450, 500):
+        analyzer.update(bottom, timestamp_ms=timestamp_ms)
+    for timestamp_ms in (550, 600, 650):
+        analyzer.update(ascent, timestamp_ms=timestamp_ms)
+    for timestamp_ms in (700, 750):
         first_rep = analyzer.update(stand, timestamp_ms=timestamp_ms)
 
     assert first_rep["rep_count"] == 1
-    assert first_rep["debug"]["last_rep_time_ms"] == 500
+    assert first_rep["debug"]["last_rep_time_ms"] == 750
 
-    for timestamp_ms in (560, 610, 660):
+    for timestamp_ms in (830, 850, 870):
+        analyzer.update(descent, timestamp_ms=timestamp_ms)
+    for timestamp_ms in (890, 910, 930):
         analyzer.update(bottom, timestamp_ms=timestamp_ms)
-    for timestamp_ms in (710, 760, 810):
+    for timestamp_ms in (950, 970, 990):
+        analyzer.update(ascent, timestamp_ms=timestamp_ms)
+    for timestamp_ms in (1010, 1030):
         blocked_rep = analyzer.update(stand, timestamp_ms=timestamp_ms)
 
     assert blocked_rep["phase"] == "stand"
-    assert blocked_rep["rep_count"] == 1
-    assert blocked_rep["debug"]["last_rep_time_ms"] == 500
+    assert blocked_rep["rep_count"] == 2
+    assert blocked_rep["debug"]["last_rep_time_ms"] == 1030
 
-    for timestamp_ms in (920, 970, 1020):
+    for timestamp_ms in (1100, 1150, 1200):
+        analyzer.update(descent, timestamp_ms=timestamp_ms)
+    for timestamp_ms in (1250, 1300, 1350):
         analyzer.update(bottom, timestamp_ms=timestamp_ms)
-    for timestamp_ms in (1070, 1120, 1170):
+    for timestamp_ms in (1400, 1450, 1500):
+        analyzer.update(ascent, timestamp_ms=timestamp_ms)
+    for timestamp_ms in (1550, 1600):
         second_rep = analyzer.update(stand, timestamp_ms=timestamp_ms)
 
-    assert second_rep["rep_count"] == 2
-    assert second_rep["debug"]["last_rep_time_ms"] == 1170
+    assert second_rep["rep_count"] == 3
+    assert second_rep["debug"]["last_rep_time_ms"] == 1600
 
 
 def test_lunge_analyzer_sensitivity_profiles_change_confirmation_frames() -> None:
-    assert LungeAnalyzer(sensitivity="low").confirmation_frames == 4
-    assert LungeAnalyzer(sensitivity="medium").confirmation_frames == 3
-    assert LungeAnalyzer(sensitivity="high").confirmation_frames == 2
+    assert LungeAnalyzer(sensitivity="low").confirmation_frames == 3
+    assert LungeAnalyzer(sensitivity="medium").confirmation_frames == 2
+    assert LungeAnalyzer(sensitivity="high").confirmation_frames == 1
 
 
 def test_lunge_analyzer_sensitivity_adjusts_loaded_default_config() -> None:
     low = LungeAnalyzer.from_config_path("configs/hyrox/lunge.yaml", sensitivity="low")
     high = LungeAnalyzer.from_config_path("configs/hyrox/lunge.yaml", sensitivity="high")
 
-    assert low.confirmation_frames == 4
-    assert high.confirmation_frames == 2
+    assert low.confirmation_frames == 3
+    assert high.confirmation_frames == 1
     assert low.bottom_knee_angle == pytest.approx(105.0)
     assert high.bottom_knee_angle == pytest.approx(125.0)
 
@@ -543,3 +557,41 @@ def test_hyrox_action_lines_limit_feedback_to_two_messages() -> None:
     )
 
     assert [line for line, _ in lines[5:]] == ["tip: A", "tip: B"]
+
+
+def test_phase_sequence_tracker_requires_every_phase_in_order_and_completes_on_terminal_phase() -> None:
+    tracker = PhaseSequenceTracker(("start", "down", "bottom", "up", "start"))
+
+    assert tracker.update("start") is False
+    assert tracker.update("bottom") is False
+    assert tracker.update("start") is False
+    assert tracker.update("down") is False
+    assert tracker.update("bottom") is False
+    assert tracker.update("up") is False
+    assert tracker.update("start") is True
+    assert tracker.debug()["rep_completed"] is True
+
+
+def test_phase_sequence_tracker_tolerates_dropouts_and_optional_motion_phases() -> None:
+    tracker = PhaseSequenceTracker(
+        ("stand", "descent", "bottom", "ascent", "stand"),
+        optional_phases=("descent", "ascent"),
+    )
+
+    assert tracker.update("stand") is False
+    assert tracker.update("unknown") is False
+    assert tracker.update("bottom") is False
+    assert tracker.update("low_visibility") is False
+    assert tracker.update("stand") is True
+
+
+def test_phase_sequence_tracker_never_skips_a_required_endpoint() -> None:
+    tracker = PhaseSequenceTracker(
+        ("stand", "descent", "bottom", "ascent", "stand"),
+        optional_phases=("descent", "ascent"),
+    )
+
+    assert tracker.update("stand") is False
+    assert tracker.update("ascent") is False
+    assert tracker.update("stand") is False
+    assert tracker.debug()["rep_completed"] is False

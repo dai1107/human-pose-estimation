@@ -6,7 +6,7 @@ bottom_torso_horizontal_min: 60
 jump_forward_min_delta_x: 0.08
 feet_stagger_warn: 0.08
 extra_step_window_ms: 500
-stable_frames: 3
+stable_frames: 2
 rep_cooldown_ms: 800
 min_phase_duration_ms: 100
 feedback_limits:

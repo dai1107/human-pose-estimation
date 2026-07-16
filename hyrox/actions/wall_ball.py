@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from math import isfinite
 from typing import Any
 
-from hyrox.base import BaseActionAnalyzer
+from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_wall_ball_config
 from hyrox.feedback import FeedbackMessage
 
@@ -176,6 +176,10 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         self.just_completed_rep = False
         self.just_finished_attempt = False
         self.last_rep_time_ms: int | None = None
+        self.rep_sequence = PhaseSequenceTracker(
+            ("stand", "squat_down", "bottom", "drive", "throw_extension"),
+            optional_phases=("squat_down", "drive"),
+        )
 
     def _visible_score(self, features: Mapping[str, object] | None) -> float:
         if features is None:
@@ -183,16 +187,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         return max(0.0, min(1.0, _safe_float(features.get("visible_score")) or 0.0))
 
     def _advance_phase(self, raw_phase: str) -> tuple[str, str]:
-        previous = self.stable_phase
-        if raw_phase == self.raw_phase:
-            self.frames_in_phase += 1
-        else:
-            self.raw_phase = raw_phase
-            self.frames_in_phase = 1
-        if self.frames_in_phase >= self.confirmation_frames:
-            self.stable_phase = raw_phase
-        self.phase = self.stable_phase
-        return previous, self.stable_phase
+        return self._advance_confirmed_phase(raw_phase, self.confirmation_frames)
 
     def _cooldown_elapsed(self, timestamp_ms: int | None) -> bool:
         if timestamp_ms is None or self.last_rep_time_ms is None:
@@ -241,7 +236,9 @@ class WallBallAnalyzer(BaseActionAnalyzer):
             min_knee, hip_angle, elbow_angle, wrist_above_shoulder
         )
         if (self.bottom_seen or self.extension_pending or self.extension_seen) and throw_posture:
-            return "throw_extension"
+            # Preserve an explicit drive phase before the terminal extension so
+            # completion can only be emitted after the full ordered sequence.
+            return "drive" if self.stable_phase == "bottom" else "throw_extension"
         if self.bottom_seen or self.extension_pending:
             if min_knee > self.bottom_knee_angle or lower_standing:
                 return "drive"
@@ -363,12 +360,14 @@ class WallBallAnalyzer(BaseActionAnalyzer):
             "rep_cooldown_ms": self.rep_cooldown_ms,
             "sensitivity": self.sensitivity,
             "config_name": self.config_name,
+            **self.rep_sequence.debug(),
         }
 
     def update(self, features: dict[str, object] | None, timestamp_ms: int | None) -> dict[str, Any]:
         self.last_timestamp_ms = None if timestamp_ms is None else int(timestamp_ms)
         self.just_completed_rep = False
         self.just_finished_attempt = False
+        self.rep_sequence.just_completed = False
         visible_score = self._visible_score(features)
         min_knee = _minimum_feature(features, "left_knee_angle", "right_knee_angle")
         hip_angle = _maximum_feature(features, "left_hip_angle", "right_hip_angle")
@@ -393,6 +392,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
                 self.bottom_depth_met = False
                 self.extension_seen = False
                 self.extension_pending = False
+                self.rep_sequence.reset()
             self.previous_min_knee_angle = None
             self.previous_hip_center_y = None
             return {
@@ -426,14 +426,16 @@ class WallBallAnalyzer(BaseActionAnalyzer):
             self.bottom_seen = True
             self.bottom_depth_met = self.bottom_depth_met or depth_met
 
+        sequence_completed = False
         if stable != previous:
+            sequence_completed = self.rep_sequence.update(stable)
             if stable == "stand":
                 self.stand_seen = True
             if stable == "drive" and self.bottom_seen:
                 self.extension_pending = True
             if stable == "throw_extension" and (self.bottom_seen or self.extension_pending):
                 self.just_finished_attempt = True
-                if self.bottom_depth_met and self._cooldown_elapsed(self.last_timestamp_ms):
+                if sequence_completed:
                     self.rep_count += 1
                     self.just_completed_rep = True
                     self.last_rep_time_ms = self.last_timestamp_ms

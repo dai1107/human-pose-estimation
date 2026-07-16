@@ -30,13 +30,16 @@ const ui = {
   recordingAnimation: null,
   recordingChunks: [],
   recordingUrl: "",
+  voiceEnabled: true,
+  voiceSupported: "speechSynthesis" in window && "SpeechSynthesisUtterance" in window,
+  lastVoiceEventId: "",
 };
 
 const phaseLabels = {
   idle: "等待开始", unknown: "识别中", ready: "准备就绪", no_pose: "未检测到姿态", low_visibility: "可见度不足",
   stand: "站立", standing: "站立", descent: "下降", ascent: "起身", squat_down: "下蹲", bottom: "最低点", drive: "发力",
   throw_extension: "投球伸展", reset: "复位", recovery: "恢复", carrying: "负重行走", rest: "停步休息",
-  pull: "拉动", pull_down: "下拉", return: "回位", catch: "起始", finish: "完成", top: "顶部",
+  pull: "拉动", pull_down: "下拉", return: "回位", catch: "起始", finish: "划船终点", top: "顶部",
   setup: "准备", step: "蹬地迈步", hands_down: "双手撑地", chest_down: "俯卧最低点",
   step_or_jump_in: "收腿", broad_jump_takeoff: "跳远起跳", flight_or_move: "腾空或移动",
   reach: "前伸取绳", recover: "向前移动回位", walking: "行走", airborne: "腾空", landing: "落地", support: "支撑",
@@ -55,6 +58,80 @@ function toast(message, error = false) {
   node.className = `toast show${error ? " error" : ""}`;
   clearTimeout(node._timer);
   node._timer = setTimeout(() => node.className = "toast", 3200);
+}
+
+function setVoiceStatus(message) {
+  const node = $("#voiceStatus");
+  if (node) node.textContent = message;
+}
+
+function preferredChineseVoice() {
+  if (!ui.voiceSupported) return null;
+  const voices = window.speechSynthesis.getVoices();
+  return voices.find(voice => /^zh[-_](CN|Hans)/i.test(voice.lang))
+    || voices.find(voice => /^zh/i.test(voice.lang))
+    || null;
+}
+
+function cancelVoiceFeedback() {
+  if (ui.voiceSupported) window.speechSynthesis.cancel();
+}
+
+function resetVoiceSession() {
+  cancelVoiceFeedback();
+  ui.lastVoiceEventId = "";
+  setVoiceStatus(ui.voiceEnabled ? "每次完成后播报" : "语音提示已关闭");
+}
+
+function speakVoiceFeedback(event) {
+  if (!event || !event.id || event.id === ui.lastVoiceEventId) return;
+  ui.lastVoiceEventId = event.id;
+  if (!event.speech) {
+    setVoiceStatus(event.rep ? `第 ${event.rep} 次未发现持续性问题` : "当前动作稳定");
+    return;
+  }
+  if (!ui.voiceEnabled || !ui.voiceSupported) return;
+  cancelVoiceFeedback();
+  const utterance = new SpeechSynthesisUtterance(String(event.speech));
+  utterance.lang = "zh-CN";
+  utterance.rate = 1.05;
+  utterance.pitch = 1;
+  utterance.volume = 1;
+  const voice = preferredChineseVoice();
+  if (voice) utterance.voice = voice;
+  utterance.onstart = () => setVoiceStatus(event.rep ? `正在播报第 ${event.rep} 次` : "正在播报动作提示");
+  utterance.onend = () => setVoiceStatus("每次完成后播报");
+  utterance.onerror = speechEvent => {
+    if (speechEvent.error !== "canceled" && speechEvent.error !== "interrupted") setVoiceStatus("语音播放失败，请检查系统音量");
+  };
+  window.speechSynthesis.speak(utterance);
+}
+
+function initializeVoiceFeedback() {
+  const button = $("#voiceToggle");
+  if (!button) return;
+  if (!ui.voiceSupported) {
+    ui.voiceEnabled = false;
+    button.disabled = true;
+    button.setAttribute("aria-pressed", "false");
+    button.textContent = "语音不可用";
+    setVoiceStatus("当前浏览器不支持语音合成");
+    return;
+  }
+  try { ui.voiceEnabled = localStorage.getItem("hyroxVoiceFeedback") !== "off"; } catch (_) { /* storage may be blocked */ }
+  const render = () => {
+    button.setAttribute("aria-pressed", String(ui.voiceEnabled));
+    button.textContent = ui.voiceEnabled ? "🔊 语音开" : "🔇 语音关";
+    setVoiceStatus(ui.voiceEnabled ? "每次完成后播报" : "语音提示已关闭");
+  };
+  button.addEventListener("click", () => {
+    ui.voiceEnabled = !ui.voiceEnabled;
+    if (!ui.voiceEnabled) cancelVoiceFeedback();
+    try { localStorage.setItem("hyroxVoiceFeedback", ui.voiceEnabled ? "on" : "off"); } catch (_) { /* storage may be blocked */ }
+    render();
+    toast(ui.voiceEnabled ? "已开启逐次动作语音提示" : "已关闭语音提示");
+  });
+  render();
 }
 
 async function api(path, options = {}) {
@@ -406,6 +483,7 @@ function handleRealtimeResult(result) {
     phase: result.phase,
     reps: result.reps,
     feedback: result.feedback,
+    voice_feedback: result.voice_feedback,
     frame_index: result.sequence,
   });
   drawSkeleton(result);
@@ -519,6 +597,7 @@ async function uploadSelectedVideo() {
 }
 
 async function startAnalysis() {
+  resetVoiceSession();
   $("#reportPreview").hidden = true;
   $("#reportReadyBanner").hidden = true;
   $$("#downloadText, #downloadJson, #downloadCsv").forEach(link => link.setAttribute("aria-disabled", "true"));
@@ -566,6 +645,7 @@ async function startAnalysis() {
 
 async function stopAnalysis() {
   ui.manualStop = true;
+  cancelVoiceFeedback();
   clearTimeout(ui.reconnectTimer);
   stopLocalRecording();
   try {
@@ -623,6 +703,7 @@ async function updateLiveSetting(key, value) {
 
 async function togglePause() {
   ui.paused = !ui.paused;
+  if (ui.paused) cancelVoiceFeedback();
   try {
     await updateLiveSetting("paused", ui.paused);
     $("#pauseButton").classList.toggle("active", ui.paused);
@@ -806,6 +887,7 @@ function updateState(state) {
   $("#phaseIndicator").style.width = state.pose_detected ? `${Math.min(100, 18 + ((state.frame_index || 0) % 5) * 19)}%` : "8%";
   $("#progressBar").style.width = `${state.progress || 0}%`;
   $("#cameraTip").textContent = viewTips[state.camera_view] || viewTips.unknown;
+  speakVoiceFeedback(state.voice_feedback);
   renderFeedback(state.feedback || [], state.pose_detected, state.running);
   ui.lastStatus = state.status;
 }
@@ -855,7 +937,7 @@ $("#screenshotButton").addEventListener("click", takeScreenshot);
 $("#generateReportButton").addEventListener("click", generateReport);
 $("#openReportButton").addEventListener("click", generateReport);
 $("#deleteSessionButton").addEventListener("click", deleteCurrentSession);
-$("#actionSelect").addEventListener("change", event => { renderStandards(event.target.value); updateLiveSetting("action", event.target.value); });
+$("#actionSelect").addEventListener("change", event => { resetVoiceSession(); renderStandards(event.target.value); updateLiveSetting("action", event.target.value); });
 $("#viewSelect").addEventListener("change", event => { updateLiveSetting("camera_view", event.target.value); $("#cameraTip").textContent = viewTips[event.target.value]; });
 $("#sensitivitySelect").addEventListener("change", event => updateLiveSetting("sensitivity", event.target.value));
 $("#profileSelect").addEventListener("change", () => updateLiveSetting("landmark_profile", selectedLandmarkProfile()));
@@ -863,7 +945,8 @@ $("#fingerToggle").addEventListener("change", event => updateLiveSetting("show_f
 $("#faceToggle").addEventListener("change", () => updateLiveSetting("landmark_profile", selectedLandmarkProfile()));
 $("#mirrorToggle").addEventListener("change", event => updateLiveSetting("mirror", event.target.checked));
 window.addEventListener("resize", resizeOverlay);
-window.addEventListener("pagehide", () => { ui.manualStop = true; stopLocalRecording(); stopMediaTracks(); ui.socket?.close(); if (ui.recordingUrl) URL.revokeObjectURL(ui.recordingUrl); });
+window.addEventListener("pagehide", () => { ui.manualStop = true; cancelVoiceFeedback(); stopLocalRecording(); stopMediaTracks(); ui.socket?.close(); if (ui.recordingUrl) URL.revokeObjectURL(ui.recordingUrl); });
 document.addEventListener("visibilitychange", () => { if (document.hidden && ui.mediaStream) stopAnalysis(); });
 
+initializeVoiceFeedback();
 loadOptions();

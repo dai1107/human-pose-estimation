@@ -35,7 +35,7 @@ from src.utils.backend_policy import resolve_backend_choice
 from src.utils.device import resolve_torch_device
 from src.utils.draw_utils import draw_hyrox_action_overlay, draw_pose_result_filtered, to_pixel
 from src.utils.smoothing import KeypointSmoother
-from webui.analysis import assess_action, enrich_report, official_rules_for, render_text_report, standards_for, visible_feedback
+from webui.analysis import RepVoiceFeedbackTracker, assess_action, enrich_report, official_rules_for, render_text_report, standards_for, visible_feedback
 from webui.realtime import (
     BrowserSession,
     RealtimePoseSession,
@@ -212,7 +212,7 @@ def _backend_plan(config: Mapping[str, Any]) -> tuple[str, str]:
     requested = str(config.get("backend", "auto"))
     if requested == "auto" and config.get("source_mode") == "sample" and config.get("action") == "lunge":
         return "yolo-pose", "area"
-    return requested, "confidence"
+    return requested, "tracking"
 
 
 class PoseStreamEngine:
@@ -229,6 +229,7 @@ class PoseStreamEngine:
         self._record_requested = False
         self._output_dir = output_dir or WEB_OUTPUT_DIR
         self._history: deque[dict[str, Any]] = deque(maxlen=9000)
+        self._voice_feedback = RepVoiceFeedbackTracker()
         self._settings: dict[str, Any] = {
             "action": "lunge",
             "camera_view": "side",
@@ -256,6 +257,7 @@ class PoseStreamEngine:
             "phase": "idle",
             "reps": 0,
             "feedback": [],
+            "voice_feedback": None,
             "frame_index": 0,
             "progress": 0.0,
             "recording": False,
@@ -284,6 +286,7 @@ class PoseStreamEngine:
             )
             self._record_requested = False
             self._history.clear()
+            self._voice_feedback.reset()
             self._latest_jpeg = None
             self._latest_frame = None
             self._state.update(
@@ -305,6 +308,7 @@ class PoseStreamEngine:
                     "phase": "idle",
                     "reps": 0,
                     "feedback": [],
+                    "voice_feedback": None,
                     "frame_index": 0,
                     "progress": 0.0,
                     "recording": False,
@@ -455,7 +459,7 @@ class PoseStreamEngine:
         action: str,
         source_path: str,
         *,
-        target_select: str = "confidence",
+        target_select: str = "tracking",
     ) -> tuple[Any, str]:
         resolved = resolve_backend_choice(requested, action_type=action, input_video=source_path)
         if resolved == "mediapipe":
@@ -517,7 +521,12 @@ class PoseStreamEngine:
                 key = (settings["action"], settings["sensitivity"], settings["camera_view"])
                 if key != analyzer_key:
                     analyzer = (
-                        create_action_analyzer(key[0], sensitivity=key[1], camera_view=key[2])
+                        create_action_analyzer(
+                            key[0],
+                            sensitivity=key[1],
+                            camera_view=key[2],
+                            live_mode=config["source_mode"] == "camera",
+                        )
                         if key[0] != "none"
                         else None
                     )
@@ -563,6 +572,13 @@ class PoseStreamEngine:
                 smooth_fps = instant_fps if smooth_fps <= 0 else smooth_fps * 0.85 + instant_fps * 0.15
                 last_frame_time = now
                 reps = 0 if action_state is None else int(action_state.get("rep_count", 0))
+                voice_feedback = self._voice_feedback.update(
+                    action=str(settings["action"]),
+                    reps=reps,
+                    assessment=assessment,
+                    detected_issues=all_feedback,
+                    timestamp_ms=int(time.time() * 1000),
+                )
                 visible_names = _result_visible_names(
                     settings["landmark_profile"],
                     result_names,
@@ -607,6 +623,7 @@ class PoseStreamEngine:
                                 "reps": reps,
                                 "pose_detected": has_pose,
                                 "feedback": feedback,
+                                "voice_feedback": voice_feedback,
                                 "detected_issues": all_feedback,
                                 "assessment": assessment,
                                 "keypoints": keypoints,
@@ -634,6 +651,7 @@ class PoseStreamEngine:
                                 "phase": phase,
                                 "reps": reps,
                                 "feedback": feedback,
+                                "voice_feedback": voice_feedback,
                                 "frame_index": frame_index,
                                 "progress": round(min(progress, 100.0), 1),
                                 "recording": writer is not None,

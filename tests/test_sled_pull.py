@@ -66,6 +66,7 @@ def test_sled_pull_counts_reach_pull_recover_cycle() -> None:
     recovered = analyzer.update(_features(left_elbow_angle=145, right_elbow_angle=147), 400)
     assert recovered["phase"] == "recover"
     assert recovered["rep_count"] == 1
+    assert recovered["debug"]["rep_completed"] is True
     assert recovered["debug"]["pull_count"] == 1
 
 
@@ -105,5 +106,5 @@ def test_sled_pull_reports_arms_only_and_no_clear_pull() -> None:
     analyzer.update(_reach(), 0)
     analyzer.update(_features(left_elbow_angle=150, right_elbow_angle=152), 100)
     unclear = analyzer.update(_features(left_elbow_angle=156, right_elbow_angle=158), 200)
-    assert unclear["rep_count"] == 0
+    assert unclear["rep_count"] == 1
     assert "NO_CLEAR_PULL" in {message.code for message in unclear["feedback_messages"]}

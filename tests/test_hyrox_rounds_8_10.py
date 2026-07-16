@@ -47,6 +47,18 @@ def test_registry_reports_unknown_action_clearly() -> None:
         create_action_analyzer("unknown")
 
 
+def test_default_confirmation_is_camera_safe_without_weakening_low_sensitivity() -> None:
+    offline = create_action_analyzer("lunge", sensitivity="medium")
+    live = create_action_analyzer("lunge", sensitivity="medium", live_mode=True)
+    live_high = create_action_analyzer("lunge", sensitivity="high", live_mode=True)
+    live_low = create_action_analyzer("lunge", sensitivity="low", live_mode=True)
+
+    assert offline.confirmation_frames == 2
+    assert live.confirmation_frames == 2
+    assert live_high.confirmation_frames == 1
+    assert live_low.confirmation_frames == 3
+
+
 def test_registry_accepts_mapping_and_user_config_path(tmp_path: Path) -> None:
     mapped = create_action_analyzer(
         "lunge",

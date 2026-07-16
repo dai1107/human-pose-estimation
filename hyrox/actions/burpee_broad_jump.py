@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from hyrox.base import BaseActionAnalyzer
+from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_burpee_broad_jump_config
 from hyrox.feedback import FeedbackMessage
 
@@ -115,6 +115,10 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
         self.extra_steps = False
         self.landing_step_events = 0
         self.landing_started_ms: int | None = None
+        self.rep_sequence = PhaseSequenceTracker(
+            ("chest_down", "step_or_jump_in", "broad_jump_takeoff", "flight_or_move", "landing"),
+            optional_phases=("step_or_jump_in", "flight_or_move"),
+        )
 
     def _visible_score(self, features: dict[str, object]) -> float:
         score = _safe_float(features.get("visible_score"))
@@ -177,25 +181,12 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
         return "unknown"
 
     def _advance_phase(self, raw_phase: str, timestamp_ms: int | None) -> tuple[str, int | None]:
-        previous = self.stable_phase
+        previous, _ = self._advance_confirmed_phase(raw_phase, self.confirmation_frames)
         previous_duration = None
-        if raw_phase == "unknown":
-            self.raw_phase = "unknown"
-            self.stable_phase = "unknown"
-            self.frames_in_phase = 1
-        else:
-            if raw_phase == self.raw_phase:
-                self.frames_in_phase += 1
-            else:
-                self.raw_phase = raw_phase
-                self.frames_in_phase = 1
-            if self.frames_in_phase >= self.confirmation_frames:
-                self.stable_phase = raw_phase
         if self.stable_phase != previous:
             if timestamp_ms is not None and self.phase_started_ms is not None:
                 previous_duration = max(0, timestamp_ms - self.phase_started_ms)
             self.phase_started_ms = timestamp_ms
-        self.phase = self.stable_phase
         return previous, previous_duration
 
     def _cooldown_elapsed(self, timestamp_ms: int | None) -> bool:
@@ -209,8 +200,10 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
     ) -> None:
         self.chest_not_low = False
         self.no_broad_jump = False
+        self.rep_sequence.just_completed = False
         if self.stable_phase == previous:
             return
+        sequence_completed = self.rep_sequence.update(self.stable_phase)
         if self.stable_phase != "landing":
             self.extra_steps = False
             self.landing_step_events = 0
@@ -226,7 +219,7 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
             self.landing_step_events = 0
             delta_x = 0.0 if body_center_x is None or self.takeoff_center_x is None else abs(body_center_x - self.takeoff_center_x)
             self.no_broad_jump = delta_x < self.jump_forward_min_delta_x
-            if self.chest_down_seen and self.takeoff_seen and self._cooldown_elapsed(timestamp_ms):
+            if sequence_completed:
                 self.rep_count += 1
                 self.last_rep_time_ms = timestamp_ms
         elif self.stable_phase in {"reset", "stand"}:
@@ -345,6 +338,7 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
                 "frames_in_phase": self.frames_in_phase,
                 "config_name": self.config_name,
                 "sensitivity": self.sensitivity,
+                **self.rep_sequence.debug(),
             },
         }
 

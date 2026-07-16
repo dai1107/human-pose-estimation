@@ -13,7 +13,10 @@ from src.utils.roi import BBox, clamp_bbox, normalize_bbox
 from src.utils.ultralytics_config import ensure_ultralytics_config_dir
 
 
-TargetSelect = Literal["confidence", "area"]
+TargetSelect = Literal["tracking", "confidence", "area"]
+
+
+TRACK_REACQUIRE_FRAMES = 6
 
 
 @dataclass(frozen=True)
@@ -35,7 +38,7 @@ class YoloPoseBackend:
     def __init__(
         self,
         model_path: str = "yolo11n-pose.pt",
-        target_select: TargetSelect = "confidence",
+        target_select: TargetSelect = "tracking",
         device: str = "",
     ) -> None:
         ensure_ultralytics_config_dir()
@@ -46,12 +49,14 @@ class YoloPoseBackend:
                 "未安装 ultralytics，无法使用 --backend yolo-pose。请运行 pip install ultralytics，或改用 --backend mediapipe。"
             ) from exc
 
-        if target_select not in {"confidence", "area"}:
-            raise ValueError("--target-select must be confidence or area")
+        if target_select not in {"tracking", "confidence", "area"}:
+            raise ValueError("--target-select must be tracking, confidence or area")
         self.model = YOLO(model_path)
         self.model_path = model_path
         self.target_select: TargetSelect = target_select
         self.device = device.strip()
+        self._tracked_bbox: BBox | None = None
+        self._track_lost_frames = 0
 
     def detect(self, frame: np.ndarray, timestamp_ms: int | None = None) -> PoseResult:
         started = time.perf_counter()
@@ -74,7 +79,7 @@ class YoloPoseBackend:
     ) -> PoseResult:
         height, width = frame_shape[:2]
         candidates = self._collect_candidates(results, width, height)
-        selected = self._select_candidate(candidates)
+        selected = self._select_candidate(candidates, width, height)
         if selected is None:
             return PoseResult(
                 keypoints=[],
@@ -102,6 +107,8 @@ class YoloPoseBackend:
                 "bbox_pixels": selected.bbox_pixels,
                 "target_confidence": selected.confidence,
                 "target_area": selected.area,
+                "target_tracking": self.target_select == "tracking",
+                "target_track_lost_frames": self._track_lost_frames,
                 "device": getattr(self, "device", "") or "auto",
             },
         )
@@ -147,12 +154,57 @@ class YoloPoseBackend:
                     candidates.append(candidate)
         return candidates
 
-    def _select_candidate(self, candidates: list[YoloPoseCandidate]) -> YoloPoseCandidate | None:
+    def _select_candidate(
+        self,
+        candidates: list[YoloPoseCandidate],
+        width: int,
+        height: int,
+    ) -> YoloPoseCandidate | None:
         if not candidates:
+            if self.target_select == "tracking" and self._tracked_bbox is not None:
+                self._track_lost_frames += 1
+                if self._track_lost_frames > TRACK_REACQUIRE_FRAMES:
+                    self._tracked_bbox = None
             return None
         if self.target_select == "area":
             return max(candidates, key=lambda item: item.area)
-        return max(candidates, key=lambda item: item.confidence)
+        if self.target_select == "confidence":
+            return max(candidates, key=lambda item: item.confidence)
+
+        tracked_bbox = getattr(self, "_tracked_bbox", None)
+        lost_frames = int(getattr(self, "_track_lost_frames", 0))
+        selected: YoloPoseCandidate | None = None
+        if tracked_bbox is not None and lost_frames <= TRACK_REACQUIRE_FRAMES:
+            compatible = [
+                candidate
+                for candidate in candidates
+                if _bbox_iou(tracked_bbox, candidate.bbox_pixels) >= 0.08
+                or _relative_center_distance(tracked_bbox, candidate.bbox_pixels) <= 0.45
+            ]
+            if compatible:
+                selected = max(
+                    compatible,
+                    key=lambda candidate: (
+                        0.70 * _bbox_iou(tracked_bbox, candidate.bbox_pixels)
+                        + 0.20 * (1.0 - min(1.0, _relative_center_distance(tracked_bbox, candidate.bbox_pixels)))
+                        + 0.10 * candidate.confidence
+                    ),
+                )
+            else:
+                self._track_lost_frames = lost_frames + 1
+                if self._track_lost_frames <= TRACK_REACQUIRE_FRAMES:
+                    return None
+
+        if selected is None:
+            max_area = max(candidate.area for candidate in candidates)
+            selected = max(
+                candidates,
+                key=lambda candidate: _initial_athlete_score(candidate, width, height, max_area),
+            )
+
+        self._tracked_bbox = selected.bbox_pixels
+        self._track_lost_frames = 0
+        return selected
 
     def _candidate_bbox(
         self,
@@ -270,3 +322,41 @@ def _normalize_pixel(value: float, size: int) -> float:
     if size <= 0 or not isfinite(value):
         return nan
     return min(1.0, max(0.0, value / float(size)))
+
+
+def _bbox_iou(first: BBox, second: BBox) -> float:
+    left = max(first[0], second[0])
+    top = max(first[1], second[1])
+    right = min(first[2], second[2])
+    bottom = min(first[3], second[3])
+    intersection = max(0.0, right - left) * max(0.0, bottom - top)
+    if intersection <= 0.0:
+        return 0.0
+    first_area = max(0.0, first[2] - first[0]) * max(0.0, first[3] - first[1])
+    second_area = max(0.0, second[2] - second[0]) * max(0.0, second[3] - second[1])
+    union = first_area + second_area - intersection
+    return intersection / union if union > 0.0 else 0.0
+
+
+def _relative_center_distance(first: BBox, second: BBox) -> float:
+    first_x = (first[0] + first[2]) / 2.0
+    first_y = (first[1] + first[3]) / 2.0
+    second_x = (second[0] + second[2]) / 2.0
+    second_y = (second[1] + second[3]) / 2.0
+    scale = max(1.0, ((first[2] - first[0]) ** 2 + (first[3] - first[1]) ** 2) ** 0.5)
+    return ((first_x - second_x) ** 2 + (first_y - second_y) ** 2) ** 0.5 / scale
+
+
+def _initial_athlete_score(
+    candidate: YoloPoseCandidate,
+    width: int,
+    height: int,
+    max_area: float,
+) -> float:
+    area_score = candidate.area / max(1.0, max_area)
+    center_x = (candidate.bbox_pixels[0] + candidate.bbox_pixels[2]) / 2.0
+    center_y = (candidate.bbox_pixels[1] + candidate.bbox_pixels[3]) / 2.0
+    dx = abs(center_x - width / 2.0) / max(1.0, width / 2.0)
+    dy = abs(center_y - height / 2.0) / max(1.0, height / 2.0)
+    center_score = 1.0 - min(1.0, (dx * dx + dy * dy) ** 0.5 / 2**0.5)
+    return 0.35 * area_score + 0.45 * center_score + 0.20 * candidate.confidence

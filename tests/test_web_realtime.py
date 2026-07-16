@@ -112,6 +112,7 @@ def test_realtime_session_returns_pose_json_and_downloadable_reports() -> None:
     assert result["type"] == "result"
     assert result["sequence"] == 7
     assert result["pose_detected"] is True
+    assert result["voice_feedback"] is None
     assert result["metrics"]["width"] == 320
     assert result["metrics"]["inference_ms"] == 7.5
     assert {point["name"] for point in result["keypoints"]} == {

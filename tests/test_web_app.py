@@ -56,6 +56,7 @@ def test_web_home_and_options_are_available() -> None:
     assert page.status_code == 200
     assert "HYROX 动作分析台" in page.get_data(as_text=True)
     assert 'id="videoRepCount"' in page.get_data(as_text=True)
+    assert 'id="voiceToggle"' in page.get_data(as_text=True)
     assert options.status_code == 200
     assert {item["value"] for item in options.json["actions"]} >= {"lunge", "wall_ball", "rowing"}
     assert len(options.json["samples"]) == 8
@@ -142,7 +143,7 @@ def test_crowded_lunge_sample_selects_the_largest_foreground_person() -> None:
     )
     assert _backend_plan({"source_mode": "camera", "action": "lunge", "backend": "auto"}) == (
         "auto",
-        "confidence",
+        "tracking",
     )
 
 

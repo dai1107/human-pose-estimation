@@ -3,12 +3,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from hyrox.base import BaseActionAnalyzer
+from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_lunge_config
 from hyrox.feedback import FeedbackMessage
 
 
-PHASE_CONFIRMATION_FRAMES = 3
+PHASE_CONFIRMATION_FRAMES = 2
 REP_COOLDOWN_MS = 400
 FEEDBACK_PRIORITY = {"error": 0, "warn": 1, "info": 2}
 SENSITIVITY_PROFILES: dict[str, dict[str, float | int]] = {
@@ -24,7 +24,7 @@ SENSITIVITY_PROFILES: dict[str, dict[str, float | int]] = {
         "motion_tolerance": 5.0,
         "hip_motion_tolerance": 0.006,
         "hip_drop_min": 0.045,
-        "confirmation_frames": 4,
+        "confirmation_frames": 3,
     },
     "medium": {
         "min_visible_score": 0.45,
@@ -52,7 +52,7 @@ SENSITIVITY_PROFILES: dict[str, dict[str, float | int]] = {
         "motion_tolerance": 2.0,
         "hip_motion_tolerance": 0.002,
         "hip_drop_min": 0.025,
-        "confirmation_frames": 2,
+        "confirmation_frames": 1,
     },
 }
 
@@ -263,6 +263,10 @@ class LungeAnalyzer(BaseActionAnalyzer):
         self.current_rep_min_knee_angle: float | None = None
         self.just_completed_rep = False
         self.last_rep_time_ms: int | None = None
+        self.rep_sequence = PhaseSequenceTracker(
+            ("stand", "descent", "bottom", "ascent", "stand"),
+            optional_phases=("descent", "ascent"),
+        )
 
     def _visible_score(self, features: dict[str, object] | None) -> float:
         if not isinstance(features, dict):
@@ -323,16 +327,7 @@ class LungeAnalyzer(BaseActionAnalyzer):
         ]
 
     def _advance_phase(self, raw_phase: str) -> tuple[str, str]:
-        previous_stable_phase = self.stable_phase
-        if raw_phase == self.raw_phase:
-            self.frames_in_phase += 1
-        else:
-            self.raw_phase = raw_phase
-            self.frames_in_phase = 1
-        if self.frames_in_phase >= self.confirmation_frames:
-            self.stable_phase = self.raw_phase
-        self.phase = self.stable_phase
-        return previous_stable_phase, self.stable_phase
+        return self._advance_confirmed_phase(raw_phase, self.confirmation_frames)
 
     def _clear_rep_tracking(self) -> None:
         self.bottom_seen = False
@@ -399,6 +394,7 @@ class LungeAnalyzer(BaseActionAnalyzer):
     def update(self, features: dict[str, object] | None, timestamp_ms: int | None) -> dict[str, Any]:
         self.last_timestamp_ms = None if timestamp_ms is None else int(timestamp_ms)
         self.just_completed_rep = False
+        self.rep_sequence.just_completed = False
         visible_score = self._visible_score(features)
         min_knee_angle = _min_metric(
             None if features is None else features.get("left_knee_angle"),
@@ -421,6 +417,7 @@ class LungeAnalyzer(BaseActionAnalyzer):
             previous_stable_phase, stable_phase = self._advance_phase(raw_phase)
             if stable_phase != previous_stable_phase and stable_phase in {"low_visibility", "no_pose"}:
                 self._clear_rep_tracking()
+                self.rep_sequence.reset()
             self.previous_min_knee_angle = None
             self.previous_hip_center_y = None
             feedback_messages = self._visibility_feedback(visible_score)
@@ -447,6 +444,7 @@ class LungeAnalyzer(BaseActionAnalyzer):
                     "rep_cooldown_ms": self.rep_cooldown_ms,
                     "sensitivity": self.sensitivity,
                     "config_name": self.config_name,
+                    **self.rep_sequence.debug(),
                 },
             }
 
@@ -466,11 +464,13 @@ class LungeAnalyzer(BaseActionAnalyzer):
             else:
                 self.current_rep_min_knee_angle = min(self.current_rep_min_knee_angle, min_knee_angle)
 
+        sequence_completed = False
         if stable_phase != previous_stable_phase:
+            sequence_completed = self.rep_sequence.update(stable_phase)
             if stable_phase == "bottom":
                 self.bottom_seen = True
             if stable_phase == "stand":
-                if self.bottom_seen and self._cooldown_elapsed(self.last_timestamp_ms):
+                if sequence_completed:
                     self.rep_count += 1
                     self.just_completed_rep = True
                     self.last_rep_time_ms = self.last_timestamp_ms
@@ -514,6 +514,7 @@ class LungeAnalyzer(BaseActionAnalyzer):
                 "hip_drop_min": self.hip_drop_min,
                 "sensitivity": self.sensitivity,
                 "config_name": self.config_name,
+                **self.rep_sequence.debug(),
             },
         }
 

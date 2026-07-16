@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from webui.analysis import assess_action, enrich_report, official_rules_for, render_text_report, standards_for, visible_feedback
+from webui.analysis import RepVoiceFeedbackTracker, assess_action, enrich_report, official_rules_for, render_text_report, standards_for, visible_feedback
 
 
 def test_action_assessment_uses_phase_specific_angle_ranges() -> None:
@@ -201,3 +201,57 @@ def test_each_completed_rep_summarizes_strengths_and_improvements() -> None:
     assert detail["title"] == "第 1 次弓步"
     assert any("后膝接近地面" in item for item in detail["positives"])
     assert any("躯干前倾过多" in item for item in detail["improvements"])
+
+
+def test_completed_rep_voice_feedback_reuses_report_improvements() -> None:
+    tracker = RepVoiceFeedbackTracker()
+    tracker.update(
+        action="lunge",
+        reps=0,
+        timestamp_ms=1000,
+        assessment={
+            "criteria": [
+                {
+                    "label": "躯干稳定",
+                    "clear_failure": True,
+                    "passed": False,
+                    "range_text": "0–30°",
+                    "unit": "°",
+                    "value": 48,
+                }
+            ]
+        },
+        detected_issues=[
+            {"level": "warn", "code": "LEAN_TOO_MUCH", "text": "躯干前倾过多"},
+            {"level": "warn", "code": "LOW_VISIBILITY", "text": "请保证全身入镜"},
+        ],
+    )
+    event = tracker.update(
+        action="lunge",
+        reps=1,
+        timestamp_ms=1600,
+        assessment={"criteria": []},
+        detected_issues=[{"level": "warn", "code": "LEAN_TOO_MUCH", "text": "躯干前倾过多"}],
+    )
+
+    assert event is not None
+    assert event["id"] == "lunge:rep:1"
+    assert "第 1 次" in event["speech"]
+    assert any("躯干稳定" in item for item in event["improvements"])
+    assert any("躯干前倾过多" in item for item in event["improvements"])
+    assert "全身入镜" not in event["speech"]
+
+
+def test_farmers_carry_speaks_only_after_issue_persists_and_honors_cooldown() -> None:
+    tracker = RepVoiceFeedbackTracker()
+    issue = [{"level": "warn", "code": "TORSO_LEAN", "text": "保持核心稳定"}]
+
+    assert tracker.update(action="farmers_carry", reps=0, assessment={}, detected_issues=issue, timestamp_ms=1000) is None
+    event = tracker.update(action="farmers_carry", reps=0, assessment={}, detected_issues=issue, timestamp_ms=2300)
+    assert event is not None
+    assert event["mode"] == "continuous"
+    assert "保持核心稳定" in event["speech"]
+    assert tracker.update(action="farmers_carry", reps=0, assessment={}, detected_issues=issue, timestamp_ms=5000) == event
+    repeated = tracker.update(action="farmers_carry", reps=0, assessment={}, detected_issues=issue, timestamp_ms=10_400)
+    assert repeated is not None
+    assert repeated["id"] != event["id"]

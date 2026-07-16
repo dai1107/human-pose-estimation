@@ -202,7 +202,14 @@
         </div>
 
         <div class="feedback-section">
-          <div class="section-title"><span>动作反馈</span><small id="feedbackTime">实时更新</small></div>
+          <div class="section-title">
+            <span>动作反馈</span>
+            <div class="feedback-controls">
+              <small id="feedbackTime">实时更新</small>
+              <button id="voiceToggle" class="voice-toggle" type="button" aria-pressed="true" title="完成每次动作后，播报该次需要改进的地方">🔊 语音开</button>
+            </div>
+          </div>
+          <p class="voice-status" id="voiceStatus" role="status">每次完成后播报</p>
           <div class="feedback-list" id="feedbackList">
             <div class="feedback-empty"><span>✓</span><p>开始后，这里会显示动作质量与调整建议。</p></div>
           </div>
@@ -235,7 +242,7 @@
     <footer class="privacy-footer">
       <details>
         <summary>隐私与摄像头说明</summary>
-        <p>摄像头只会在你点击“开启摄像头”后启用。浏览器只请求视频权限，音频始终关闭。摄像头帧仅用于实时计算，不写入服务器磁盘；关闭、切换设备或离开页面时会立即停止所有视频轨道。你主动使用“录制”时，带骨架画面只在浏览器内生成并供你本机回放或保存，不上传服务器。上传视频仅作为临时分析输入，完成后删除。结构化分析结果最多保留 10 分钟，你也可以随时点击“删除本次数据”。</p>
+        <p>摄像头只会在你点击“开启摄像头”后启用。浏览器只请求视频权限，麦克风始终关闭；语音提示由浏览器在本机根据文字建议合成，不上传音频。摄像头帧仅用于实时计算，不写入服务器磁盘；关闭、切换设备或离开页面时会立即停止所有视频轨道。你主动使用“录制”时，带骨架画面只在浏览器内生成并供你本机回放或保存，不上传服务器。上传视频仅作为临时分析输入，完成后删除。结构化分析结果最多保留 10 分钟，你也可以随时点击“删除本次数据”。</p>
       </details>
     </footer>
   </div>

@@ -1,0 +1,2106 @@
+# HYROX 四层动作评分系统：Codex 工程实现方案
+
+> 适用项目：现有 Windows 本地实时人体姿态检测项目  
+> 目标：在不破坏现有 MediaPipe / YOLOPose 实时链路的前提下，增加 HYROX 八项动作的四层评分。  
+> 规则基线：HYROX Singles Rulebook 26/27。  
+> 注意：本文中的“理想角度和时序区间”除明确标记为官方规则外，均属于第一版工程先验，不是官方动作标准、临床诊断阈值或真实关节受力结论。后续必须用专家视频和个人数据校准。
+
+---
+
+## 1. 总体目标
+
+在现有实时姿态检测项目中增加统一评分底座，对每个动作输出：
+
+1. **动作有效性 Validity**
+   - `VALID`
+   - `NO_REP`
+   - `UNSURE`
+   - 具体原因代码
+
+2. **动作技术质量 Technique，0～100**
+   - 关节活动范围
+   - 躯干和关节对齐
+   - 轨迹
+   - 左右对称
+   - 动作稳定性
+
+3. **协调与发力时序 Coordination，0～100**
+   - 关节启动顺序
+   - 峰值角速度时序
+   - 动作阶段衔接
+   - 相邻关节耦合
+   - 不把它表述成真实肌肉力量或真实力矩
+
+4. **动作经济性 Efficiency，0～100**
+   - 有效输出
+   - 无效位移
+   - 停顿和修正
+   - 节奏稳定性
+   - 器械位移与人体动作的转化关系
+
+最终有效动作质量分：
+
+```text
+quality_score =
+    0.40 * technique_score
+  + 0.30 * coordination_score
+  + 0.30 * efficiency_score
+```
+
+Validity 是硬门槛，不纳入加权平均：
+
+```text
+VALID:
+    counted = true
+NO_REP:
+    counted = false
+    仍计算技术、协调、效率，供诊断
+UNSURE:
+    counted = false
+    不判罚，提示摄像头或检测置信度不足
+```
+
+---
+
+## 2. 必须遵守的工程原则
+
+1. 不推翻现有 MediaPipe 实时摄像头功能。
+2. MediaPipe 主流程不得被可选 YOLO / 物体检测阻塞。
+3. 所有评分模块通过统一骨架数据结构读取数据，不直接依赖某个姿态模型。
+4. 评分配置放入 YAML，不把阈值散落在代码中。
+5. 每个指标都必须返回：
+   - `value`
+   - `score`
+   - `confidence`
+   - `status`
+   - `reason_code`
+   - `evidence_frames`
+6. 所有角速度和角加速度必须先平滑后求导。
+7. 单目画面无法可靠观测的指标必须返回 `not_observable`，不得猜测。
+8. 不输出“肌肉发力多少牛顿”“关节承受多少力”等视频无法直接测得的内容。
+9. 任何总分都同时输出：
+   - `score_confidence`
+   - `metric_coverage`
+   - `camera_view`
+10. 低于置信度阈值时宁可 `UNSURE`，不要误判 `NO_REP`。
+
+---
+
+## 3. 推荐目录结构
+
+请 Codex 根据现有项目结构适配，不要机械覆盖已有模块。
+
+```text
+src/
+  pose/
+    unified_types.py
+    skeleton_adapter.py
+
+  biomechanics/
+    angles.py
+    normalized_geometry.py
+    temporal_filters.py
+    derivatives.py
+    phase_features.py
+    symmetry.py
+    trajectory.py
+
+  scoring/
+    models.py
+    band_score.py
+    metric_registry.py
+    layer_aggregator.py
+    validity_engine.py
+    score_engine.py
+    confidence.py
+
+  movements/
+    base.py
+    registry.py
+
+    skierg/
+      detector.py
+      features.py
+      scorer.py
+
+    sled_push/
+      detector.py
+      features.py
+      scorer.py
+
+    sled_pull/
+      detector.py
+      features.py
+      scorer.py
+
+    burpee_broad_jump/
+      detector.py
+      features.py
+      scorer.py
+
+    rowing/
+      detector.py
+      features.py
+      scorer.py
+
+    farmers_carry/
+      detector.py
+      features.py
+      scorer.py
+
+    sandbag_lunge/
+      detector.py
+      features.py
+      scorer.py
+
+    wall_ball/
+      detector.py
+      features.py
+      scorer.py
+
+  objects/
+    base.py
+    ball_tracker.py
+    sled_tracker.py
+    rope_tracker.py
+    kettlebell_tracker.py
+    floor_calibration.py
+
+  session/
+    rep_buffer.py
+    set_summary.py
+    fatigue_analysis.py
+    personal_baseline.py
+
+  feedback/
+    feedback_policy.py
+    feedback_messages_zh.py
+    cooldown.py
+
+configs/
+  scoring/
+    common.yaml
+    skierg.yaml
+    sled_push.yaml
+    sled_pull.yaml
+    burpee_broad_jump.yaml
+    rowing.yaml
+    farmers_carry.yaml
+    sandbag_lunge.yaml
+    wall_ball.yaml
+
+tests/
+  test_band_score.py
+  test_angles.py
+  test_derivatives.py
+  test_validity_engine.py
+  test_layer_aggregator.py
+  test_rep_segmentation.py
+  fixtures/
+```
+
+---
+
+## 4. 统一数据结构
+
+### 4.1 姿态帧
+
+```python
+@dataclass
+class Landmark3D:
+    x: float
+    y: float
+    z: float | None
+    confidence: float
+
+@dataclass
+class UnifiedPoseFrame:
+    timestamp_ms: int
+    frame_index: int
+    image_width: int
+    image_height: int
+    landmarks: dict[str, Landmark3D]
+    model_name: str
+    person_confidence: float
+    camera_view: str
+```
+
+关键点名称统一为：
+
+```text
+nose
+left/right_shoulder
+left/right_elbow
+left/right_wrist
+left/right_hip
+left/right_knee
+left/right_ankle
+left/right_heel
+left/right_foot_index
+```
+
+### 4.2 每项指标
+
+```python
+@dataclass
+class MetricResult:
+    name: str
+    layer: str
+    value: float | None
+    unit: str | None
+    score: float | None
+    confidence: float
+    status: Literal["ok", "warning", "fail", "not_observable"]
+    reason_code: str | None
+    evidence_frames: list[int]
+    metadata: dict
+```
+
+### 4.3 每次重复
+
+```python
+@dataclass
+class RepScore:
+    movement: str
+    rep_index: int
+    start_ms: int
+    end_ms: int
+
+    validity: Literal["VALID", "NO_REP", "UNSURE"]
+    validity_reasons: list[str]
+
+    technique_score: float | None
+    coordination_score: float | None
+    efficiency_score: float | None
+    quality_score: float | None
+
+    score_confidence: float
+    metric_coverage: float
+    metrics: list[MetricResult]
+    feedback: list[str]
+```
+
+---
+
+## 5. 角度和坐标约定
+
+必须统一约定，避免不同动作模块方向相反。
+
+### 5.1 关节内角
+
+三点角：
+
+```text
+knee_angle = angle(hip, knee, ankle)
+elbow_angle = angle(shoulder, elbow, wrist)
+hip_angle = angle(shoulder, hip, knee)
+```
+
+约定：
+
+```text
+180° = 完全伸展
+角度越小 = 屈曲越深
+```
+
+### 5.2 躯干倾角
+
+```text
+trunk_vector = midpoint_shoulders - midpoint_hips
+trunk_lean_from_vertical = signed_angle(trunk_vector, image_vertical)
+```
+
+约定：
+
+```text
+0° = 躯干竖直
+正值 = 向动作前进方向前倾
+负值 = 后倾
+```
+
+动作方向必须由初始化校准、器械方向或最近一段水平位移确定，不能固定假定画面左或右。
+
+### 5.3 归一化
+
+距离优先除以：
+
+```text
+body_height_proxy
+torso_length
+leg_length
+hip_width
+shoulder_width
+```
+
+不得直接用像素阈值判断不同身高和不同距离的人。
+
+### 5.4 画面坐标注意
+
+OpenCV 图像的 y 轴向下。所有“高于、低于”的判断必须经过统一辅助函数，不要在动作代码中直接比较 y 值。
+
+---
+
+## 6. 实时信号处理
+
+### 6.1 关键点置信度
+
+默认参数：
+
+```yaml
+confidence:
+  landmark_min: 0.50
+  required_landmark_min: 0.60
+  rep_mean_min: 0.65
+  validity_min: 0.72
+  score_output_min: 0.60
+```
+
+Validity 所依赖的关键证据不足时返回 `UNSURE`。
+
+### 6.2 平滑
+
+实时默认：
+
+```yaml
+filter:
+  coordinate_median_window: 3
+  angle_savgol_window: 9
+  angle_savgol_polyorder: 2
+  max_gap_frames: 4
+```
+
+30 FPS 下 9 帧窗口约产生 100～150 ms 的可接受延迟。
+
+当前项目已有平滑器时，应复用或封装，不要同时叠加多个不透明滤波器。
+
+### 6.3 求导
+
+```text
+angular_velocity_deg_s = d(angle) / dt
+angular_acceleration_deg_s2 = d(angular_velocity) / dt
+```
+
+要求：
+
+1. 使用真实时间戳，不假设固定 FPS。
+2. `dt <= 0` 时跳过。
+3. 对速度再做 3 帧中值滤波。
+4. 对加速度使用稳健截断，避免单帧关键点跳变。
+5. 评分优先使用峰值出现时间、持续时间、均值和积分，不使用单帧极值直接判错。
+
+### 6.4 事件检测
+
+统一支持：
+
+```text
+angle_cross_down
+angle_cross_up
+velocity_onset
+velocity_peak
+acceleration_peak
+contact_proxy
+object_intersection
+state_duration
+```
+
+所有阈值使用滞回，例如：
+
+```text
+进入下蹲：knee_angle < 125°
+退出下蹲：knee_angle > 145°
+```
+
+---
+
+## 7. 通用评分函数
+
+### 7.1 理想区间评分
+
+```python
+def score_interval(
+    value: float,
+    ideal_low: float,
+    ideal_high: float,
+    warn_low: float,
+    warn_high: float,
+    fail_low: float,
+    fail_high: float,
+) -> float:
+    # ideal 内返回 100。
+    # ideal 到 warn 线性下降至 70。
+    # warn 到 fail 线性下降至 0。
+    # fail 外返回 0。
+    ...
+```
+
+### 7.2 越低越好
+
+例如停顿比例：
+
+```python
+score_lower_better(
+    value,
+    ideal_max=0.08,
+    warn_max=0.15,
+    fail_max=0.30,
+)
+```
+
+### 7.3 越高越好
+
+例如有效命中率：
+
+```python
+score_higher_better(
+    value,
+    ideal_min=0.95,
+    warn_min=0.85,
+    fail_min=0.60,
+)
+```
+
+### 7.4 指标缺失
+
+```yaml
+missing_policy:
+  optional_metric: skip_and_renormalize
+  required_validity_metric: mark_unsure
+  required_layer_metric: suppress_layer_if_coverage_below_0_60
+```
+
+不得因为缺失大量指标而把剩余单个指标重新归一化成虚假的高分。
+
+### 7.5 层级覆盖率
+
+```text
+layer_coverage =
+    可评分指标原始权重之和 / 本层全部指标权重之和
+```
+
+默认：
+
+```text
+coverage >= 0.60 才输出该层分数
+overall coverage >= 0.65 才输出 quality_score
+```
+
+---
+
+## 8. 摄像头视角要求
+
+```yaml
+camera_views:
+  sagittal:
+    description: "接近侧面，适合屈伸、步长、躯干倾角"
+    tolerance_deg: 20
+
+  frontal:
+    description: "接近正面或背面，适合左右对称、膝内扣、骨盆侧倾"
+    tolerance_deg: 20
+
+  diagonal:
+    description: "30°～45°斜视角，兼顾部分侧面和正面指标"
+```
+
+每个动作配置 `required_view` 和 `optional_view`。不合适的视角不得强行计算高敏感指标。
+
+单摄像头第一版建议：
+
+| 动作 | 首选视角 |
+|---|---|
+| SkiErg | 侧面 |
+| Sled Push | 侧面或 30°斜侧面，必须包含雪橇 |
+| Sled Pull | 斜侧面，必须包含人、绳索和雪橇 |
+| Burpee Broad Jump | 侧面，必须包含地面和双脚 |
+| Rowing | 侧面 |
+| Farmer Carry | 正面或背面；速度/步长可用斜侧面 |
+| Sandbag Lunge | 斜侧面；纯侧面负责深度和伸展，正面负责膝对齐 |
+| Wall Ball | 侧面偏斜，必须同时包含人、球和目标 |
+
+---
+
+# 9. 八项动作的初始配置
+
+以下区间是第一版工程初值。官方规则字段必须严格，技术字段允许后续校准。
+
+---
+
+## 9.1 SkiErg
+
+### Validity
+
+官方可由视频部分观测：
+
+```yaml
+validity:
+  feet_on_base:
+    required: true
+    source: official
+    rule: "双脚必须回落在 SkiErg 底座范围；暂时离地允许"
+  distance_complete:
+    required: true
+    observable: external
+    source: monitor_or_manual
+```
+
+没有底座 ROI 或无法看到双脚时，`feet_on_base = UNSURE`。
+
+### Technique
+
+```yaml
+technique:
+  start_elbow_angle:
+    ideal: [75, 110]
+    warn: [60, 125]
+    fail: [40, 150]
+    weight: 0.15
+
+  start_knee_angle:
+    ideal: [145, 175]
+    warn: [130, 178]
+    fail: [110, 180]
+    weight: 0.10
+
+  trunk_hinge_rom_deg:
+    ideal: [25, 55]
+    warn: [15, 65]
+    fail: [5, 80]
+    weight: 0.25
+
+  finish_elbow_angle:
+    ideal: [145, 175]
+    warn: [130, 178]
+    fail: [110, 180]
+    weight: 0.15
+
+  finish_wrist_near_thigh:
+    ideal_max_torso_ratio: 0.30
+    warn_max: 0.45
+    fail_max: 0.70
+    weight: 0.20
+
+  lateral_sway_deg:
+    ideal_max: 5
+    warn_max: 10
+    fail_max: 18
+    weight: 0.15
+```
+
+### Coordination
+
+```yaml
+coordination:
+  trunk_onset_before_elbow_extension_ms:
+    ideal: [0, 180]
+    warn: [-80, 300]
+    fail: [-250, 500]
+    weight: 0.35
+
+  hip_peak_before_elbow_peak_ms:
+    ideal: [0, 250]
+    warn: [-100, 400]
+    fail: [-300, 650]
+    weight: 0.30
+
+  drive_recovery_ratio:
+    # drive_time / recovery_time；1:2 对应 0.5
+    ideal: [0.40, 0.60]
+    warn: [0.30, 0.75]
+    fail: [0.20, 1.00]
+    weight: 0.35
+```
+
+### Efficiency
+
+```yaml
+efficiency:
+  cycle_time_cv:
+    ideal_max: 0.08
+    warn_max: 0.15
+    fail_max: 0.30
+    weight: 0.30
+
+  dead_time_ratio:
+    ideal_max: 0.08
+    warn_max: 0.15
+    fail_max: 0.30
+    weight: 0.25
+
+  wrist_path_excess_ratio:
+    # 实际路径长度 / 首尾直线距离
+    ideal: [1.00, 1.25]
+    warn: [1.00, 1.50]
+    fail: [1.00, 2.00]
+    weight: 0.20
+
+  output_per_cycle:
+    source: monitor_optional
+    normalization: personal_baseline
+    weight: 0.25
+```
+
+---
+
+## 9.2 Sled Push
+
+### Validity
+
+```yaml
+validity:
+  athlete_and_sled_in_lane:
+    required: true
+    observable: requires_lane_and_sled_roi
+    source: official
+
+  sled_crosses_turn_line:
+    required: true
+    observable: requires_sled_tracking_and_floor_calibration
+    source: official
+
+  complete_distance:
+    required: true
+    observable: external_or_calibrated
+    source: official
+```
+
+### Technique
+
+```yaml
+technique:
+  trunk_lean_from_vertical_deg:
+    ideal: [35, 55]
+    warn: [25, 65]
+    fail: [10, 75]
+    weight: 0.25
+    note: "工程先验；不同负重和手位允许个体差异"
+
+  shoulder_hip_ankle_alignment_error_deg:
+    ideal_max: 12
+    warn_max: 20
+    fail_max: 32
+    weight: 0.20
+
+  knee_valgus_fppa_deg:
+    ideal_max: 8
+    warn_max: 12
+    fail_max: 20
+    weight: 0.20
+    required_view: frontal_or_diagonal
+    note: "训练提示阈值，不是临床诊断"
+
+  shoulder_level_deg:
+    ideal_max: 6
+    warn_max: 10
+    fail_max: 18
+    weight: 0.15
+
+  arm_strategy_consistency:
+    accepted_modes:
+      straight_arm: [155, 180]
+      bent_arm: [75, 135]
+    max_switches_per_12_5m:
+      ideal: 1
+      warn: 3
+      fail: 6
+    weight: 0.20
+```
+
+不要把直臂或屈臂任一策略写死为唯一标准。
+
+### Coordination
+
+```yaml
+coordination:
+  stance_extension_to_sled_motion_lag_ms:
+    ideal: [0, 150]
+    warn: [-100, 300]
+    fail: [-300, 600]
+    weight: 0.40
+
+  left_right_drive_time_asymmetry:
+    ideal_max: 0.08
+    warn_max: 0.15
+    fail_max: 0.30
+    weight: 0.30
+
+  trunk_rotation_oscillation_deg:
+    ideal_max: 8
+    warn_max: 14
+    fail_max: 24
+    weight: 0.30
+```
+
+### Efficiency
+
+```yaml
+efficiency:
+  sled_to_com_horizontal_displacement_ratio:
+    ideal: [0.85, 1.15]
+    warn: [0.70, 1.35]
+    fail: [0.40, 1.70]
+    weight: 0.30
+
+  foot_slip_ratio_leg_length:
+    ideal_max: 0.05
+    warn_max: 0.10
+    fail_max: 0.20
+    weight: 0.25
+
+  stopped_time_ratio:
+    ideal_max: 0.10
+    warn_max: 0.20
+    fail_max: 0.40
+    weight: 0.25
+
+  sled_speed_cv:
+    ideal_max: 0.15
+    warn_max: 0.25
+    fail_max: 0.45
+    weight: 0.20
+```
+
+---
+
+## 9.3 Sled Pull
+
+### Validity
+
+```yaml
+validity:
+  athlete_remains_in_racers_box:
+    required: true
+    observable: requires_floor_roi
+    source: official
+
+  no_sitting_or_kneeling:
+    required: true
+    source: official
+
+  sled_crosses_turn_line:
+    required: true
+    observable: requires_sled_tracking
+    source: official
+
+  rope_stays_in_lane:
+    required: true
+    observable: requires_rope_tracking
+    source: official
+```
+
+### Technique
+
+```yaml
+technique:
+  trunk_backward_lean_deg:
+    ideal: [10, 30]
+    warn: [0, 40]
+    fail: [-15, 55]
+    weight: 0.25
+
+  knee_angle_during_pull:
+    ideal: [115, 160]
+    warn: [95, 175]
+    fail: [75, 180]
+    weight: 0.15
+
+  shoulder_level_deg:
+    ideal_max: 6
+    warn_max: 10
+    fail_max: 18
+    weight: 0.15
+
+  rope_midline_deviation_torso_ratio:
+    ideal_max: 0.20
+    warn_max: 0.35
+    fail_max: 0.60
+    weight: 0.20
+
+  lumbar_collapse_proxy_deg:
+    # 肩-髋与髋-膝形成的异常折角
+    ideal_max: 15
+    warn_max: 25
+    fail_max: 40
+    weight: 0.25
+```
+
+### Coordination
+
+```yaml
+coordination:
+  leg_or_hip_drive_before_elbow_flexion_ms:
+    ideal: [0, 250]
+    warn: [-120, 400]
+    fail: [-300, 650]
+    weight: 0.45
+
+  pull_cycle_cv:
+    ideal_max: 0.10
+    warn_max: 0.18
+    fail_max: 0.35
+    weight: 0.30
+
+  bilateral_arm_timing_diff_ms:
+    ideal_max: 80
+    warn_max: 150
+    fail_max: 300
+    weight: 0.25
+```
+
+### Efficiency
+
+```yaml
+efficiency:
+  sled_displacement_per_pull:
+    normalization: body_height_and_personal_baseline
+    weight: 0.35
+
+  rope_slack_time_ratio:
+    ideal_max: 0.10
+    warn_max: 0.20
+    fail_max: 0.40
+    weight: 0.25
+
+  nonproductive_body_motion_ratio:
+    ideal_max: 0.15
+    warn_max: 0.30
+    fail_max: 0.55
+    weight: 0.20
+
+  rest_time_ratio:
+    ideal_max: 0.12
+    warn_max: 0.25
+    fail_max: 0.50
+    weight: 0.20
+```
+
+---
+
+## 9.4 Burpee Broad Jump
+
+### Validity
+
+```yaml
+validity:
+  chest_ground_contact:
+    required: true
+    source: official
+    proxy:
+      chest_ground_distance_body_height_max: 0.035
+
+  both_feet_takeoff_and_land_together:
+    required: true
+    source: official
+    official_spatial_stagger_cm_max: 5
+    timing_proxy_ms:
+      ideal_max: 80
+      unsure_max: 150
+
+  hands_forward_of_toes_cm_max:
+    required: true
+    value: 30
+    source: official
+    observable: requires_floor_calibration
+
+  no_extra_steps_or_shuffles:
+    required: true
+    source: official
+
+  finish_line_crossed:
+    required: true
+    observable: requires_floor_line
+    source: official
+```
+
+空间 5 cm 和 30 cm 必须经过地面标定；没有标定时不得用像素硬判。
+
+### Technique
+
+```yaml
+technique:
+  takeoff_knee_angle:
+    ideal: [120, 165]
+    warn: [100, 175]
+    fail: [80, 180]
+    weight: 0.15
+
+  landing_knee_angle:
+    ideal: [110, 155]
+    warn: [90, 170]
+    fail: [70, 180]
+    weight: 0.20
+
+  landing_trunk_lean_deg:
+    ideal: [10, 45]
+    warn: [0, 55]
+    fail: [-15, 70]
+    weight: 0.15
+
+  knee_valgus_fppa_deg:
+    ideal_max: 8
+    warn_max: 12
+    fail_max: 20
+    weight: 0.20
+    required_view: frontal_or_diagonal
+
+  landing_settle_time_s:
+    ideal_max: 0.35
+    warn_max: 0.60
+    fail_max: 1.00
+    weight: 0.15
+
+  shoulder_hip_ankle_alignment_error_deg:
+    ideal_max: 15
+    warn_max: 25
+    fail_max: 40
+    phase: plank_transition
+    weight: 0.15
+```
+
+### Coordination
+
+```yaml
+coordination:
+  foot_takeoff_timing_diff_ms:
+    ideal_max: 80
+    warn_max: 150
+    fail_max: 300
+    weight: 0.30
+
+  foot_landing_timing_diff_ms:
+    ideal_max: 80
+    warn_max: 150
+    fail_max: 300
+    weight: 0.30
+
+  hip_knee_extension_peak_diff_ms:
+    ideal_max: 150
+    warn_max: 260
+    fail_max: 450
+    weight: 0.20
+
+  arm_swing_peak_to_takeoff_ms:
+    ideal: [-180, 20]
+    warn: [-300, 100]
+    fail: [-500, 250]
+    weight: 0.20
+    optional: true
+```
+
+### Efficiency
+
+```yaml
+efficiency:
+  horizontal_distance_body_height_ratio:
+    normalization: personal_baseline
+    weight: 0.30
+
+  com_vertical_to_horizontal_ratio:
+    ideal: [0.20, 0.55]
+    warn: [0.10, 0.75]
+    fail: [0.00, 1.10]
+    weight: 0.25
+
+  transition_dead_time_s:
+    ideal_max: 0.25
+    warn_max: 0.50
+    fail_max: 0.90
+    weight: 0.20
+
+  cycle_time_cv:
+    ideal_max: 0.10
+    warn_max: 0.18
+    fail_max: 0.35
+    weight: 0.15
+
+  extra_adjustment_count:
+    ideal_max: 0
+    warn_max: 1
+    fail_max: 2
+    weight: 0.10
+```
+
+---
+
+## 9.5 Rowing
+
+### Validity
+
+```yaml
+validity:
+  remains_seated_until_complete:
+    required: true
+    source: official
+
+  distance_complete:
+    required: true
+    observable: monitor_or_manual
+    source: official
+```
+
+### Technique
+
+```yaml
+technique:
+  catch_shin_angle_from_vertical_deg:
+    ideal: [-5, 8]
+    warn: [-12, 15]
+    fail: [-25, 30]
+    weight: 0.20
+    note: "小腿接近竖直，不应明显越过竖直"
+
+  catch_elbow_angle:
+    ideal: [160, 180]
+    warn: [145, 180]
+    fail: [120, 180]
+    weight: 0.15
+
+  catch_trunk_forward_lean_deg:
+    ideal: [10, 30]
+    warn: [0, 40]
+    fail: [-15, 55]
+    weight: 0.15
+
+  finish_knee_angle:
+    ideal: [165, 180]
+    warn: [150, 180]
+    fail: [125, 180]
+    weight: 0.15
+
+  finish_trunk_backward_lean_deg:
+    ideal: [5, 25]
+    warn: [0, 35]
+    fail: [-15, 50]
+    weight: 0.15
+
+  early_drive_handle_seat_correlation:
+    ideal_min: 0.85
+    warn_min: 0.65
+    fail_min: 0.35
+    weight: 0.20
+```
+
+### Coordination
+
+使用归一化动作周期，Drive 为 0～50%，Recovery 为 50～100%。
+
+```yaml
+coordination:
+  drive_knee_extension_onset_phase:
+    ideal: [0.00, 0.10]
+    warn: [0.00, 0.18]
+    fail: [0.00, 0.30]
+    weight: 0.20
+
+  drive_trunk_open_onset_phase:
+    ideal: [0.10, 0.32]
+    warn: [0.05, 0.42]
+    fail: [0.00, 0.55]
+    weight: 0.20
+
+  drive_elbow_flexion_onset_phase:
+    ideal: [0.25, 0.48]
+    warn: [0.15, 0.58]
+    fail: [0.05, 0.75]
+    weight: 0.20
+
+  recovery_elbow_extension_before_knee_flexion_ms:
+    ideal: [100, 500]
+    warn: [0, 700]
+    fail: [-250, 1000]
+    weight: 0.20
+
+  drive_recovery_ratio:
+    ideal: [0.40, 0.60]
+    warn: [0.30, 0.75]
+    fail: [0.20, 1.00]
+    weight: 0.20
+```
+
+### Efficiency
+
+```yaml
+efficiency:
+  stroke_rate_spm:
+    ideal: [24, 32]
+    warn: [20, 36]
+    fail: [14, 44]
+    weight: 0.25
+    note: "HYROX 第一版节奏先验，不应覆盖个人策略"
+
+  stroke_time_cv:
+    ideal_max: 0.06
+    warn_max: 0.12
+    fail_max: 0.25
+    weight: 0.20
+
+  slide_rush_ratio:
+    ideal_max: 0.15
+    warn_max: 0.25
+    fail_max: 0.45
+    weight: 0.20
+
+  handle_path_excess_ratio:
+    ideal: [1.00, 1.20]
+    warn: [1.00, 1.40]
+    fail: [1.00, 1.80]
+    weight: 0.15
+
+  monitor_output_consistency:
+    source: monitor_optional
+    metrics:
+      pace_cv_ideal_max: 0.03
+      power_decay_ideal_max: 0.08
+    weight: 0.20
+```
+
+---
+
+## 9.6 Kettlebell Farmer Carry
+
+### Validity
+
+```yaml
+validity:
+  both_kettlebells_carried:
+    required: true
+    observable: requires_object_detection
+    source: official
+
+  arms_extended_by_sides:
+    required: true
+    source: official
+    elbow_angle_min: 155
+
+  no_forward_progress_while_bells_resting:
+    required: true
+    observable: requires_object_and_floor_tracking
+    source: official
+```
+
+Pose-only模式无法确认是否确实拿着两个壶铃，必须将这一项标记为 `UNSURE`，不能仅靠手腕位置断定。
+
+### Technique
+
+```yaml
+technique:
+  trunk_lateral_lean_deg:
+    ideal_max: 5
+    warn_max: 10
+    fail_max: 18
+    weight: 0.25
+
+  shoulder_tilt_deg:
+    ideal_max: 5
+    warn_max: 9
+    fail_max: 16
+    weight: 0.20
+
+  pelvis_tilt_deg:
+    ideal_max: 5
+    warn_max: 9
+    fail_max: 16
+    weight: 0.20
+
+  elbow_angle:
+    ideal: [160, 180]
+    warn: [150, 180]
+    fail: [130, 180]
+    weight: 0.20
+
+  trunk_rotation_oscillation_deg:
+    ideal_max: 8
+    warn_max: 14
+    fail_max: 24
+    weight: 0.15
+```
+
+### Coordination
+
+```yaml
+coordination:
+  left_right_stance_time_asymmetry:
+    ideal_max: 0.05
+    warn_max: 0.10
+    fail_max: 0.20
+    weight: 0.35
+
+  left_right_step_time_asymmetry:
+    ideal_max: 0.05
+    warn_max: 0.10
+    fail_max: 0.20
+    weight: 0.30
+
+  pelvis_trunk_phase_variability_deg:
+    ideal_max: 15
+    warn_max: 25
+    fail_max: 45
+    weight: 0.20
+
+  wrist_vertical_bounce_torso_ratio:
+    ideal_max: 0.10
+    warn_max: 0.18
+    fail_max: 0.30
+    weight: 0.15
+```
+
+### Efficiency
+
+```yaml
+efficiency:
+  step_length_asymmetry:
+    ideal_max: 0.05
+    warn_max: 0.10
+    fail_max: 0.20
+    weight: 0.25
+
+  cadence_cv:
+    ideal_max: 0.05
+    warn_max: 0.10
+    fail_max: 0.20
+    weight: 0.20
+
+  com_vertical_oscillation_body_height_ratio:
+    ideal_max: 0.025
+    warn_max: 0.040
+    fail_max: 0.070
+    weight: 0.20
+
+  stopped_time_ratio:
+    ideal_max: 0.08
+    warn_max: 0.18
+    fail_max: 0.35
+    weight: 0.20
+
+  forward_speed_decay:
+    normalization: first_third_vs_last_third
+    ideal_max: 0.08
+    warn_max: 0.18
+    fail_max: 0.35
+    weight: 0.15
+```
+
+---
+
+## 9.7 Sandbag Lunge
+
+### Validity
+
+```yaml
+validity:
+  trailing_knee_touches_ground:
+    required: true
+    source: official
+    contact_proxy_body_height_max: 0.035
+
+  full_hip_and_knee_extension_at_end:
+    required: true
+    source: official
+    knee_angle_min: 165
+    hip_angle_min: 165
+
+  alternating_legs:
+    required: true
+    source: official
+
+  no_steps_or_shuffles_between_reps:
+    required: true
+    source: official
+
+  sandbag_remains_supported:
+    required: true
+    observable: requires_bag_detection
+    source: official
+```
+
+### Technique
+
+```yaml
+technique:
+  front_knee_bottom_angle:
+    ideal: [75, 115]
+    warn: [65, 125]
+    fail: [50, 145]
+    weight: 0.20
+
+  front_shin_from_vertical_deg:
+    ideal: [-10, 20]
+    warn: [-20, 30]
+    fail: [-35, 45]
+    weight: 0.10
+    note: "不采用膝盖绝对不能超过脚尖的错误硬规则"
+
+  trunk_forward_lean_deg:
+    ideal: [0, 25]
+    warn: [-5, 35]
+    fail: [-15, 50]
+    weight: 0.20
+
+  knee_valgus_fppa_deg:
+    ideal_max: 8
+    warn_max: 12
+    fail_max: 20
+    weight: 0.20
+    required_view: frontal_or_diagonal
+
+  step_length_leg_ratio:
+    ideal: [0.65, 1.05]
+    warn: [0.50, 1.20]
+    fail: [0.35, 1.40]
+    weight: 0.15
+
+  pelvis_tilt_deg:
+    ideal_max: 6
+    warn_max: 10
+    fail_max: 18
+    weight: 0.15
+```
+
+### Coordination
+
+```yaml
+coordination:
+  front_rear_knee_bottom_timing_diff_ms:
+    ideal_max: 120
+    warn_max: 220
+    fail_max: 400
+    weight: 0.25
+
+  hip_knee_extension_onset_diff_ms:
+    ideal_max: 150
+    warn_max: 260
+    fail_max: 450
+    weight: 0.30
+
+  left_right_rep_time_asymmetry:
+    ideal_max: 0.08
+    warn_max: 0.15
+    fail_max: 0.30
+    weight: 0.25
+
+  top_stabilization_time_s:
+    ideal_max: 0.25
+    warn_max: 0.50
+    fail_max: 0.90
+    weight: 0.20
+```
+
+### Efficiency
+
+```yaml
+efficiency:
+  forward_distance_per_rep_leg_ratio:
+    ideal: [0.65, 1.05]
+    warn: [0.50, 1.20]
+    fail: [0.35, 1.40]
+    weight: 0.25
+
+  com_vertical_displacement_leg_ratio:
+    ideal: [0.25, 0.45]
+    warn: [0.18, 0.55]
+    fail: [0.10, 0.70]
+    weight: 0.20
+
+  rep_time_cv:
+    ideal_max: 0.08
+    warn_max: 0.15
+    fail_max: 0.30
+    weight: 0.20
+
+  dead_time_ratio:
+    ideal_max: 0.08
+    warn_max: 0.18
+    fail_max: 0.35
+    weight: 0.20
+
+  extra_adjustment_count:
+    ideal_max: 0
+    warn_max: 1
+    fail_max: 2
+    weight: 0.15
+```
+
+---
+
+## 9.8 Wall Ball
+
+### Validity
+
+```yaml
+validity:
+  starts_tall:
+    required: true
+    source: official
+    knee_angle_min: 165
+    hip_angle_min: 165
+
+  hips_below_knees_at_bottom:
+    required: true
+    source: official
+    vertical_margin_body_height_min: 0.015
+
+  ball_hits_correct_target:
+    required: true
+    source: official
+    observable: requires_ball_and_target_tracking
+
+  ball_held_and_thrown_with_both_hands:
+    required: true
+    source: official
+    wrist_ball_distance_torso_ratio_max: 0.40
+```
+
+官方目标参数放到比赛配置中：
+
+```yaml
+competition:
+  target_height_m:
+    women: 2.70
+    women_pro: 2.70
+    men: 3.00
+    men_pro: 3.00
+```
+
+在普通训练环境中优先通过用户标定目标 ROI，不要仅根据画面像素推断真实 2.70 m 或 3.00 m。
+
+### Technique
+
+```yaml
+technique:
+  bottom_knee_angle:
+    ideal: [65, 105]
+    warn: [55, 115]
+    fail: [40, 135]
+    weight: 0.20
+
+  bottom_hip_below_knee_margin:
+    ideal_min_body_height_ratio: 0.025
+    warn_min: 0.010
+    fail_min: -0.015
+    weight: 0.20
+
+  trunk_forward_lean_deg:
+    ideal: [0, 35]
+    warn: [-5, 45]
+    fail: [-15, 60]
+    weight: 0.15
+
+  knee_valgus_fppa_deg:
+    ideal_max: 8
+    warn_max: 12
+    fail_max: 20
+    weight: 0.15
+    required_view: frontal_or_diagonal
+
+  top_knee_and_hip_extension_deg:
+    ideal_min: 165
+    warn_min: 155
+    fail_min: 135
+    weight: 0.15
+
+  ball_distance_from_chest_torso_ratio:
+    ideal_max: 0.35
+    warn_max: 0.50
+    fail_max: 0.75
+    weight: 0.15
+```
+
+### Coordination
+
+```yaml
+coordination:
+  lower_body_onset_before_elbow_extension_ms:
+    ideal: [80, 300]
+    warn: [0, 450]
+    fail: [-200, 700]
+    weight: 0.30
+
+  hip_knee_extension_peak_diff_ms:
+    ideal_max: 150
+    warn_max: 260
+    fail_max: 450
+    weight: 0.20
+
+  release_to_com_velocity_peak_ms:
+    ideal: [-120, 120]
+    warn: [-250, 250]
+    fail: [-450, 450]
+    weight: 0.25
+
+  catch_to_descent_onset_ms:
+    ideal: [-100, 150]
+    warn: [-250, 300]
+    fail: [-500, 600]
+    weight: 0.25
+```
+
+### Efficiency
+
+```yaml
+efficiency:
+  valid_hit_rate:
+    ideal_min: 0.95
+    warn_min: 0.85
+    fail_min: 0.60
+    weight: 0.30
+
+  cycle_time_cv:
+    ideal_max: 0.08
+    warn_max: 0.15
+    fail_max: 0.30
+    weight: 0.20
+
+  catch_dead_time_s:
+    ideal_max: 0.20
+    warn_max: 0.40
+    fail_max: 0.80
+    weight: 0.20
+
+  ball_horizontal_to_vertical_path_ratio:
+    ideal_max: 0.25
+    warn_max: 0.40
+    fail_max: 0.70
+    weight: 0.15
+
+  rep_time_decay_first_last_third:
+    ideal_max: 0.08
+    warn_max: 0.18
+    fail_max: 0.35
+    weight: 0.15
+```
+
+---
+
+# 10. 动作状态机要求
+
+每个动作都实现明确状态机，而不是在任意帧直接打分。
+
+示例：Sandbag Lunge
+
+```text
+STANDING
+  -> DESCENDING
+  -> BOTTOM_CONTACT
+  -> ASCENDING
+  -> FULL_EXTENSION
+  -> REP_COMPLETE
+```
+
+状态转换必须包含：
+
+```text
+角度阈值
+速度方向
+最短持续帧
+滞回阈值
+超时恢复
+置信度检查
+```
+
+示例：
+
+```yaml
+state_machine:
+  standing:
+    knee_angle_min: 160
+    hip_angle_min: 160
+    hold_frames: 3
+
+  descending:
+    knee_velocity_max_deg_s: -25
+
+  bottom_contact:
+    rear_knee_ground_ratio_max: 0.035
+    hold_frames: 2
+
+  ascending:
+    knee_velocity_min_deg_s: 25
+
+  full_extension:
+    knee_angle_min: 165
+    hip_angle_min: 165
+    hold_frames: 2
+```
+
+---
+
+# 11. 物体检测分级
+
+不要一开始就让所有动作依赖新的重型模型。
+
+### Level 0：Pose-only
+
+可完整或部分实现：
+
+```text
+Rowing
+SkiErg
+Sandbag Lunge 的人体部分
+Farmer Carry 的人体部分
+Burpee Broad Jump 的人体部分
+Wall Ball 的深度部分
+```
+
+### Level 1：手工 ROI / 颜色或运动跟踪
+
+```text
+Wall Ball 目标区域
+SkiErg 底座区域
+地面线
+雪橇赛道线
+```
+
+### Level 2：轻量物体检测
+
+```text
+wall ball
+sled
+sandbag
+kettlebell
+rope
+```
+
+物体检测应运行在独立线程或较低频率：
+
+```yaml
+object_detection:
+  enabled: true
+  inference_every_n_frames: 3
+  max_queue_size: 1
+  drop_old_frames: true
+```
+
+姿态主线程只读取最新可用物体结果。
+
+---
+
+# 12. 反馈策略
+
+实时反馈不能每帧播报。
+
+```yaml
+feedback:
+  min_persistence_frames: 6
+  cooldown_seconds: 2.5
+  max_messages_on_screen: 2
+  priority:
+    - validity
+    - safety_or_control
+    - largest_score_loss
+    - efficiency
+```
+
+示例：
+
+```text
+后膝还没有明确触地
+起身结束时髋膝没有完全伸展
+先用腿和髋启动，再完成手臂发力
+落地后调整步过多
+节奏正在变慢，缩短顶部停顿
+```
+
+禁止反馈：
+
+```text
+你的膝关节承受了 1200N
+你的股四头肌没有发力
+你的能量传递损失了 23%
+```
+
+允许反馈：
+
+```text
+从运动学时序看，手臂启动早于下肢伸展
+当前动作出现较多无效水平修正
+这一组后段的髋伸展峰值角速度下降
+```
+
+---
+
+# 13. 个人基线和专家校准
+
+第一版使用配置阈值，第二版增加两类基线。
+
+### 13.1 个人最佳基线
+
+每个动作保存最近有效且高分的若干次：
+
+```text
+personal_baseline/
+  user_id/
+    movement.json
+```
+
+至少 20 次有效重复才启用个人基线。
+
+推荐融合：
+
+```text
+metric_score =
+    0.70 * rule_and_engineering_score
+  + 0.30 * personal_baseline_score
+```
+
+官方 Validity 不参与个人化。
+
+### 13.2 专家样本
+
+专家轨迹按动作周期归一化到 101 个点：
+
+```text
+0%, 1%, ..., 100%
+```
+
+保存：
+
+```text
+mean trajectory
+standard deviation
+5th / 95th percentile
+accepted technique cluster
+```
+
+不要只用一个标准视频。允许一个动作存在多种有效策略，例如：
+
+```text
+Sled Push：直臂 / 屈臂
+SkiErg：较动态 / 较稳定
+Wall Ball：接球即下蹲 / 短暂停顿
+```
+
+后续可以使用 DTW，但第一版只实现可解释特征评分。
+
+---
+
+# 14. 整组和疲劳分析
+
+疲劳不是第五个实时评分层，而是对四层指标随时间变化的汇总。
+
+```text
+first_third = 前 1/3 有效动作
+middle_third = 中间 1/3
+last_third = 后 1/3
+```
+
+输出：
+
+```text
+valid_rate
+median_quality_score
+technique_decay
+coordination_decay
+efficiency_decay
+cycle_time_change
+ROM_change
+peak_velocity_change
+left_right_asymmetry_change
+```
+
+疲劳保持分：
+
+```text
+fatigue_resistance =
+    clamp(100 - 2.5 * max(0, first_third_score - last_third_score), 0, 100)
+```
+
+这只是展示性分数，原始变化量必须同时显示。
+
+整组摘要：
+
+```python
+@dataclass
+class SetSummary:
+    total_reps: int
+    valid_reps: int
+    no_reps: int
+    unsure_reps: int
+    valid_rate: float
+    median_quality_score: float | None
+    fatigue_resistance: float | None
+    dominant_faults: list[str]
+    metric_trends: dict[str, float]
+```
+
+---
+
+# 15. Codex 分轮实施顺序
+
+不要把以下所有内容一次性要求 Codex 完成。每轮完成后运行测试并提交可验证结果。
+
+## 第 1 轮：评分底座
+
+目标：
+
+1. 新建统一评分数据模型。
+2. 实现区间评分函数。
+3. 实现层级聚合器。
+4. 实现 confidence 和 coverage。
+5. 加载 YAML 配置。
+6. 不接入任何具体 HYROX 动作。
+7. 编写单元测试。
+
+验收：
+
+```text
+pytest tests/test_band_score.py
+pytest tests/test_layer_aggregator.py
+```
+
+## 第 2 轮：运动学基础
+
+目标：
+
+1. 统一关节角定义。
+2. 实现躯干倾角、胫骨倾角、骨盆倾角。
+3. 实现归一化距离。
+4. 实现实时平滑、速度和加速度。
+5. 实现事件检测。
+6. 用合成数据测试。
+
+验收：
+
+```text
+恒定角度速度应接近 0
+线性角度序列速度应正确
+时间戳不均匀时仍能正确求导
+关键点缺失时不崩溃
+```
+
+## 第 3 轮：接入一个 Pose-only 动作
+
+优先选择项目中当前完成度最高的动作。若没有明显优先项，先做 Sandbag Lunge。
+
+目标：
+
+1. 实现状态机。
+2. 实现每次重复切分。
+3. 实现 Validity 的人体可观测部分。
+4. 实现三层分数。
+5. 在 OpenCV 画面显示：
+   - 当前状态
+   - rep 数
+   - validity
+   - 三层分数
+   - quality
+   - confidence
+6. 保存 JSON 结果。
+7. 不做物体检测。
+
+## 第 4 轮：第二个 Pose-only 动作
+
+优先 Rowing 或 SkiErg。
+
+要求：
+
+1. 复用评分底座。
+2. 不复制通用函数。
+3. 增加动作周期相位。
+4. 实现关节时序特征。
+5. 在离线视频和实时摄像头上共用逻辑。
+
+## 第 5 轮：Wall Ball 人体部分
+
+目标：
+
+1. 只实现下蹲深度、伸展、技术、协调。
+2. `ball_hits_target` 暂时返回 `not_observable`。
+3. 整体 Validity 返回 `UNSURE`，不能伪装成 VALID。
+4. 增加目标 ROI 标定接口。
+
+## 第 6 轮：轻量物体跟踪
+
+目标：
+
+1. 单独线程运行物体检测。
+2. 先支持 ball 和 target。
+3. 实现 Wall Ball 完整 Validity。
+4. 实现球轨迹经济性。
+5. 确保关闭物体检测后原实时功能不受影响。
+
+## 第 7 轮：Burpee Broad Jump 与 Farmer Carry
+
+目标：
+
+1. 地面四点标定或已知尺度标定。
+2. 实现 5 cm 和 30 cm 规则所需尺度。
+3. 实现同时起落、额外调整步。
+4. Farmer Carry 先人体评分，再接壶铃检测。
+
+## 第 8 轮：Sled Push / Pull
+
+目标：
+
+1. 雪橇框跟踪。
+2. 赛道线和转向线标定。
+3. 人体与雪橇速度耦合。
+4. Pull 增加绳索跟踪；绳索不可靠时只输出部分分数。
+5. 性能不能拖慢 MediaPipe 主线程。
+
+## 第 9 轮：整组报告与个人基线
+
+目标：
+
+1. set summary。
+2. 前中后段趋势。
+3. 个人最佳基线。
+4. CSV / JSON 导出。
+5. 离线可视化曲线。
+6. 阈值校准工具。
+
+---
+
+# 16. 每轮给 Codex 的固定约束
+
+将下面内容附在每一轮提示词末尾：
+
+```text
+工程约束：
+
+1. 先读取当前项目结构和已有 README，不要推翻现有实现。
+2. 不删除或破坏现有 MediaPipe 实时摄像头功能。
+3. 新增功能尽量模块化，避免修改主循环的大量代码。
+4. 当前轮只完成明确列出的范围，不提前实现后续轮次。
+5. 所有公共接口补充类型注解。
+6. 对关键算法写简短注释，但不要堆积无意义注释。
+7. 新增单元测试。
+8. 运行测试并报告结果。
+9. 列出修改文件、关键设计和仍未实现内容。
+10. 检测证据不足时返回 UNSURE / not_observable，不允许猜测。
+11. 不声称从单目视频得到了真实肌肉力量、关节力矩或代谢消耗。
+12. Windows 环境兼容；路径使用 pathlib；不要写死 Linux 路径。
+```
+
+---
+
+# 17. 第一轮可直接复制给 Codex 的提示词
+
+```text
+请在当前已有的实时人体姿态检测项目中，新增“HYROX 四层动作评分底座”的第一轮实现。
+
+当前项目已有 MediaPipe / OpenCV 实时姿态检测功能。不要推翻已有项目，不要破坏摄像头实时显示，不要实现任何具体 HYROX 动作。
+
+本轮只完成：
+
+1. 建立 scoring 数据模型：
+   - MetricResult
+   - RepScore
+   - LayerScore
+   - ValidityResult
+2. 建立通用评分函数：
+   - score_interval
+   - score_lower_better
+   - score_higher_better
+3. 建立 LayerAggregator：
+   - 加权平均
+   - metric coverage
+   - confidence
+   - 缺失指标策略
+4. 建立 ScoreEngine：
+   - Validity 为硬门槛
+   - quality_score = 0.40 technique + 0.30 coordination + 0.30 efficiency
+   - NO_REP 仍保留三层诊断，但 counted=false
+   - UNSURE 不计数
+5. 建立 YAML 配置加载器。
+6. 新增 common scoring 配置。
+7. 编写单元测试，覆盖：
+   - 理想区间
+   - 警告区间
+   - 失败区间
+   - 缺失指标
+   - coverage 不足
+   - confidence 不足
+   - NO_REP / UNSURE
+8. 不要接入主循环；最多预留清晰接口。
+9. 输出修改文件列表、测试命令和测试结果。
+
+工程约束：
+
+1. 先读取当前项目结构和已有 README，不要推翻现有实现。
+2. 不删除或破坏现有 MediaPipe 实时摄像头功能。
+3. 新增功能尽量模块化，避免修改主循环的大量代码。
+4. 当前轮只完成明确列出的范围，不提前实现后续轮次。
+5. 所有公共接口补充类型注解。
+6. 新增单元测试。
+7. Windows 环境兼容；路径使用 pathlib。
+8. 检测证据不足时返回 UNSURE / not_observable，不允许猜测。
+9. 不声称从单目视频得到了真实肌肉力量、关节力矩或代谢消耗。
+```
+
+---
+
+# 18. 验收标准
+
+完成全部阶段后，应满足：
+
+1. 实时主链路在关闭评分时性能基本不变。
+2. 打开评分后，Pose-only 动作不显著降低 FPS。
+3. 物体检测异步运行，队列最多保留最新帧。
+4. 每次 rep 有稳定起止时间。
+5. 同一离线视频重复运行，rep 数和分数基本一致。
+6. 所有官方规则均标记 `source: official`。
+7. 所有工程阈值均可通过 YAML 修改。
+8. 关键证据不可见时返回 `UNSURE`。
+9. 输出不仅有总分，还有原始指标和扣分原因。
+10. 至少有以下测试数据：
+    - 标准动作
+    - 明显 no-rep
+    - 低置信度
+    - 人体被遮挡
+    - 摄像头角度不合适
+    - 动作过快
+    - 动作中断
+    - 多余调整步
+11. 提供一份校准说明，记录：
+    - 摄像机视角
+    - 地面尺度
+    - 目标 ROI
+    - 动作方向
+    - 使用的姿态模型
+12. 分数文案使用“视觉技术质量”“运动学协调”“视觉动作经济性”，避免误导为真实动力学测量。
+
+---
+
+# 19. 参数校准优先级
+
+初始实现后，不要立刻训练深度评分模型。按以下顺序校准：
+
+1. **先校准动作切分**
+   - rep 数必须正确。
+
+2. **再校准官方 Validity**
+   - 优先降低误判 no-rep。
+   - 证据不足用 UNSURE。
+
+3. **再校准技术角度**
+   - 由多个标准动作形成区间。
+   - 不用单个视频作为唯一模板。
+
+4. **再校准协调时序**
+   - 统一动作周期后比较。
+   - 使用相对时序优于绝对毫秒。
+
+5. **最后校准经济性**
+   - 优先结合器械输出。
+   - 无器械输出时明确叫 proxy。
+
+建议每个动作至少收集：
+
+```text
+10 人以上
+每人 20～50 个有效重复
+至少 2 个摄像机角度
+包含新手、熟练者和疲劳后动作
+由教练或熟悉规则的标注者给出：
+  valid / no-rep
+  主要错误类型
+  1～5 技术等级
+```
+
+---
+
+## 参考依据
+
+- HYROX Singles Rulebook 26/27：八项动作的正式距离、重复数和 movement standards。
+- Concept2 RowErg 技术资料：Drive 使用 legs-body-arms，Recovery 使用 arms-body-legs；Catch 时小腿接近竖直；避免过早屈臂、过度后仰和 recovery 过急。
+- Concept2 SkiErg 技术资料：起始肘部约 90°，以躯干和髋部动作启动，手臂完成动作；建议约 1:2 的发力与恢复时间比。
+- 2D 膝外翻相关研究支持使用正面投影角作为运动控制代理，但不能把单个阈值当作临床诊断。

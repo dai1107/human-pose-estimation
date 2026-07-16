@@ -15,7 +15,7 @@ knee_cave_ratio_max: 0.72
 minimum_frontal_ankle_width: 0.08
 motion_tolerance: 3.0
 hip_motion_tolerance: 0.004
-stable_frames: 3
+stable_frames: 2
 rep_cooldown_ms: 400
 feedback_limits:
   max_messages: 2

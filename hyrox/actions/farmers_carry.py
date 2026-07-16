@@ -121,19 +121,7 @@ class FarmersCarryAnalyzer(BaseActionAnalyzer):
         return max(0.0, min(1.0, score or 0.0))
 
     def _advance_phase(self, raw_phase: str) -> None:
-        if raw_phase == "unknown":
-            self.raw_phase = raw_phase
-            self.stable_phase = raw_phase
-            self.frames_in_phase = 1
-        else:
-            if raw_phase == self.raw_phase:
-                self.frames_in_phase += 1
-            else:
-                self.raw_phase = raw_phase
-                self.frames_in_phase = 1
-            if self.frames_in_phase >= self.confirmation_frames:
-                self.stable_phase = raw_phase
-        self.phase = self.stable_phase
+        self._advance_confirmed_phase(raw_phase, self.confirmation_frames)
 
     def _feedback(
         self,

@@ -137,7 +137,39 @@ def test_burpee_counts_chest_takeoff_landing_sequence() -> None:
     landing = analyzer.update(_features(body_center_x=0.38, body_center_y=0.52, left_knee_angle=135, right_knee_angle=137), 850)
     assert landing["phase"] == "landing"
     assert landing["rep_count"] == 1
+    assert landing["debug"]["rep_completed"] is True
     assert landing["debug"]["body_center_delta_x"] == pytest.approx(0.11)
+
+
+def test_burpee_counts_consecutive_reps_without_requiring_a_standing_frame() -> None:
+    analyzer = _analyzer()
+
+    analyzer.update(_chest_down(), 100)
+    analyzer.update(_step_in(), 150)
+    analyzer.update(_takeoff(), 200)
+    analyzer.update(
+        _features(body_center_x=0.33, body_center_y=0.47, left_knee_angle=165, right_knee_angle=166),
+        250,
+    )
+    first = analyzer.update(
+        _features(body_center_x=0.38, body_center_y=0.52, left_knee_angle=135, right_knee_angle=137),
+        300,
+    )
+
+    analyzer.update(_chest_down(body_center_x=0.40), 400)
+    analyzer.update(_step_in() | {"body_center_x": 0.42}, 450)
+    analyzer.update(_takeoff() | {"body_center_x": 0.44}, 500)
+    analyzer.update(
+        _features(body_center_x=0.50, body_center_y=0.47, left_knee_angle=165, right_knee_angle=166),
+        550,
+    )
+    second = analyzer.update(
+        _features(body_center_x=0.55, body_center_y=0.52, left_knee_angle=135, right_knee_angle=137),
+        600,
+    )
+
+    assert first["rep_count"] == 1
+    assert second["rep_count"] == 2
 
 
 def test_burpee_visibility_bottom_and_feet_feedback() -> None:

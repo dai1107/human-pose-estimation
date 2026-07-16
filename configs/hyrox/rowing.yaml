@@ -6,7 +6,7 @@ finish_knee_angle_min: 145
 finish_torso_lean_max: 35
 too_much_back_lean: 45
 early_arm_pull_elbow_angle: 120
-stable_frames: 3
+stable_frames: 2
 stroke_cooldown_ms: 500
 min_phase_duration_ms: 120
 feedback_limits:

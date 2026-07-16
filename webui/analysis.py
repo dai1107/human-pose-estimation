@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime
@@ -19,7 +19,7 @@ PHASE_LABELS = {
     "drive": "发力",
     "throw_extension": "投球伸展",
     "reset": "复位",
-    "finish": "完成",
+    "finish": "划船终点",
     "catch": "起始",
     "recovery": "恢复",
     "carrying": "负重行走",
@@ -142,6 +142,123 @@ CAPTURE_ISSUE_CODES = {
     "CAMERA_VIEW_LIMITED",
     "NOT_SEATED_OR_BAD_VIEW",
 }
+
+
+class RepVoiceFeedbackTracker:
+    """Build one local speech event from the same segment used by the text report."""
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self._action = ""
+        self._previous_count = 0
+        self._frames: deque[dict[str, Any]] = deque(maxlen=9000)
+        self._continuous_first_seen: dict[tuple[str, str], int] = {}
+        self._continuous_last_spoken: dict[tuple[str, str], int] = {}
+        self._last_event: dict[str, Any] | None = None
+
+    def update(
+        self,
+        *,
+        action: str,
+        reps: int,
+        assessment: Mapping[str, Any] | None,
+        detected_issues: Sequence[Mapping[str, Any]],
+        timestamp_ms: int,
+    ) -> dict[str, Any] | None:
+        action = str(action)
+        reps = max(0, int(reps))
+        if action != self._action or reps < self._previous_count:
+            self.reset()
+            self._action = action
+
+        if action not in {"none", "farmers_carry"}:
+            self._frames.append(
+                {
+                    "timestamp_unix_ms": int(timestamp_ms),
+                    "reps": reps,
+                    "assessment": dict(assessment or {}),
+                    "detected_issues": [dict(item) for item in detected_issues],
+                }
+            )
+
+        if reps > self._previous_count:
+            detail = _summarize_rep_segment(reps, "", list(self._frames), None)
+            improvements = list(detail.get("improvements") or [])[:2]
+            speech_items = [_speech_friendly_improvement(text) for text in improvements]
+            speech_items = [text for text in speech_items if text]
+            self._last_event = {
+                "id": f"{action}:rep:{reps}",
+                "rep": reps,
+                "mode": "rep",
+                "improvements": improvements,
+                "speech": f"第 {reps} 次，需要改进：{'；'.join(speech_items)}" if speech_items else "",
+            }
+            self._frames.clear()
+            self._previous_count = reps
+            self._continuous_first_seen.clear()
+            return self._last_event
+
+        self._previous_count = max(self._previous_count, reps)
+        if action == "farmers_carry":
+            event = self._continuous_event(detected_issues, int(timestamp_ms))
+            if event is not None:
+                self._last_event = event
+        return self._last_event
+
+    def _continuous_event(
+        self,
+        detected_issues: Sequence[Mapping[str, Any]],
+        timestamp_ms: int,
+    ) -> dict[str, Any] | None:
+        current: dict[tuple[str, str], Mapping[str, Any]] = {}
+        for item in detected_issues:
+            if str(item.get("level", "info")) not in {"warn", "error"}:
+                continue
+            code = str(item.get("code", ""))
+            text = str(item.get("text", "")).strip()
+            if not text or code.upper() in CAPTURE_ISSUE_CODES:
+                continue
+            current[(code, text)] = item
+
+        for key in tuple(self._continuous_first_seen):
+            if key not in current:
+                self._continuous_first_seen.pop(key, None)
+        for key in current:
+            self._continuous_first_seen.setdefault(key, timestamp_ms)
+
+        eligible = [
+            key
+            for key in current
+            if timestamp_ms - self._continuous_first_seen[key] >= 1200
+            and timestamp_ms - self._continuous_last_spoken.get(key, -10_000_000) >= 8000
+        ]
+        if not eligible:
+            return None
+        eligible.sort(
+            key=lambda key: (
+                0 if str(current[key].get("level")) == "error" else 1,
+                -float(current[key].get("confidence", 0.0) or 0.0),
+                key,
+            )
+        )
+        key = eligible[0]
+        self._continuous_last_spoken[key] = timestamp_ms
+        return {
+            "id": f"{self._action}:continuous:{key[0]}:{timestamp_ms}",
+            "rep": None,
+            "mode": "continuous",
+            "improvements": [key[1]],
+            "speech": f"动作提示：{key[1]}",
+        }
+
+
+def _speech_friendly_improvement(text: str) -> str:
+    value = str(text).strip().rstrip("。")
+    if "（出现" in value:
+        value = value.split("（出现", 1)[0].rstrip("。")
+    return value
 
 
 def _criterion(
@@ -656,6 +773,7 @@ def _angle_matches_metric(angle_key: str, metric: str) -> bool:
 
 
 __all__ = [
+    "RepVoiceFeedbackTracker",
     "assess_action",
     "enrich_report",
     "official_rules_for",

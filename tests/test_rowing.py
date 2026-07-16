@@ -54,12 +54,41 @@ def test_rowing_counts_complete_stroke_sequence() -> None:
     analyzer = _analyzer()
     assert analyzer.update(_features(), 0)["phase"] == "catch"
     assert analyzer.update(_features(left_knee_angle=125, right_knee_angle=127), 150)["phase"] == "drive"
-    assert analyzer.update(_features(left_knee_angle=155, right_knee_angle=157, left_elbow_angle=105, right_elbow_angle=107, torso_angle=-15), 300)["phase"] == "finish"
+    finished = analyzer.update(
+        _features(
+            left_knee_angle=155,
+            right_knee_angle=157,
+            left_elbow_angle=105,
+            right_elbow_angle=107,
+            torso_angle=-15,
+        ),
+        300,
+    )
+    assert finished["phase"] == "finish"
+    assert finished["rep_count"] == 1
+    assert finished["debug"]["rep_completed"] is True
     assert analyzer.update(_features(left_knee_angle=130, right_knee_angle=132), 450)["phase"] == "recovery"
     completed = analyzer.update(_features(), 600)
     assert completed["phase"] == "catch"
     assert completed["rep_count"] == 1
     assert completed["debug"]["stroke_count"] == 1
+
+
+def test_rowing_finish_increments_once_without_waiting_for_recovery() -> None:
+    analyzer = _analyzer()
+    analyzer.update(_features(), 0)
+    analyzer.update(_features(left_knee_angle=125, right_knee_angle=127), 150)
+
+    finished = analyzer.update(
+        _features(left_knee_angle=155, right_knee_angle=157, left_elbow_angle=105, right_elbow_angle=107),
+        300,
+    )
+    recovery = analyzer.update(_features(left_knee_angle=130, right_knee_angle=132), 450)
+    catch = analyzer.update(_features(), 600)
+
+    assert finished["rep_count"] == 1
+    assert recovery["rep_count"] == 1
+    assert catch["rep_count"] == 1
 
 
 def test_rowing_feedback_rules() -> None:

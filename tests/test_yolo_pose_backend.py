@@ -15,6 +15,8 @@ from src.utils.metrics import RealtimeMetrics
 def _backend(target_select: str = "confidence") -> YoloPoseBackend:
     backend = YoloPoseBackend.__new__(YoloPoseBackend)
     backend.target_select = target_select
+    backend._tracked_bbox = None
+    backend._track_lost_frames = 0
     return backend
 
 
@@ -57,6 +59,41 @@ def test_yolo_pose_can_select_largest_area_person() -> None:
     assert result.bbox == pytest.approx((0.0, 0.0, 0.99, 0.9))
     assert result.keypoints[0].x == pytest.approx(0.6)
     assert result.keypoints[0].y == pytest.approx(0.7)
+
+
+def test_yolo_pose_tracking_locks_onto_same_athlete_across_frames() -> None:
+    backend = _backend("tracking")
+    first = backend._to_pose_result([_fake_result()], (100, 100, 3), 7.0, None)
+    changed = _fake_result()
+    changed.boxes.conf = np.array([0.99, 0.35], dtype=float)
+    changed.keypoints.xy[0, :, 0] = 15.0
+    changed.keypoints.xy[1, :, 0] = 62.0
+
+    second = backend._to_pose_result([changed], (100, 100, 3), 7.0, None)
+
+    assert first.keypoints[0].x == pytest.approx(0.6)
+    assert second.keypoints[0].x == pytest.approx(0.62)
+    assert second.extra["target_tracking"] is True
+
+
+def test_yolo_pose_tracking_does_not_immediately_switch_to_distant_bystander() -> None:
+    backend = _backend("tracking")
+    first = _fake_result()
+    first.boxes.xyxy = np.array([[35.0, 10.0, 75.0, 95.0]], dtype=float)
+    first.boxes.conf = np.array([0.80], dtype=float)
+    first.keypoints.xy = first.keypoints.xy[1:2]
+    first.keypoints.conf = first.keypoints.conf[1:2]
+    backend._to_pose_result([first], (100, 100, 3), 7.0, None)
+
+    bystander = _fake_result()
+    bystander.boxes.xyxy = np.array([[0.0, 0.0, 18.0, 40.0]], dtype=float)
+    bystander.boxes.conf = np.array([0.99], dtype=float)
+    bystander.keypoints.xy = bystander.keypoints.xy[:1]
+    bystander.keypoints.conf = bystander.keypoints.conf[:1]
+    missing = backend._to_pose_result([bystander], (100, 100, 3), 7.0, None)
+
+    assert not missing.success
+    assert backend._track_lost_frames == 1
 
 
 def test_yolo_pose_returns_unsuccessful_result_without_person() -> None:
