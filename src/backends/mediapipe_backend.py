@@ -24,7 +24,12 @@ except ModuleNotFoundError:
 class MediaPipeBackend:
     model_name = "mediapipe"
 
-    def __init__(self, model_path: str | Path = "models/pose_landmarker_full.task") -> None:
+    def __init__(
+        self,
+        model_path: str | Path = "models/pose_landmarker_full.task",
+        *,
+        output_segmentation_masks: bool = True,
+    ) -> None:
         if mp is None or mp_python is None or vision is None:
             raise RuntimeError(
                 "mediapipe is not installed. Install dependencies with 'python -m pip install -r requirements.txt'."
@@ -39,7 +44,7 @@ class MediaPipeBackend:
             min_pose_detection_confidence=0.5,
             min_pose_presence_confidence=0.5,
             min_tracking_confidence=0.5,
-            output_segmentation_masks=False,
+            output_segmentation_masks=bool(output_segmentation_masks),
         )
         self._landmarker = vision.PoseLandmarker.create_from_options(options)
         self._last_timestamp_ms = -1
@@ -51,6 +56,16 @@ class MediaPipeBackend:
         image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb_frame))
         result = self._landmarker.detect_for_video(image, timestamp_ms)
         inference_time_ms = (time.perf_counter() - started) * 1000.0
+        extra = {"raw_result": result}
+        segmentation_masks = getattr(result, "segmentation_masks", None)
+        if segmentation_masks:
+            try:
+                extra["segmentation_mask"] = np.asarray(
+                    segmentation_masks[0].numpy_view(),
+                    dtype=np.float32,
+                ).copy()
+            except (AttributeError, IndexError, TypeError, ValueError):
+                pass
 
         if not result.pose_landmarks:
             return PoseResult(
@@ -61,7 +76,7 @@ class MediaPipeBackend:
                 success=False,
                 inference_time_ms=inference_time_ms,
                 timestamp_ms=timestamp_ms,
-                extra={"raw_result": result},
+                extra=extra,
             )
 
         keypoints = self._to_keypoints(result.pose_landmarks[0])
@@ -74,7 +89,7 @@ class MediaPipeBackend:
             inference_time_ms=inference_time_ms,
             bbox=self._bbox(keypoints),
             timestamp_ms=timestamp_ms,
-            extra={"raw_result": result},
+            extra=extra,
         )
 
     def close(self) -> None:

@@ -1,13 +1,28 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from math import hypot
+from typing import Literal
 
 from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_burpee_broad_jump_config
+from hyrox.contact import ChestContactDetector, ContactResult
 from hyrox.feedback import FeedbackMessage
+from hyrox.foot_events import FootStaggerResult
+from hyrox.validity import BodyRuleResult, RepDecision
 
 
 SENSITIVITY_FRAME_DELTAS = {"low": 1, "medium": 0, "high": -1}
+BURPEE_REQUIRED_RULES = (
+    "chest_ground_contact",
+    "simultaneous_takeoff",
+    "simultaneous_landing",
+    "takeoff_stagger_proxy",
+    "landing_stagger_proxy",
+    "no_extra_step_or_shuffle",
+    "legal_hand_placement_proxy",
+    "forward_jump_detected",
+)
 
 
 def _safe_float(value: object) -> float | None:
@@ -68,6 +83,22 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
         self.confirmation_frames = max(1, base_frames + SENSITIVITY_FRAME_DELTAS[sensitivity])
         self.rep_cooldown_ms = _resolved_int(values.get("rep_cooldown_ms"), 800)
         self.min_phase_duration_ms = _resolved_int(values.get("min_phase_duration_ms"), 100)
+        self.hand_placement_pass_ratio = _resolved_float(
+            values.get("hand_placement_pass_foot_length_ratio"),
+            1.25,
+        )
+        self.hand_placement_unsure_ratio = _resolved_float(
+            values.get("hand_placement_unsure_foot_length_ratio"),
+            1.45,
+        )
+        self.forward_jump_com_leg_ratio = _resolved_float(
+            values.get("forward_jump_min_com_displacement_leg_ratio"),
+            0.20,
+        )
+        self.forward_jump_feet_leg_ratio = _resolved_float(
+            values.get("forward_jump_min_both_feet_displacement_leg_ratio"),
+            0.15,
+        )
 
     @classmethod
     def from_config(
@@ -115,10 +146,562 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
         self.extra_steps = False
         self.landing_step_events = 0
         self.landing_started_ms: int | None = None
+        self._burpee_chest_detector = ChestContactDetector(
+            sensitivity=str(getattr(self, "sensitivity", "medium"))
+        )
+        self._pending_hand_rule: BodyRuleResult | None = None
+        self._hand_proxy_debug: dict[str, object] = {
+            "proxy_name": "LEGAL_HAND_PLACEMENT_PROXY",
+            "status": "NOT_OBSERVABLE",
+            "ratio": None,
+        }
+        self._last_forward_direction = 0
+        self._cycle_active = False
+        self._awaiting_next_hands = False
+        self._sequence_landing_ready = False
+        self._post_landing_steps: list[object] = []
+        self._post_landing_foot_observable = True
+        self._last_burpee_rules: tuple[BodyRuleResult, ...] = ()
+        self._validated_this_frame = False
+        self._reset_cycle_evidence()
         self.rep_sequence = PhaseSequenceTracker(
             ("chest_down", "step_or_jump_in", "broad_jump_takeoff", "flight_or_move", "landing"),
             optional_phases=("step_or_jump_in", "flight_or_move"),
         )
+
+    def _reset_cycle_evidence(self) -> None:
+        self._best_chest_contact = ContactResult("UNSURE", 0.0, None, 0, [])
+        self._cycle_takeoffs: dict[str, int | None] = {
+            "left": None,
+            "right": None,
+        }
+        self._cycle_landings: dict[str, int | None] = {
+            "left": None,
+            "right": None,
+        }
+        self._takeoff_stagger: FootStaggerResult | None = None
+        self._landing_stagger: FootStaggerResult | None = None
+        self._last_grounded_snapshot: dict[str, object] | None = None
+        self._last_grounded_stagger: FootStaggerResult | None = None
+        self._takeoff_snapshot: dict[str, object] | None = None
+        self._landing_snapshot: dict[str, object] | None = None
+        self._cycle_expected_direction = self._last_forward_direction
+        self._observed_jump_direction = 0
+        self._cycle_foot_observable = True
+        self._cycle_hand_rule = BodyRuleResult(
+            "legal_hand_placement_proxy",
+            "UNSURE",
+            0.0,
+            reason_code="LEGAL_HAND_PLACEMENT_PROXY_NOT_OBSERVABLE",
+        )
+
+    def _start_cycle(self) -> None:
+        desired_sensitivity = str(getattr(self, "sensitivity", "medium"))
+        self._burpee_chest_detector = ChestContactDetector(
+            sensitivity=desired_sensitivity
+        )
+        pending_hand = self._pending_hand_rule
+        pending_debug = dict(self._hand_proxy_debug)
+        self._reset_cycle_evidence()
+        if pending_hand is not None:
+            self._cycle_hand_rule = pending_hand
+            self._hand_proxy_debug = pending_debug
+        self._pending_hand_rule = None
+        self._cycle_active = True
+        self._sequence_landing_ready = False
+        self._post_landing_steps = []
+        self._post_landing_foot_observable = True
+
+    def _feature_point(
+        self,
+        features: Mapping[str, object],
+        name: str,
+        *,
+        min_confidence: float = 0.60,
+    ) -> tuple[float, float, float] | None:
+        x = _safe_float(features.get(f"{name}_x"))
+        y = _safe_float(features.get(f"{name}_y"))
+        confidence = _safe_float(features.get(f"{name}_confidence"))
+        if (
+            x is None
+            or y is None
+            or confidence is None
+            or confidence < min_confidence
+        ):
+            return None
+        return x, y, confidence
+
+    def _foot_center(
+        self,
+        features: Mapping[str, object],
+        side: Literal["left", "right"],
+    ) -> tuple[float, float] | None:
+        heel = self._feature_point(features, f"{side}_heel")
+        toe = self._feature_point(features, f"{side}_foot_index")
+        if heel is None or toe is None:
+            return None
+        return (heel[0] + toe[0]) / 2.0, (heel[1] + toe[1]) / 2.0
+
+    def _mean_leg_length(self, features: Mapping[str, object]) -> float | None:
+        lengths: list[float] = []
+        for side in ("left", "right"):
+            hip = self._feature_point(features, f"{side}_hip")
+            knee = self._feature_point(features, f"{side}_knee")
+            ankle = self._feature_point(features, f"{side}_ankle")
+            if hip is None or knee is None or ankle is None:
+                continue
+            lengths.append(
+                hypot(hip[0] - knee[0], hip[1] - knee[1])
+                + hypot(knee[0] - ankle[0], knee[1] - ankle[1])
+            )
+        if lengths:
+            return sum(lengths) / len(lengths)
+        body_height = _safe_float(features.get("body_height_reference"))
+        return None if body_height is None else 0.53 * body_height
+
+    def _foot_snapshot(
+        self,
+        features: Mapping[str, object],
+        body_center_x: float | None,
+    ) -> dict[str, object] | None:
+        left = self._foot_center(features, "left")
+        right = self._foot_center(features, "right")
+        leg_length = self._mean_leg_length(features)
+        if left is None or right is None or leg_length is None or leg_length <= 1e-6:
+            return None
+        return {
+            "body_center_x": body_center_x,
+            "left_foot_x": left[0],
+            "right_foot_x": right[0],
+            "mean_leg_length": leg_length,
+        }
+
+    def _capture_foot_evidence(
+        self,
+        features: Mapping[str, object],
+        body_center_x: float | None,
+    ) -> None:
+        left_state = self.foot_event_detector.trackers["left"].last_result
+        right_state = self.foot_event_detector.trackers["right"].last_result
+        both_observable = left_state.observable and right_state.observable
+        if self._cycle_active and not both_observable:
+            self._cycle_foot_observable = False
+        if self._awaiting_next_hands and not both_observable:
+            self._post_landing_foot_observable = False
+
+        both_grounded = (
+            both_observable
+            and left_state.state == "GROUNDED"
+            and right_state.state == "GROUNDED"
+        )
+        if self._cycle_active and both_grounded:
+            snapshot = self._foot_snapshot(features, body_center_x)
+            if not any(self._cycle_takeoffs.values()):
+                self._last_grounded_snapshot = snapshot
+                self._last_grounded_stagger = self.foot_event_detector.last_stagger
+            if (
+                all(value is not None for value in self._cycle_landings.values())
+                and self._landing_snapshot is None
+            ):
+                self._landing_snapshot = snapshot
+                self._landing_stagger = self.foot_event_detector.last_stagger
+                if (
+                    snapshot is not None
+                    and self._takeoff_snapshot is not None
+                ):
+                    start_x = _safe_float(
+                        self._takeoff_snapshot.get("body_center_x")
+                    )
+                    end_x = _safe_float(snapshot.get("body_center_x"))
+                    if start_x is not None and end_x is not None and abs(end_x - start_x) >= 0.005:
+                        self._observed_jump_direction = 1 if end_x > start_x else -1
+
+        for event in self.foot_event_detector.new_events:
+            if event.event_type == "TAKEOFF" and self._cycle_active:
+                if self._cycle_takeoffs[event.side] is None:
+                    self._cycle_takeoffs[event.side] = event.timestamp_ms
+                    if self._takeoff_snapshot is None:
+                        self._takeoff_snapshot = self._last_grounded_snapshot
+                        self._takeoff_stagger = self._last_grounded_stagger
+            elif event.event_type == "LANDING" and self._cycle_active:
+                if self._cycle_landings[event.side] is None:
+                    self._cycle_landings[event.side] = event.timestamp_ms
+            elif event.event_type == "STEP" and self._awaiting_next_hands:
+                jump_landing = self._cycle_landings.get(event.side)
+                if jump_landing is not None and event.timestamp_ms == jump_landing:
+                    continue
+                self._post_landing_steps.append(event)
+
+    def _hand_placement_rule(
+        self,
+        features: Mapping[str, object],
+    ) -> BodyRuleResult:
+        names = (
+            "left_wrist",
+            "right_wrist",
+            "left_heel",
+            "right_heel",
+            "left_foot_index",
+            "right_foot_index",
+        )
+        points = {
+            name: self._feature_point(features, name)
+            for name in names
+        }
+        if any(point is None for point in points.values()):
+            self._hand_proxy_debug = {
+                "proxy_name": "LEGAL_HAND_PLACEMENT_PROXY",
+                "status": "NOT_OBSERVABLE",
+                "ratio": None,
+            }
+            return BodyRuleResult(
+                "legal_hand_placement_proxy",
+                "UNSURE",
+                0.0,
+                reason_code="LEGAL_HAND_PLACEMENT_PROXY_NOT_OBSERVABLE",
+            )
+        left_wrist = points["left_wrist"]
+        right_wrist = points["right_wrist"]
+        left_heel = points["left_heel"]
+        right_heel = points["right_heel"]
+        left_toe = points["left_foot_index"]
+        right_toe = points["right_foot_index"]
+        assert (
+            left_wrist
+            and right_wrist
+            and left_heel
+            and right_heel
+            and left_toe
+            and right_toe
+        )
+        floor_x1 = _safe_float(features.get("floor_line_x1"))
+        floor_y1 = _safe_float(features.get("floor_line_y1"))
+        floor_x2 = _safe_float(features.get("floor_line_x2"))
+        floor_y2 = _safe_float(features.get("floor_line_y2"))
+        if None in {floor_x1, floor_y1, floor_x2, floor_y2}:
+            return BodyRuleResult(
+                "legal_hand_placement_proxy",
+                "UNSURE",
+                0.0,
+                reason_code="LEGAL_HAND_PLACEMENT_PROXY_FLOOR_UNSURE",
+            )
+        dx = float(floor_x2) - float(floor_x1)
+        dy = float(floor_y2) - float(floor_y1)
+        line_length = hypot(dx, dy)
+        if line_length <= 1e-6:
+            return BodyRuleResult(
+                "legal_hand_placement_proxy",
+                "UNSURE",
+                0.0,
+                reason_code="LEGAL_HAND_PLACEMENT_PROXY_FLOOR_UNSURE",
+            )
+        unit = (dx / line_length, dy / line_length)
+
+        def project(point: tuple[float, float, float]) -> float:
+            return point[0] * unit[0] + point[1] * unit[1]
+
+        wrist_positions = [project(left_wrist), project(right_wrist)]
+        toe_positions = [project(left_toe), project(right_toe)]
+        foot_lengths = [
+            hypot(left_toe[0] - left_heel[0], left_toe[1] - left_heel[1]),
+            hypot(right_toe[0] - right_heel[0], right_toe[1] - right_heel[1]),
+        ]
+        mean_foot_length = sum(foot_lengths) / 2.0
+        if mean_foot_length <= 1e-6:
+            return BodyRuleResult(
+                "legal_hand_placement_proxy",
+                "UNSURE",
+                0.0,
+                reason_code="LEGAL_HAND_PLACEMENT_PROXY_FOOT_LENGTH_UNSURE",
+            )
+        if self._last_forward_direction > 0:
+            forward_distance = max(0.0, max(wrist_positions) - max(toe_positions))
+        elif self._last_forward_direction < 0:
+            forward_distance = max(0.0, min(toe_positions) - min(wrist_positions))
+        else:
+            forward_distance = max(
+                0.0,
+                max(wrist_positions) - max(toe_positions),
+                min(toe_positions) - min(wrist_positions),
+            )
+        ratio = forward_distance / mean_foot_length
+        if ratio <= self.hand_placement_pass_ratio:
+            status = "PASS"
+            reason = None
+        elif ratio <= self.hand_placement_unsure_ratio:
+            status = "UNSURE"
+            reason = "LEGAL_HAND_PLACEMENT_PROXY_BORDERLINE"
+        else:
+            status = "FAIL"
+            reason = "LEGAL_HAND_PLACEMENT_PROXY_TOO_FAR"
+        confidence = min(point[2] for point in points.values() if point is not None)
+        self._hand_proxy_debug = {
+            "proxy_name": "LEGAL_HAND_PLACEMENT_PROXY",
+            "status": status,
+            "ratio": ratio,
+            "mean_foot_length": mean_foot_length,
+            "forward_direction": self._last_forward_direction,
+        }
+        return BodyRuleResult(
+            "legal_hand_placement_proxy",
+            status,  # type: ignore[arg-type]
+            confidence,
+            value=ratio,
+            reason_code=reason,
+            evidence_frames=(self.frame_index,),
+        )
+
+    def _chest_rule(self) -> BodyRuleResult:
+        result = self._best_chest_contact
+        if result.status == "CONTACT":
+            status = "PASS"
+            reason = None
+        elif result.status == "NO_CONTACT":
+            status = "FAIL"
+            reason = "CHEST_GROUND_CONTACT_NOT_CONFIRMED"
+        else:
+            status = "UNSURE"
+            reason = (
+                "CHEST_GROUND_CONTACT_NOT_OBSERVABLE"
+                if result.status == "NOT_OBSERVABLE"
+                else "CHEST_GROUND_CONTACT_UNSURE"
+            )
+        return BodyRuleResult(
+            "chest_ground_contact",
+            status,  # type: ignore[arg-type]
+            result.confidence,
+            value=result.surface_height_ratio,
+            reason_code=reason,
+            evidence_frames=tuple(result.evidence_frames),
+        )
+
+    def _sync_rule(
+        self,
+        rule_id: str,
+        events: Mapping[str, int | None],
+    ) -> BodyRuleResult:
+        left = events.get("left")
+        right = events.get("right")
+        if left is None or right is None:
+            status = "FAIL" if self._cycle_foot_observable else "UNSURE"
+            return BodyRuleResult(
+                rule_id,
+                status,  # type: ignore[arg-type]
+                0.85 if status == "FAIL" else 0.0,
+                reason_code=(
+                    f"{rule_id.upper()}_EVENT_MISSING"
+                    if status == "FAIL"
+                    else f"{rule_id.upper()}_NOT_OBSERVABLE"
+                ),
+            )
+        delta = abs(left - right)
+        if delta <= self.foot_event_detector.sync_config.pass_ms:
+            status = "PASS"
+            reason = None
+        elif delta <= self.foot_event_detector.sync_config.unsure_ms:
+            status = "UNSURE"
+            reason = f"{rule_id.upper()}_BORDERLINE"
+        else:
+            status = "FAIL"
+            reason = f"{rule_id.upper()}_ASYNCHRONOUS"
+        return BodyRuleResult(
+            rule_id,
+            status,  # type: ignore[arg-type]
+            0.95,
+            value=delta,
+            reason_code=reason,
+        )
+
+    def _stagger_rule(
+        self,
+        rule_id: str,
+        result: FootStaggerResult | None,
+    ) -> BodyRuleResult:
+        if result is None or result.status == "NOT_OBSERVABLE":
+            return BodyRuleResult(
+                rule_id,
+                "UNSURE",
+                0.0,
+                reason_code=f"{rule_id.upper()}_NOT_OBSERVABLE",
+            )
+        return BodyRuleResult(
+            rule_id,
+            result.status,  # type: ignore[arg-type]
+            result.confidence,
+            value=result.stagger_ratio,
+            reason_code=(
+                None
+                if result.status == "PASS"
+                else f"{rule_id.upper()}_{result.status}"
+            ),
+        )
+
+    def _forward_jump_rule(self) -> BodyRuleResult:
+        start = self._takeoff_snapshot
+        end = self._landing_snapshot
+        if start is None or end is None:
+            return BodyRuleResult(
+                "forward_jump_detected",
+                "UNSURE",
+                0.0,
+                reason_code="FORWARD_JUMP_NOT_OBSERVABLE",
+            )
+        leg_length = _safe_float(start.get("mean_leg_length"))
+        start_body = _safe_float(start.get("body_center_x"))
+        end_body = _safe_float(end.get("body_center_x"))
+        values = (
+            leg_length,
+            start_body,
+            end_body,
+            _safe_float(start.get("left_foot_x")),
+            _safe_float(start.get("right_foot_x")),
+            _safe_float(end.get("left_foot_x")),
+            _safe_float(end.get("right_foot_x")),
+        )
+        if any(value is None for value in values) or leg_length is None or leg_length <= 1e-6:
+            return BodyRuleResult(
+                "forward_jump_detected",
+                "UNSURE",
+                0.0,
+                reason_code="FORWARD_JUMP_NOT_OBSERVABLE",
+            )
+        (
+            _,
+            resolved_start_body,
+            resolved_end_body,
+            start_left,
+            start_right,
+            end_left,
+            end_right,
+        ) = values
+        assert (
+            resolved_start_body is not None
+            and resolved_end_body is not None
+            and start_left is not None
+            and start_right is not None
+            and end_left is not None
+            and end_right is not None
+        )
+        com_ratio = abs(resolved_end_body - resolved_start_body) / leg_length
+        left_displacement = end_left - start_left
+        right_displacement = end_right - start_right
+        left_ratio = abs(left_displacement) / leg_length
+        right_ratio = abs(right_displacement) / leg_length
+        observed_direction = (
+            self._observed_jump_direction
+            if self._observed_jump_direction != 0
+            else (1 if resolved_end_body > resolved_start_body else -1)
+        )
+        direction_ok = (
+            self._cycle_expected_direction == 0
+            or observed_direction == self._cycle_expected_direction
+        )
+        feet_direction_ok = (
+            left_displacement * observed_direction > 0.0
+            and right_displacement * observed_direction > 0.0
+        )
+        passed = (
+            com_ratio >= self.forward_jump_com_leg_ratio
+            and min(left_ratio, right_ratio) >= self.forward_jump_feet_leg_ratio
+            and direction_ok
+            and feet_direction_ok
+        )
+        return BodyRuleResult(
+            "forward_jump_detected",
+            "PASS" if passed else "FAIL",
+            0.95,
+            value=min(com_ratio, left_ratio, right_ratio),
+            reason_code=None if passed else "FORWARD_JUMP_DISPLACEMENT_TOO_SMALL",
+        )
+
+    def _no_extra_step_rule(self) -> BodyRuleResult:
+        if not self._post_landing_foot_observable:
+            return BodyRuleResult(
+                "no_extra_step_or_shuffle",
+                "UNSURE",
+                0.0,
+                reason_code="POST_LANDING_FEET_NOT_OBSERVABLE",
+            )
+        passed = not self._post_landing_steps
+        return BodyRuleResult(
+            "no_extra_step_or_shuffle",
+            "PASS" if passed else "FAIL",
+            0.90,
+            value=len(self._post_landing_steps),
+            reason_code=None if passed else "EXTRA_STEP_OR_SHUFFLE",
+            evidence_frames=tuple(
+                frame
+                for event in self._post_landing_steps
+                for frame in (
+                    int(
+                        getattr(
+                            event,
+                            "frame_index",
+                            self.frame_index,
+                        )
+                    ),
+                    min(
+                        self.frame_index,
+                        int(
+                            getattr(
+                                event,
+                                "frame_index",
+                                self.frame_index,
+                            )
+                        )
+                        + 1,
+                    ),
+                )
+            ),
+        )
+
+    def _validate_pending_candidate(
+        self,
+        visible_score: float,
+    ) -> RepDecision:
+        rules = (
+            self._chest_rule(),
+            self._sync_rule("simultaneous_takeoff", self._cycle_takeoffs),
+            self._sync_rule("simultaneous_landing", self._cycle_landings),
+            self._stagger_rule("takeoff_stagger_proxy", self._takeoff_stagger),
+            self._stagger_rule("landing_stagger_proxy", self._landing_stagger),
+            self._no_extra_step_rule(),
+            self._cycle_hand_rule,
+            self._forward_jump_rule(),
+        )
+        self._last_burpee_rules = rules
+        decision = self.register_rep_candidate(
+            rules,
+            required_rules=BURPEE_REQUIRED_RULES,
+            events={
+                "terminal_phase": "landing",
+                "validation_boundary": "next_hands_down",
+                "takeoff_ms": dict(self._cycle_takeoffs),
+                "landing_ms": dict(self._cycle_landings),
+                "takeoff_stagger_ratio": (
+                    None
+                    if self._takeoff_stagger is None
+                    else self._takeoff_stagger.stagger_ratio
+                ),
+                "landing_stagger_ratio": (
+                    None
+                    if self._landing_stagger is None
+                    else self._landing_stagger.stagger_ratio
+                ),
+                "hand_placement_proxy_name": "LEGAL_HAND_PLACEMENT_PROXY",
+                "post_landing_step_count": len(self._post_landing_steps),
+                "visible_score": visible_score,
+            },
+        )
+        if decision.status == "VALID" and self._observed_jump_direction != 0:
+            self._last_forward_direction = self._observed_jump_direction
+        self.last_rep_time_ms = self.last_timestamp_ms
+        self._awaiting_next_hands = False
+        self._sequence_landing_ready = False
+        self._cycle_active = False
+        self._post_landing_steps = []
+        self._post_landing_foot_observable = True
+        return decision
 
     def _visible_score(self, features: dict[str, object]) -> float:
         score = _safe_float(features.get("visible_score"))
@@ -197,6 +780,7 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
         previous: str,
         body_center_x: float | None,
         timestamp_ms: int | None,
+        visible_score: float,
     ) -> None:
         self.chest_not_low = False
         self.no_broad_jump = False
@@ -220,8 +804,8 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
             delta_x = 0.0 if body_center_x is None or self.takeoff_center_x is None else abs(body_center_x - self.takeoff_center_x)
             self.no_broad_jump = delta_x < self.jump_forward_min_delta_x
             if sequence_completed:
-                self.rep_count += 1
-                self.last_rep_time_ms = timestamp_ms
+                self._sequence_landing_ready = True
+                self._awaiting_next_hands = True
         elif self.stable_phase in {"reset", "stand"}:
             self.chest_down_seen = False
             self.takeoff_seen = False
@@ -268,8 +852,12 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
         return self.limit_feedback(messages)
 
     def update(self, features: dict[str, object] | None, timestamp_ms: int | None) -> dict[str, object]:
+        self.begin_frame(features, timestamp_ms)
+        self.last_timestamp_ms = None if timestamp_ms is None else int(timestamp_ms)
+        self.update_foot_events_for_current_frame()
         values = features if isinstance(features, dict) else {}
         current_timestamp = None if timestamp_ms is None else int(timestamp_ms)
+        self._validated_this_frame = False
         visible_score = self._visible_score(values)
         body_center_x = _safe_float(values.get("body_center_x"))
         body_center_y = _safe_float(values.get("body_center_y"))
@@ -297,8 +885,43 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
             wrist_height=wrist_height,
             ankle_height=ankle_height,
         )
+        self._capture_foot_evidence(values, body_center_x)
+        if (
+            self._awaiting_next_hands
+            and raw_phase in {"hands_down", "chest_down"}
+        ):
+            self._validate_pending_candidate(visible_score)
+            self._validated_this_frame = True
+
+        if raw_phase == "hands_down":
+            self._pending_hand_rule = self._hand_placement_rule(values)
+        elif raw_phase == "chest_down":
+            if self._pending_hand_rule is None:
+                self._pending_hand_rule = self._hand_placement_rule(values)
+            if not self._cycle_active:
+                self._start_cycle()
+                self._capture_foot_evidence(values, body_center_x)
+            desired_sensitivity = str(getattr(self, "sensitivity", "medium"))
+            if self._burpee_chest_detector.sensitivity != desired_sensitivity:
+                self._burpee_chest_detector = ChestContactDetector(
+                    sensitivity=desired_sensitivity
+                )
+            chest_result = self._burpee_chest_detector.update(
+                values,
+                phase="chest_down",
+                frame_index=self.frame_index,
+                timestamp_ms=current_timestamp,
+            )
+            rank = {
+                "NOT_OBSERVABLE": 0,
+                "UNSURE": 1,
+                "NO_CONTACT": 2,
+                "CONTACT": 3,
+            }
+            if rank[chest_result.status] >= rank[self._best_chest_contact.status]:
+                self._best_chest_contact = chest_result
         previous, _ = self._advance_phase(raw_phase, current_timestamp)
-        self._update_sequence(previous, body_center_x, current_timestamp)
+        self._update_sequence(previous, body_center_x, current_timestamp, visible_score)
         self._track_extra_steps(
             ankle_center_y=ankle_height,
             ankle_distance=ankle_distance,
@@ -318,8 +941,7 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
         self.previous_knee_angle = knee_angle
         self.previous_ankle_center_y = ankle_height
         self.previous_ankle_distance = ankle_distance
-        self.last_timestamp_ms = current_timestamp
-        return {
+        return self.finalize_state({
             "action": self.action,
             "phase": self.phase,
             "rep_count": self.rep_count,
@@ -338,9 +960,40 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
                 "frames_in_phase": self.frames_in_phase,
                 "config_name": self.config_name,
                 "sensitivity": self.sensitivity,
+                "burpee_required_rules": list(BURPEE_REQUIRED_RULES),
+                "burpee_validation_state": (
+                    "RULE_VALIDATION"
+                    if self._validated_this_frame
+                    else "AWAITING_NEXT_HANDS"
+                    if self._awaiting_next_hands
+                    else "CHEST_CONTACT_CONFIRMED"
+                    if self._best_chest_contact.status == "CONTACT"
+                    else "CHEST_CONTACT_CANDIDATE"
+                    if self._cycle_active and raw_phase == "chest_down"
+                    else "MOVEMENT_SEQUENCE"
+                ),
+                "chest_contact": self._best_chest_contact.as_dict(),
+                "cycle_takeoff_ms": dict(self._cycle_takeoffs),
+                "cycle_landing_ms": dict(self._cycle_landings),
+                "takeoff_stagger_proxy": (
+                    None
+                    if self._takeoff_stagger is None
+                    else self._takeoff_stagger.as_dict()
+                ),
+                "landing_stagger_proxy": (
+                    None
+                    if self._landing_stagger is None
+                    else self._landing_stagger.as_dict()
+                ),
+                "legal_hand_placement_proxy": dict(self._hand_proxy_debug),
+                "post_landing_step_count": len(self._post_landing_steps),
+                "cycle_foot_observable": self._cycle_foot_observable,
+                "last_burpee_rules": [
+                    rule.as_dict() for rule in self._last_burpee_rules
+                ],
                 **self.rep_sequence.debug(),
             },
-        }
+        })
 
 
-__all__ = ["BurpeeBroadJumpAnalyzer"]
+__all__ = ["BURPEE_REQUIRED_RULES", "BurpeeBroadJumpAnalyzer"]

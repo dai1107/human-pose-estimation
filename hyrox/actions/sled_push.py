@@ -141,6 +141,7 @@ class SledPushAnalyzer(BaseActionAnalyzer):
         return self.limit_feedback(messages)
 
     def update(self, features: dict[str, object] | None, timestamp_ms: int | None) -> dict[str, object]:
+        self.begin_frame(features, timestamp_ms)
         values = features if isinstance(features, dict) else {}
         current_timestamp = None if timestamp_ms is None else int(timestamp_ms)
         visible_score = self._visible_score(values)
@@ -199,7 +200,10 @@ class SledPushAnalyzer(BaseActionAnalyzer):
             else False
         )
         if sequence_completed:
-            self.rep_count += 1
+            self.register_completed_sequence(
+                confidence=visible_score,
+                events={"terminal_phase": "step"},
+            )
             self.last_step_time_ms = current_timestamp
             extension = 0.0 if knee_angle is None or self.drive_start_knee_angle is None else max(0.0, knee_angle - self.drive_start_knee_angle)
             self.no_leg_drive = extension < self.leg_drive_knee_extension_min
@@ -243,10 +247,13 @@ class SledPushAnalyzer(BaseActionAnalyzer):
         self.previous_knee_angle = knee_angle
         self.previous_torso_angle = torso_angle
         self.last_timestamp_ms = current_timestamp
-        return {
+        return self.finalize_state({
             "action": self.action,
             "phase": self.phase,
             "rep_count": self.rep_count,
+            "cycle_count": self.rep_count,
+            "count_semantics": "analysis_cycle",
+            "official_rep_count_supported": False,
             "feedback_messages": feedback_messages,
             "debug": {
                 "raw_phase": self.raw_phase,
@@ -262,7 +269,7 @@ class SledPushAnalyzer(BaseActionAnalyzer):
                 "sensitivity": self.sensitivity,
                 **self.rep_sequence.debug(),
             },
-        }
+        })
 
 
 __all__ = ["SledPushAnalyzer"]

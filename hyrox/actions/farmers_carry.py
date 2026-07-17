@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from hyrox.base import BaseActionAnalyzer
 from hyrox.config import load_farmers_carry_config
 from hyrox.feedback import FeedbackMessage
+from hyrox.violations import TemporalViolationTracker, ViolationResult
 
 
 SENSITIVITY_FRAME_DELTAS = {"low": 1, "medium": 0, "high": -1}
@@ -60,6 +61,18 @@ class FarmersCarryAnalyzer(BaseActionAnalyzer):
         if sensitivity not in SENSITIVITY_FRAME_DELTAS:
             raise ValueError(f"unsupported HYROX sensitivity: {sensitivity}")
         config_data = dict(config or load_farmers_carry_config())
+        violation_hold_ms = _resolved_int(
+            config_data.get("arm_position_min_violation_ms"),
+            300,
+        )
+        self.arm_extension_tracker = TemporalViolationTracker(
+            "ARM_NOT_EXTENDED_VIOLATION",
+            violation_hold_ms,
+        )
+        self.arm_position_tracker = TemporalViolationTracker(
+            "ARM_NOT_BY_SIDE_VIOLATION",
+            violation_hold_ms,
+        )
         visibility_min = _resolved_float(config_data.get("visibility_min"), 0.55)
         super().__init__(action="farmers_carry", min_visible_score=min(1.0, visibility_min))
         self.configure_feedback_limits(config_data)
@@ -69,6 +82,22 @@ class FarmersCarryAnalyzer(BaseActionAnalyzer):
         self.hip_tilt_warn = _resolved_float(config_data.get("hip_tilt_warn"), 0.08)
         self.torso_lean_warn = _resolved_float(config_data.get("torso_lean_warn"), 25.0)
         self.arms_down_margin = _resolved_float(config_data.get("arms_down_margin"), 0.05)
+        self.arm_position_elbow_angle_min = _resolved_float(
+            config_data.get("arm_position_elbow_angle_min_deg"),
+            155.0,
+        )
+        self.wrist_below_hip_margin_body_ratio = _resolved_float(
+            config_data.get("wrist_below_hip_margin_body_ratio"),
+            0.03,
+        )
+        self.wrist_lateral_from_hip_max_shoulder_width_ratio = (
+            _resolved_float(
+                config_data.get(
+                    "wrist_lateral_from_hip_max_shoulder_width_ratio"
+                ),
+                0.80,
+            )
+        )
         base_frames = _resolved_int(config_data.get("stable_frames"), 3, minimum=1)
         self.confirmation_frames = max(1, base_frames + SENSITIVITY_FRAME_DELTAS[sensitivity])
         self.rest_timeout_ms = _resolved_int(config_data.get("rest_timeout_ms"), 1200)
@@ -113,6 +142,12 @@ class FarmersCarryAnalyzer(BaseActionAnalyzer):
         self.last_motion_ms: int | None = None
         self.motion_detected = False
         self.unstable_carry = False
+        self.arm_extension_tracker.reset()
+        self.arm_position_tracker.reset()
+        self.arm_extension_result = (
+            self.arm_extension_tracker.last_result
+        )
+        self.arm_position_result = self.arm_position_tracker.last_result
 
     def _visible_score(self, features: dict[str, object] | None) -> float:
         if not isinstance(features, dict):
@@ -131,6 +166,8 @@ class FarmersCarryAnalyzer(BaseActionAnalyzer):
         hip_tilt: float | None,
         torso_angle: float | None,
         arms_down: bool,
+        arm_extension: ViolationResult,
+        arm_position: ViolationResult,
     ) -> list[FeedbackMessage]:
         if visible_score < self.min_visible_score:
             return [
@@ -143,6 +180,24 @@ class FarmersCarryAnalyzer(BaseActionAnalyzer):
             ]
 
         messages: list[FeedbackMessage] = []
+        if arm_extension.active:
+            messages.append(
+                FeedbackMessage(
+                    "warn",
+                    "ARM_NOT_EXTENDED_VIOLATION",
+                    "搬运时手臂持续未伸展，请让双臂自然伸直",
+                    arm_extension.confidence,
+                )
+            )
+        if arm_position.active:
+            messages.append(
+                FeedbackMessage(
+                    "warn",
+                    "ARM_NOT_BY_SIDE_VIOLATION",
+                    "搬运时手腕持续偏离身体两侧",
+                    arm_position.confidence,
+                )
+            )
         shoulder_excess = shoulder_tilt is not None and abs(shoulder_tilt) > self.shoulder_tilt_warn
         hip_excess = hip_tilt is not None and abs(hip_tilt) > self.hip_tilt_warn
         if shoulder_excess or hip_excess:
@@ -168,6 +223,7 @@ class FarmersCarryAnalyzer(BaseActionAnalyzer):
         return self.limit_feedback(messages)
 
     def update(self, features: dict[str, object] | None, timestamp_ms: int | None) -> dict[str, object]:
+        self.begin_frame(features, timestamp_ms)
         values = features if isinstance(features, dict) else {}
         current_timestamp = None if timestamp_ms is None else int(timestamp_ms)
         visible_score = self._visible_score(values)
@@ -182,6 +238,14 @@ class FarmersCarryAnalyzer(BaseActionAnalyzer):
         min_hip = _min_metric(values.get("left_hip_angle"), values.get("right_hip_angle"))
         left_wrist_to_hip = _safe_float(values.get("left_wrist_to_hip_y"))
         right_wrist_to_hip = _safe_float(values.get("right_wrist_to_hip_y"))
+        left_elbow = _safe_float(values.get("left_elbow_angle"))
+        right_elbow = _safe_float(values.get("right_elbow_angle"))
+        left_wrist_x = _safe_float(values.get("left_wrist_x"))
+        right_wrist_x = _safe_float(values.get("right_wrist_x"))
+        left_hip_x = _safe_float(values.get("left_hip_x"))
+        right_hip_x = _safe_float(values.get("right_hip_x"))
+        left_shoulder_x = _safe_float(values.get("left_shoulder_x"))
+        right_shoulder_x = _safe_float(values.get("right_shoulder_x"))
 
         wrists_available = left_wrist_to_hip is not None and right_wrist_to_hip is not None
         # ``arms_down_margin`` is a tolerance around hip height. Pose landmarks
@@ -245,6 +309,78 @@ class FarmersCarryAnalyzer(BaseActionAnalyzer):
             raw_phase = "unknown"
         self._advance_phase(raw_phase)
 
+        carrying_interval = (
+            visible_score >= self.min_visible_score
+            and (self.motion_detected or self.stable_phase == "carrying")
+        )
+        if not carrying_interval:
+            arm_extension_condition: bool | None = False
+        elif left_elbow is None or right_elbow is None:
+            arm_extension_condition = None
+        else:
+            arm_extension_condition = (
+                min(left_elbow, right_elbow)
+                < self.arm_position_elbow_angle_min
+            )
+        self.arm_extension_result = self.arm_extension_tracker.update(
+            arm_extension_condition,
+            current_timestamp,
+            confidence=visible_score,
+        )
+
+        shoulder_width = (
+            None
+            if left_shoulder_x is None or right_shoulder_x is None
+            else abs(right_shoulder_x - left_shoulder_x)
+        )
+        position_observable = (
+            left_wrist_to_hip is not None
+            and right_wrist_to_hip is not None
+            and body_height is not None
+            and body_height > 1e-6
+            and left_wrist_x is not None
+            and right_wrist_x is not None
+            and left_hip_x is not None
+            and right_hip_x is not None
+            and shoulder_width is not None
+            and shoulder_width > 1e-6
+        )
+        if not carrying_interval:
+            arm_position_condition: bool | None = False
+        elif not position_observable:
+            arm_position_condition = None
+        else:
+            assert (
+                left_wrist_to_hip is not None
+                and right_wrist_to_hip is not None
+                and body_height is not None
+                and left_wrist_x is not None
+                and right_wrist_x is not None
+                and left_hip_x is not None
+                and right_hip_x is not None
+                and shoulder_width is not None
+            )
+            wrists_below_hips = (
+                left_wrist_to_hip / body_height
+                >= self.wrist_below_hip_margin_body_ratio
+                and right_wrist_to_hip / body_height
+                >= self.wrist_below_hip_margin_body_ratio
+            )
+            wrists_lateral_ratio = max(
+                abs(left_wrist_x - left_hip_x) / shoulder_width,
+                abs(right_wrist_x - right_hip_x) / shoulder_width,
+            )
+            arm_position_condition = (
+                not wrists_below_hips
+                or wrists_lateral_ratio
+                > self.wrist_lateral_from_hip_max_shoulder_width_ratio
+            )
+        self.arm_position_result = self.arm_position_tracker.update(
+            arm_position_condition,
+            current_timestamp,
+            confidence=visible_score,
+        )
+
         carrying_score = (
             0.45 * float(self.motion_detected)
             + 0.25 * float(arms_down)
@@ -262,6 +398,8 @@ class FarmersCarryAnalyzer(BaseActionAnalyzer):
             hip_tilt=hip_tilt,
             torso_angle=torso_angle,
             arms_down=arms_down,
+            arm_extension=self.arm_extension_result,
+            arm_position=self.arm_position_result,
         )
 
         self.previous_body_center_x = body_center_x
@@ -272,10 +410,24 @@ class FarmersCarryAnalyzer(BaseActionAnalyzer):
         self.previous_shoulder_tilt = shoulder_tilt
         self.previous_hip_tilt = hip_tilt
         self.last_timestamp_ms = current_timestamp
-        return {
+        violation_objects = (
+            self.arm_extension_result,
+            self.arm_position_result,
+        )
+        return self.finalize_state({
             "action": self.action,
             "phase": self.phase,
             "rep_count": 0,
+            "cycle_count": 0,
+            "count_semantics": "continuous_monitor",
+            "official_rep_count_supported": False,
+            "violation_scope": "active_analysis_interval",
+            "violation_results": [
+                result.as_dict() for result in violation_objects
+            ],
+            "active_violation_codes": [
+                result.code for result in violation_objects if result.active
+            ],
             "feedback_messages": feedback_messages,
             "debug": {
                 "shoulder_tilt": shoulder_tilt,
@@ -288,10 +440,13 @@ class FarmersCarryAnalyzer(BaseActionAnalyzer):
                 "frames_in_phase": self.frames_in_phase,
                 "motion_detected": self.motion_detected,
                 "stationary_ms": stationary_ms,
+                "farmers_carry_arm_violations": [
+                    result.as_dict() for result in violation_objects
+                ],
                 "config_name": self.config_name,
                 "sensitivity": self.sensitivity,
             },
-        }
+        })
 
 
 __all__ = ["FarmersCarryAnalyzer"]

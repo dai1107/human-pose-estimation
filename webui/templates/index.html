@@ -104,6 +104,13 @@
                 <option value="lower-body">仅下半身</option>
               </select>
             </div>
+            <div class="floor-calibration">
+              <span><strong>手动地板线（可选）</strong><small id="floorCalibrationStatus">默认自动估计；相机倾斜时可点击画面中的两个地板点</small></span>
+              <div class="floor-calibration-actions">
+                <button id="floorCalibrateButton" class="secondary-button" type="button">两点标定</button>
+                <button id="floorResetButton" class="secondary-button" type="button">恢复自动</button>
+              </div>
+            </div>
             <label class="switch-row">
               <span><strong>显示手指节点</strong><small>显示拇指、食指和小指姿态点</small></span>
               <input id="fingerToggle" type="checkbox" checked>
@@ -190,8 +197,16 @@
         </div>
 
         <div class="rep-card">
-          <span>完成次数</span>
-          <strong id="repCount">0</strong>
+          <span>人体动作判定</span>
+          <div class="rep-primary">
+            <strong id="repCount">0</strong>
+            <small>有效动作</small>
+          </div>
+          <div class="rep-breakdown">
+            <div><b id="candidateCount">0</b><small>动作周期</small></div>
+            <div><b id="noRepCount">0</b><small>未完成</small></div>
+            <div><b id="unsureCount">0</b><small>无法确认</small></div>
+          </div>
           <small id="actionLabel">负重箭步蹲</small>
         </div>
 

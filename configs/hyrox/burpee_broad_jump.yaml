@@ -9,6 +9,10 @@ extra_step_window_ms: 500
 stable_frames: 2
 rep_cooldown_ms: 800
 min_phase_duration_ms: 100
+hand_placement_pass_foot_length_ratio: 1.25
+hand_placement_unsure_foot_length_ratio: 1.45
+forward_jump_min_com_displacement_leg_ratio: 0.20
+forward_jump_min_both_feet_displacement_leg_ratio: 0.15
 feedback_limits:
   max_messages: 2
   low_visibility_exclusive: true

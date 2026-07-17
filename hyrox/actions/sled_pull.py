@@ -4,7 +4,9 @@ from collections.abc import Mapping
 
 from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_sled_pull_config
+from hyrox.contact import ContactResult, KneeContactDetector
 from hyrox.feedback import FeedbackMessage
+from hyrox.violations import TemporalViolationTracker, ViolationResult
 
 
 SENSITIVITY_FRAME_DELTAS = {"low": 1, "medium": 0, "high": -1}
@@ -49,6 +51,21 @@ class SledPullAnalyzer(BaseActionAnalyzer):
         if sensitivity not in SENSITIVITY_FRAME_DELTAS:
             raise ValueError(f"unsupported HYROX sensitivity: {sensitivity}")
         values = dict(config or load_sled_pull_config())
+        self.kneeling_contact_detector = KneeContactDetector(
+            sensitivity=sensitivity
+        )
+        self.kneeling_tracker = TemporalViolationTracker(
+            "SLED_PULL_KNEELING_VIOLATION",
+            _resolved_int(values.get("kneeling_min_violation_ms"), 150),
+        )
+        self.seated_tracker = TemporalViolationTracker(
+            "SLED_PULL_SEATED_VIOLATION",
+            _resolved_int(values.get("seated_min_violation_ms"), 250),
+        )
+        self.possible_seated_tracker = TemporalViolationTracker(
+            "UNSURE_POSSIBLE_SEATED_PULL",
+            _resolved_int(values.get("seated_min_violation_ms"), 250),
+        )
         visibility_min = _resolved_float(values.get("visibility_min"), 0.55)
         super().__init__(action="sled_pull", min_visible_score=min(1.0, visibility_min))
         self.configure_feedback_limits(values)
@@ -60,6 +77,22 @@ class SledPullAnalyzer(BaseActionAnalyzer):
         self.pull_elbow_delta_min = _resolved_float(values.get("pull_elbow_delta_min"), 25.0)
         self.hip_knee_drive_delta_min = _resolved_float(values.get("hip_knee_drive_delta_min"), 8.0)
         self.wrist_asymmetry_warn = _resolved_float(values.get("wrist_asymmetry_warn"), 0.08)
+        self.seated_hip_drop_ratio = _resolved_float(
+            values.get("seated_hip_drop_body_ratio_min"),
+            0.18,
+        )
+        self.seated_knee_angle_max = _resolved_float(
+            values.get("seated_knee_angle_max"),
+            130.0,
+        )
+        self.seated_trunk_forward_max = _resolved_float(
+            values.get("seated_trunk_forward_max_deg"),
+            30.0,
+        )
+        self.seated_hip_speed_max = _resolved_float(
+            values.get("seated_hip_vertical_speed_body_ratio_max"),
+            0.05,
+        )
         base_frames = _resolved_int(values.get("stable_frames"), 3, minimum=1)
         self.confirmation_frames = max(1, base_frames + SENSITIVITY_FRAME_DELTAS[sensitivity])
         self.pull_cooldown_ms = _resolved_int(values.get("pull_cooldown_ms"), 350)
@@ -98,6 +131,25 @@ class SledPullAnalyzer(BaseActionAnalyzer):
         self.last_rep_time_ms: int | None = None
         self.no_clear_pull = False
         self.arms_only_pull = False
+        self.standing_hip_center_y: float | None = None
+        self.previous_hip_center_y: float | None = None
+        self.previous_hip_timestamp_ms: int | None = None
+        self.kneeling_contact_detector.reset()
+        self.kneeling_tracker.reset()
+        self.seated_tracker.reset()
+        self.possible_seated_tracker.reset()
+        self.kneeling_contact = ContactResult(
+            "UNSURE",
+            0.0,
+            None,
+            0,
+            [],
+        )
+        self.kneeling_result = self.kneeling_tracker.last_result
+        self.seated_result = self.seated_tracker.last_result
+        self.possible_seated_result = (
+            self.possible_seated_tracker.last_result
+        )
         self.rep_sequence = PhaseSequenceTracker(("reach", "pull", "recover"))
 
     def _visible_score(self, features: dict[str, object]) -> float:
@@ -139,6 +191,7 @@ class SledPullAnalyzer(BaseActionAnalyzer):
         knee_angle: float | None,
         hip_angle: float | None,
         timestamp_ms: int | None,
+        visible_score: float,
     ) -> None:
         self.no_clear_pull = False
         self.arms_only_pull = False
@@ -180,7 +233,10 @@ class SledPullAnalyzer(BaseActionAnalyzer):
             self.no_clear_pull = not clear_pull
             self.arms_only_pull = clear_pull and self.max_lower_body_delta < self.hip_knee_drive_delta_min
             if sequence_completed:
-                self.rep_count += 1
+                self.register_completed_sequence(
+                    confidence=visible_score,
+                    events={"terminal_phase": "recover"},
+                )
                 self.last_rep_time_ms = timestamp_ms
 
     def _feedback(
@@ -190,10 +246,40 @@ class SledPullAnalyzer(BaseActionAnalyzer):
         not_standing: bool,
         torso_angle: float | None,
         wrist_asymmetry: float | None,
+        kneeling: ViolationResult,
+        seated: ViolationResult,
+        possible_seated: ViolationResult,
     ) -> list[FeedbackMessage]:
         if visible_score < self.min_visible_score:
             return [FeedbackMessage("warn", "LOW_VISIBILITY", "请保证上半身、髋、膝、踝都在画面内", max(0.2, 1.0 - visible_score))]
         messages: list[FeedbackMessage] = []
+        if kneeling.active:
+            messages.append(
+                FeedbackMessage(
+                    "warn",
+                    "SLED_PULL_KNEELING_VIOLATION",
+                    "检测到拉动阶段膝盖持续触地，请保持站立",
+                    kneeling.confidence,
+                )
+            )
+        if seated.active:
+            messages.append(
+                FeedbackMessage(
+                    "warn",
+                    "SLED_PULL_SEATED_VIOLATION",
+                    "检测到明显坐姿拉动，请保持站立",
+                    seated.confidence,
+                )
+            )
+        if possible_seated.active:
+            messages.append(
+                FeedbackMessage(
+                    "info",
+                    "UNSURE_POSSIBLE_SEATED_PULL",
+                    "可能出现坐姿拉动，但地板或膝盖证据不足",
+                    possible_seated.confidence,
+                )
+            )
         if not_standing:
             messages.append(FeedbackMessage("warn", "NOT_STANDING", "拉雪橇时需要保持站立，不要坐下或跪拉", 0.8))
         if torso_angle is not None and abs(torso_angle) > self.over_lean_back_angle:
@@ -207,6 +293,7 @@ class SledPullAnalyzer(BaseActionAnalyzer):
         return self.limit_feedback(messages)
 
     def update(self, features: dict[str, object] | None, timestamp_ms: int | None) -> dict[str, object]:
+        self.begin_frame(features, timestamp_ms)
         values = features if isinstance(features, dict) else {}
         current_timestamp = None if timestamp_ms is None else int(timestamp_ms)
         visible_score = self._visible_score(values)
@@ -218,6 +305,10 @@ class SledPullAnalyzer(BaseActionAnalyzer):
         hip_angle = _mean_metric(values.get("left_hip_angle"), values.get("right_hip_angle"))
         torso_angle = _safe_float(values.get("torso_angle"))
         body_center_y = _safe_float(values.get("body_center_y"))
+        hip_center_y = _safe_float(values.get("hip_center_y"))
+        body_height = _safe_float(
+            self._current_features.get("body_height_reference")
+        ) or _safe_float(values.get("body_height_norm"))
         wrist_distance = _safe_float(values.get("wrist_distance_norm"))
         left_wrist_y = _safe_float(values.get("left_wrist_y"))
         right_wrist_y = _safe_float(values.get("right_wrist_y"))
@@ -235,19 +326,149 @@ class SledPullAnalyzer(BaseActionAnalyzer):
             knee_angle=knee_angle,
             hip_angle=hip_angle,
             timestamp_ms=current_timestamp,
+            visible_score=visible_score,
+        )
+        if (
+            hip_center_y is not None
+            and knee_angle is not None
+            and knee_angle >= 145.0
+            and self.stable_phase in {"ready", "reach", "recover"}
+        ):
+            self.standing_hip_center_y = (
+                hip_center_y
+                if self.standing_hip_center_y is None
+                else min(self.standing_hip_center_y, hip_center_y)
+            )
+        hip_speed_ratio: float | None = None
+        if (
+            hip_center_y is not None
+            and self.previous_hip_center_y is not None
+            and current_timestamp is not None
+            and self.previous_hip_timestamp_ms is not None
+            and current_timestamp > self.previous_hip_timestamp_ms
+            and body_height is not None
+            and body_height > 1e-6
+        ):
+            elapsed_seconds = (
+                current_timestamp - self.previous_hip_timestamp_ms
+            ) / 1000.0
+            hip_speed_ratio = abs(
+                hip_center_y - self.previous_hip_center_y
+            ) / body_height / elapsed_seconds
+
+        contact_phase = (
+            "kneeling" if self.stable_phase == "pull" else "stand"
+        )
+        self.kneeling_contact = self.kneeling_contact_detector.update(
+            self._current_features,
+            phase=contact_phase,
+            frame_index=self.frame_index,
+            timestamp_ms=current_timestamp,
+        )
+        if self.stable_phase != "pull":
+            kneeling_condition: bool | None = False
+        elif self.kneeling_contact.status == "CONTACT":
+            kneeling_condition = True
+        elif self.kneeling_contact.status == "NO_CONTACT":
+            kneeling_condition = False
+        else:
+            kneeling_condition = None
+        self.kneeling_result = self.kneeling_tracker.update(
+            kneeling_condition,
+            current_timestamp,
+            confidence=self.kneeling_contact.confidence,
+        )
+
+        seated_geometry_observable = (
+            visible_score >= self.min_visible_score
+            and hip_center_y is not None
+            and body_height is not None
+            and body_height > 1e-6
+            and self.standing_hip_center_y is not None
+            and knee_angle is not None
+            and torso_angle is not None
+            and hip_speed_ratio is not None
+        )
+        seated_geometry = False
+        if seated_geometry_observable:
+            hip_drop_ratio = (
+                hip_center_y - self.standing_hip_center_y
+            ) / body_height
+            seated_geometry = (
+                self.stable_phase == "pull"
+                and hip_drop_ratio >= self.seated_hip_drop_ratio
+                and knee_angle <= self.seated_knee_angle_max
+                and torso_angle <= self.seated_trunk_forward_max
+                and hip_speed_ratio <= self.seated_hip_speed_max
+            )
+        if not seated_geometry_observable:
+            seated_condition: bool | None = None
+        elif self.kneeling_contact.status == "NO_CONTACT":
+            seated_condition = seated_geometry
+        elif self.kneeling_contact.status == "CONTACT":
+            seated_condition = False
+        else:
+            seated_condition = None
+        self.seated_result = self.seated_tracker.update(
+            seated_condition,
+            current_timestamp,
+            confidence=visible_score,
+        )
+        possible_seated_condition = (
+            seated_geometry
+            if self.kneeling_contact.status
+            in {"UNSURE", "NOT_OBSERVABLE"}
+            else False
+        )
+        self.possible_seated_result = (
+            self.possible_seated_tracker.update(
+                possible_seated_condition,
+                current_timestamp,
+                confidence=min(
+                    visible_score,
+                    max(0.35, self.kneeling_contact.confidence),
+                ),
+            )
         )
         feedback_messages = self._feedback(
             visible_score=visible_score,
             not_standing=not_standing,
             torso_angle=torso_angle,
             wrist_asymmetry=wrist_asymmetry,
+            kneeling=self.kneeling_result,
+            seated=self.seated_result,
+            possible_seated=self.possible_seated_result,
         )
         self.previous_elbow_angle = elbow_angle
+        self.previous_hip_center_y = hip_center_y
+        self.previous_hip_timestamp_ms = current_timestamp
         self.last_timestamp_ms = current_timestamp
-        return {
+        violation_objects = (
+            self.kneeling_result,
+            self.seated_result,
+            self.possible_seated_result,
+        )
+        return self.finalize_state({
             "action": self.action,
             "phase": self.phase,
             "rep_count": self.rep_count,
+            "cycle_count": self.rep_count,
+            "count_semantics": "analysis_cycle",
+            "official_rep_count_supported": False,
+            "violation_scope": "active_analysis_interval",
+            "violation_results": [
+                result.as_dict() for result in violation_objects
+            ],
+            "active_violation_codes": [
+                result.code
+                for result in (self.kneeling_result, self.seated_result)
+                if result.active
+            ],
+            "uncertain_violation_codes": (
+                [self.possible_seated_result.code]
+                if self.possible_seated_result.active
+                else []
+            ),
             "feedback_messages": feedback_messages,
             "debug": {
                 "raw_phase": self.raw_phase,
@@ -260,12 +481,19 @@ class SledPullAnalyzer(BaseActionAnalyzer):
                 "wrist_distance_norm": wrist_distance,
                 "wrist_asymmetry": wrist_asymmetry,
                 "body_center_y": body_center_y,
+                "hip_center_y": hip_center_y,
+                "standing_hip_center_y": self.standing_hip_center_y,
+                "hip_vertical_speed_body_ratio": hip_speed_ratio,
+                "knee_contact": self.kneeling_contact.as_dict(),
+                "sled_pull_violations": [
+                    result.as_dict() for result in violation_objects
+                ],
                 "frames_in_phase": self.frames_in_phase,
                 "config_name": self.config_name,
                 "sensitivity": self.sensitivity,
                 **self.rep_sequence.debug(),
             },
-        }
+        })
 
 
 __all__ = ["SledPullAnalyzer"]

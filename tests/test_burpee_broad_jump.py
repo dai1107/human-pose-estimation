@@ -126,7 +126,7 @@ def test_burpee_custom_config_uses_file_stem(tmp_path: Path) -> None:
     assert analyzer.confirmation_frames == 2
 
 
-def test_burpee_counts_chest_takeoff_landing_sequence() -> None:
+def test_burpee_sequence_waits_for_next_hands_before_rule_validation() -> None:
     analyzer = _analyzer()
     assert analyzer.update(_features(), 0)["phase"] == "stand"
     assert analyzer.update(_hands_down(), 150)["phase"] == "hands_down"
@@ -136,12 +136,14 @@ def test_burpee_counts_chest_takeoff_landing_sequence() -> None:
     assert analyzer.update(_features(body_center_x=0.33, body_center_y=0.47, left_knee_angle=165, right_knee_angle=166), 700)["phase"] == "flight_or_move"
     landing = analyzer.update(_features(body_center_x=0.38, body_center_y=0.52, left_knee_angle=135, right_knee_angle=137), 850)
     assert landing["phase"] == "landing"
-    assert landing["rep_count"] == 1
+    assert landing["rep_count"] == 0
+    assert landing["candidate_count"] == 0
+    assert landing["debug"]["burpee_validation_state"] == "AWAITING_NEXT_HANDS"
     assert landing["debug"]["rep_completed"] is True
     assert landing["debug"]["body_center_delta_x"] == pytest.approx(0.11)
 
 
-def test_burpee_counts_consecutive_reps_without_requiring_a_standing_frame() -> None:
+def test_burpee_consecutive_sequence_finalizes_previous_at_next_chest_boundary() -> None:
     analyzer = _analyzer()
 
     analyzer.update(_chest_down(), 100)
@@ -168,8 +170,11 @@ def test_burpee_counts_consecutive_reps_without_requiring_a_standing_frame() -> 
         600,
     )
 
-    assert first["rep_count"] == 1
-    assert second["rep_count"] == 2
+    assert first["rep_count"] == 0
+    assert first["candidate_count"] == 0
+    assert second["rep_count"] == 0
+    assert second["candidate_count"] == 1
+    assert second["unsure_count"] == 1
 
 
 def test_burpee_visibility_bottom_and_feet_feedback() -> None:
@@ -202,7 +207,8 @@ def test_burpee_reports_shallow_chest_and_missing_broad_jump() -> None:
     analyzer.update(_takeoff(), 400)
     analyzer.update(_features(body_center_x=0.30, body_center_y=0.47, left_knee_angle=165, right_knee_angle=166), 500)
     landing = analyzer.update(_features(body_center_x=0.31, body_center_y=0.52, left_knee_angle=135, right_knee_angle=137), 600)
-    assert landing["rep_count"] == 1
+    assert landing["rep_count"] == 0
+    assert landing["candidate_count"] == 0
     assert "NO_BROAD_JUMP" in {message.code for message in landing["feedback_messages"]}
 
 

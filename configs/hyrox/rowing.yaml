@@ -6,6 +6,11 @@ finish_knee_angle_min: 145
 finish_torso_lean_max: 35
 too_much_back_lean: 45
 early_arm_pull_elbow_angle: 120
+standing_violation_knee_angle_min_deg: 160
+standing_violation_hip_angle_min_deg: 155
+standing_violation_trunk_from_vertical_max_deg: 30
+standing_violation_hip_vertical_rise_body_ratio_min: 0.18
+standing_violation_min_hold_ms: 300
 stable_frames: 2
 stroke_cooldown_ms: 500
 min_phase_duration_ms: 120

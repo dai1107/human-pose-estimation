@@ -265,7 +265,7 @@ def test_put_text_renders_chinese_feedback_without_crashing() -> None:
     assert np.count_nonzero(frame) > 0
 
 
-def test_lunge_analyzer_counts_reps_and_reports_extension_feedback() -> None:
+def test_lunge_without_contact_evidence_is_unsure_and_reports_extension_feedback() -> None:
     analyzer = LungeAnalyzer()
 
     stand = {
@@ -313,7 +313,10 @@ def test_lunge_analyzer_counts_reps_and_reports_extension_feedback() -> None:
     completed = analyzer.update(shallow_stand, timestamp_ms=750)
 
     assert completed["phase"] == "stand"
-    assert completed["rep_count"] == 1
+    assert completed["rep_count"] == 0
+    assert completed["candidate_count"] == 1
+    assert completed["unsure_count"] == 1
+    assert completed["last_rep_decision"]["status"] == "UNSURE"
     assert completed["debug"]["rep_completed"] is True
     assert completed["debug"]["last_rep_time_ms"] == 750
     assert {message.code for message in completed["feedback_messages"]} == {"STAND_EXTENSION"}
@@ -395,7 +398,7 @@ def test_lunge_analyzer_debounces_phase_changes_before_confirming() -> None:
     assert analyzer.confirmation_frames == PHASE_CONFIRMATION_FRAMES
 
 
-def test_lunge_counts_each_complete_ordered_sequence_without_terminal_lag() -> None:
+def test_lunge_registers_each_sequence_but_requires_round5_rule_evidence() -> None:
     analyzer = LungeAnalyzer()
 
     stand = {
@@ -428,7 +431,9 @@ def test_lunge_counts_each_complete_ordered_sequence_without_terminal_lag() -> N
     for timestamp_ms in (700, 750):
         first_rep = analyzer.update(stand, timestamp_ms=timestamp_ms)
 
-    assert first_rep["rep_count"] == 1
+    assert first_rep["rep_count"] == 0
+    assert first_rep["candidate_count"] == 1
+    assert first_rep["unsure_count"] == 1
     assert first_rep["debug"]["last_rep_time_ms"] == 750
 
     for timestamp_ms in (830, 850, 870):
@@ -441,7 +446,9 @@ def test_lunge_counts_each_complete_ordered_sequence_without_terminal_lag() -> N
         blocked_rep = analyzer.update(stand, timestamp_ms=timestamp_ms)
 
     assert blocked_rep["phase"] == "stand"
-    assert blocked_rep["rep_count"] == 2
+    assert blocked_rep["rep_count"] == 0
+    assert blocked_rep["candidate_count"] == 2
+    assert blocked_rep["unsure_count"] == 2
     assert blocked_rep["debug"]["last_rep_time_ms"] == 1030
 
     for timestamp_ms in (1100, 1150, 1200):
@@ -453,7 +460,9 @@ def test_lunge_counts_each_complete_ordered_sequence_without_terminal_lag() -> N
     for timestamp_ms in (1550, 1600):
         second_rep = analyzer.update(stand, timestamp_ms=timestamp_ms)
 
-    assert second_rep["rep_count"] == 3
+    assert second_rep["rep_count"] == 0
+    assert second_rep["candidate_count"] == 3
+    assert second_rep["unsure_count"] == 3
     assert second_rep["debug"]["last_rep_time_ms"] == 1600
 
 

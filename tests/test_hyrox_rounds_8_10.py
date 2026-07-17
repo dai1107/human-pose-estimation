@@ -54,7 +54,7 @@ def test_default_confirmation_is_camera_safe_without_weakening_low_sensitivity()
     live_low = create_action_analyzer("lunge", sensitivity="low", live_mode=True)
 
     assert offline.confirmation_frames == 2
-    assert live.confirmation_frames == 2
+    assert live.confirmation_frames == 1
     assert live_high.confirmation_frames == 1
     assert live_low.confirmation_frames == 3
 

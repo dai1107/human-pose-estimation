@@ -254,7 +254,12 @@ def main(argv: list[str] | None = None) -> int:
             features = None
             if has_pose:
                 height, width = frame.shape[:2]
-                features = extract_basic_pose_features(result.keypoints, image_width=width, image_height=height)
+                features = extract_basic_pose_features(
+                    result.keypoints,
+                    image_width=width,
+                    image_height=height,
+                    segmentation_mask=result.extra.get("segmentation_mask"),
+                )
             state = analyzer.attach_view_context(analyzer.update(features if has_pose else None, timestamp_ms=timestamp_ms))
             final_state = state
 

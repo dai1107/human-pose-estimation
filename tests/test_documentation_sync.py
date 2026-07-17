@@ -50,3 +50,27 @@ def test_every_documented_hyrox_replay_command_specifies_camera_view() -> None:
         ]
         assert replay_lines
         assert all("--camera-view" in line for line in replay_lines)
+
+
+def test_current_counting_violation_and_debug_semantics_are_documented() -> None:
+    readme, guide = _documents()
+    web_guide = (ROOT / "网页版使用说明.md").read_text(encoding="utf-8")
+    config_guide = (ROOT / "configs" / "hyrox" / "README.md").read_text(
+        encoding="utf-8"
+    )
+
+    for document in (readme, guide, web_guide, config_guide):
+        for required in (
+            "cycle_count",
+            "VALID",
+            "NO_REP",
+            "UNSURE",
+            "ROWING_EARLY_STAND_PROXY",
+            "SLED_PULL_KNEELING_VIOLATION",
+            "ARM_NOT_EXTENDED_VIOLATION",
+        ):
+            assert required in document
+
+    for document in (readme, guide, config_guide):
+        assert "虚拟膝盖表面点" in document
+        assert "虚拟胸部表面点" in document

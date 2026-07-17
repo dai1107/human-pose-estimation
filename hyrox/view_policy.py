@@ -43,13 +43,13 @@ _POLICIES: dict[str, ActionViewPolicy] = {
     ),
     "farmers_carry": ActionViewPolicy(
         frozenset({"front"}),
-        frozenset({"LEAN_LEFT_RIGHT", "SHOULDERS_UNEVEN", "ARMS_NOT_DOWN", "UNSTABLE_CARRY", "LOW_VISIBILITY"}),
-        frozenset({"ARMS_NOT_DOWN", "TORSO_LEAN", "UNSTABLE_CARRY", "LOW_VISIBILITY"}),
+        frozenset({"LEAN_LEFT_RIGHT", "SHOULDERS_UNEVEN", "ARMS_NOT_DOWN", "ARM_NOT_EXTENDED_VIOLATION", "ARM_NOT_BY_SIDE_VIOLATION", "UNSTABLE_CARRY", "LOW_VISIBILITY"}),
+        frozenset({"ARMS_NOT_DOWN", "ARM_NOT_EXTENDED_VIOLATION", "ARM_NOT_BY_SIDE_VIOLATION", "TORSO_LEAN", "UNSTABLE_CARRY", "LOW_VISIBILITY"}),
     ),
     "rowing": ActionViewPolicy(
         frozenset({"side"}),
         frozenset({"NOT_SEATED_OR_BAD_VIEW", "LOW_VISIBILITY"}),
-        frozenset({"TOO_MUCH_BACK_LEAN", "NO_FULL_LEG_DRIVE", "EARLY_ARM_PULL", "RUSHED_RECOVERY", "NOT_SEATED_OR_BAD_VIEW", "LOW_VISIBILITY"}),
+        frozenset({"ROWING_EARLY_STAND_PROXY", "TOO_MUCH_BACK_LEAN", "NO_FULL_LEG_DRIVE", "EARLY_ARM_PULL", "RUSHED_RECOVERY", "NOT_SEATED_OR_BAD_VIEW", "LOW_VISIBILITY"}),
     ),
     "skierg": ActionViewPolicy(
         frozenset({"front"}),
@@ -69,7 +69,7 @@ _POLICIES: dict[str, ActionViewPolicy] = {
     "sled_pull": ActionViewPolicy(
         frozenset({"side"}),
         frozenset({"NOT_STANDING", "ASYMMETRIC_PULL", "LOW_VISIBILITY"}),
-        frozenset({"NOT_STANDING", "OVER_LEAN_BACK", "ARMS_ONLY_PULL", "NO_CLEAR_PULL", "ASYMMETRIC_PULL", "LOW_VISIBILITY"}),
+        frozenset({"SLED_PULL_KNEELING_VIOLATION", "SLED_PULL_SEATED_VIOLATION", "UNSURE_POSSIBLE_SEATED_PULL", "NOT_STANDING", "OVER_LEAN_BACK", "ARMS_ONLY_PULL", "NO_CLEAR_PULL", "ASYMMETRIC_PULL", "LOW_VISIBILITY"}),
     ),
 }
 
@@ -103,9 +103,21 @@ def filter_feedback_for_view(
     return filtered, limited
 
 
+def action_view_suitability(
+    action: str,
+    camera_view: str,
+) -> bool | None:
+    profile = view_profile(camera_view)
+    policy = _POLICIES.get(_action_key(action))
+    if policy is None or profile == "unknown":
+        return None
+    return profile in policy.preferred
+
+
 __all__ = [
     "CAMERA_VIEWS",
     "ActionViewPolicy",
+    "action_view_suitability",
     "filter_feedback_for_view",
     "normalize_camera_view",
     "next_camera_view",

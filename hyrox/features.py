@@ -27,10 +27,49 @@ def _empty_features() -> dict[str, FeatureValue]:
         "body_center_x": None,
         "body_center_y": None,
         "body_height_norm": None,
+        "body_box_height_norm": None,
+        "left_wrist_x": None,
         "left_wrist_y": None,
+        "left_wrist_confidence": None,
+        "right_wrist_x": None,
         "right_wrist_y": None,
+        "right_wrist_confidence": None,
+        "left_shoulder_x": None,
+        "left_shoulder_y": None,
+        "left_shoulder_confidence": None,
+        "right_shoulder_x": None,
+        "right_shoulder_y": None,
+        "right_shoulder_confidence": None,
+        "left_hip_x": None,
+        "left_hip_y": None,
+        "left_hip_confidence": None,
+        "right_hip_x": None,
+        "right_hip_y": None,
+        "right_hip_confidence": None,
+        "left_knee_x": None,
+        "left_knee_y": None,
+        "left_knee_confidence": None,
+        "right_knee_x": None,
+        "right_knee_y": None,
+        "right_knee_confidence": None,
+        "left_ankle_x": None,
         "left_ankle_y": None,
+        "left_ankle_confidence": None,
+        "right_ankle_x": None,
         "right_ankle_y": None,
+        "right_ankle_confidence": None,
+        "left_heel_x": None,
+        "left_heel_y": None,
+        "left_heel_confidence": None,
+        "right_heel_x": None,
+        "right_heel_y": None,
+        "right_heel_confidence": None,
+        "left_foot_index_x": None,
+        "left_foot_index_y": None,
+        "left_foot_index_confidence": None,
+        "right_foot_index_x": None,
+        "right_foot_index_y": None,
+        "right_foot_index_confidence": None,
         "left_wrist_to_hip_y": None,
         "right_wrist_to_hip_y": None,
         "left_wrist_to_shoulder_y": None,
@@ -41,7 +80,9 @@ def _empty_features() -> dict[str, FeatureValue]:
         "min_hip_angle": None,
         "max_hip_angle": None,
         "hip_center_y": None,
+        "hip_center_x": None,
         "knee_center_y": None,
+        "knee_center_x": None,
         "shoulder_center_y": None,
         "wrist_center_y": None,
         "hip_knee_depth": None,
@@ -53,6 +94,7 @@ def _empty_features() -> dict[str, FeatureValue]:
         "max_elbow_angle": None,
         "left_wrist_above_shoulder": None,
         "right_wrist_above_shoulder": None,
+        "skeleton_height_estimate_norm": None,
         "visible_score": 0.0,
         "upper_body_visible_score": 0.0,
         "lower_body_visible_score": 0.0,
@@ -167,6 +209,14 @@ def _normalized_y(point: PosePoint | None, height: float) -> FeatureValue:
     return None if point is None else point.y / height
 
 
+def _normalized_x(point: PosePoint | None, width: float) -> FeatureValue:
+    return None if point is None else point.x / width
+
+
+def _point_confidence(point: PosePoint | None) -> FeatureValue:
+    return None if point is None else min(point.visibility, point.presence)
+
+
 def _vertical_delta(start: PosePoint | None, end: PosePoint | None, height: float) -> FeatureValue:
     """Return signed screen-y delta: positive means ``end`` is lower."""
     if start is None or end is None:
@@ -184,7 +234,9 @@ def extract_basic_pose_features(
     landmarks: Sequence[object] | Mapping[str | int, object] | None,
     image_width: int,
     image_height: int,
-) -> dict[str, FeatureValue]:
+    *,
+    segmentation_mask: object | None = None,
+) -> dict[str, Any]:
     features = _empty_features()
     if landmarks is None:
         return features
@@ -201,6 +253,11 @@ def extract_basic_pose_features(
     right_elbow = _scaled_point(landmarks, "right_elbow", image_width, image_height)
     left_wrist = _scaled_point(landmarks, "left_wrist", image_width, image_height)
     right_wrist = _scaled_point(landmarks, "right_wrist", image_width, image_height)
+    left_heel = _scaled_point(landmarks, "left_heel", image_width, image_height)
+    right_heel = _scaled_point(landmarks, "right_heel", image_width, image_height)
+    left_foot_index = _scaled_point(landmarks, "left_foot_index", image_width, image_height)
+    right_foot_index = _scaled_point(landmarks, "right_foot_index", image_width, image_height)
+    nose = _scaled_point(landmarks, "nose", image_width, image_height)
 
     shoulder_center = midpoint(left_shoulder, right_shoulder)
     hip_center = midpoint(left_hip, right_hip)
@@ -226,10 +283,45 @@ def extract_basic_pose_features(
         features["body_height_norm"] = (
             None if ankle_center is None else abs(ankle_center.y - shoulder_center.y) / height
         )
-    features["left_wrist_y"] = _normalized_y(left_wrist, height)
-    features["right_wrist_y"] = _normalized_y(right_wrist, height)
-    features["left_ankle_y"] = _normalized_y(left_ankle, height)
-    features["right_ankle_y"] = _normalized_y(right_ankle, height)
+    lowest_foot_y = max(
+        (
+            point.y
+            for point in (left_heel, right_heel, left_foot_index, right_foot_index)
+            if point is not None
+        ),
+        default=None,
+    )
+    if nose is not None and lowest_foot_y is not None:
+        features["body_box_height_norm"] = max(0.0, lowest_foot_y - nose.y) / height
+    for name, point in (
+        ("left_wrist", left_wrist),
+        ("right_wrist", right_wrist),
+    ):
+        features[f"{name}_x"] = _normalized_x(point, width)
+        features[f"{name}_y"] = _normalized_y(point, height)
+        features[f"{name}_confidence"] = _point_confidence(point)
+    for name, point in (
+        ("left_shoulder", left_shoulder),
+        ("right_shoulder", right_shoulder),
+        ("left_hip", left_hip),
+        ("right_hip", right_hip),
+        ("left_knee", left_knee),
+        ("right_knee", right_knee),
+        ("left_ankle", left_ankle),
+        ("right_ankle", right_ankle),
+    ):
+        features[f"{name}_x"] = _normalized_x(point, width)
+        features[f"{name}_y"] = _normalized_y(point, height)
+        features[f"{name}_confidence"] = _point_confidence(point)
+    for name, point in (
+        ("left_heel", left_heel),
+        ("right_heel", right_heel),
+        ("left_foot_index", left_foot_index),
+        ("right_foot_index", right_foot_index),
+    ):
+        features[f"{name}_x"] = _normalized_x(point, width)
+        features[f"{name}_y"] = _normalized_y(point, height)
+        features[f"{name}_confidence"] = _point_confidence(point)
     features["left_wrist_to_hip_y"] = _vertical_delta(left_hip, left_wrist, height)
     features["right_wrist_to_hip_y"] = _vertical_delta(right_hip, right_wrist, height)
     features["left_wrist_to_shoulder_y"] = _vertical_delta(left_shoulder, left_wrist, height)
@@ -242,8 +334,10 @@ def extract_basic_pose_features(
     features["min_elbow_angle"] = _min_value(features["left_elbow_angle"], features["right_elbow_angle"])
     features["max_elbow_angle"] = _max_value(features["left_elbow_angle"], features["right_elbow_angle"])
     features["hip_center_y"] = _normalized_y(hip_center, height)
+    features["hip_center_x"] = _normalized_x(hip_center, width)
     knee_center = midpoint(left_knee, right_knee)
     features["knee_center_y"] = None if knee_center is None else knee_center.y / max(1.0, float(image_height))
+    features["knee_center_x"] = _normalized_x(knee_center, width)
     wrist_center = midpoint(left_wrist, right_wrist)
     features["shoulder_center_y"] = None if shoulder_center is None else shoulder_center.y / max(1.0, float(image_height))
     features["wrist_center_y"] = None if wrist_center is None else wrist_center.y / max(1.0, float(image_height))
@@ -261,6 +355,18 @@ def extract_basic_pose_features(
         features["knee_width"] = abs(right_knee.x - left_knee.x) / width
     if left_ankle is not None and right_ankle is not None:
         features["ankle_width"] = abs(right_ankle.x - left_ankle.x) / width
+    torso_length = _normalized_distance(shoulder_center, hip_center, width, height)
+    left_thigh = _normalized_distance(left_hip, left_knee, width, height)
+    right_thigh = _normalized_distance(right_hip, right_knee, width, height)
+    left_shank = _normalized_distance(left_knee, left_ankle, width, height)
+    right_shank = _normalized_distance(right_knee, right_ankle, width, height)
+    leg_lengths = [
+        thigh + shank
+        for thigh, shank in ((left_thigh, left_shank), (right_thigh, right_shank))
+        if thigh is not None and shank is not None
+    ]
+    if torso_length is not None and leg_lengths:
+        features["skeleton_height_estimate_norm"] = torso_length + sum(leg_lengths) / len(leg_lengths)
     features["visible_score"] = _visibility_score(landmarks)
     features["upper_body_visible_score"] = _visibility_score(
         landmarks,
@@ -278,6 +384,10 @@ def extract_basic_pose_features(
         landmarks,
         ("right_shoulder", "right_elbow", "right_wrist", "right_hip", "right_knee", "right_ankle"),
     )
+    # The segmentation mask is deliberately private and current-frame only.
+    # BaseActionAnalyzer removes private keys before buffering evidence.
+    if segmentation_mask is not None:
+        features["_segmentation_mask"] = segmentation_mask
     return features
 
 

@@ -42,6 +42,7 @@ from webui.realtime import (
     RealtimeProtocolError,
     SessionCapacityError,
     SessionManager,
+    validate_manual_floor_points,
 )
 
 
@@ -238,6 +239,7 @@ class PoseStreamEngine:
             "landmark_profile": "full",
             "show_fingers": True,
             "paused": False,
+            "manual_floor_points": [],
         }
         self._state: dict[str, Any] = {
             "running": False,
@@ -256,6 +258,13 @@ class PoseStreamEngine:
             "inference_ms": 0.0,
             "phase": "idle",
             "reps": 0,
+            "candidate_count": 0,
+            "pose_valid_rep_count": 0,
+            "no_rep_count": 0,
+            "unsure_count": 0,
+            "floor_reference": {},
+            "contacts": {},
+            "foot_events": {},
             "feedback": [],
             "voice_feedback": None,
             "frame_index": 0,
@@ -282,6 +291,9 @@ class PoseStreamEngine:
                     "landmark_profile": config.get("landmark_profile", "full"),
                     "show_fingers": bool(config.get("show_fingers", True)),
                     "paused": False,
+                    "manual_floor_points": validate_manual_floor_points(
+                        config.get("manual_floor_points", ())
+                    ),
                 }
             )
             self._record_requested = False
@@ -307,6 +319,13 @@ class PoseStreamEngine:
                     "inference_ms": 0.0,
                     "phase": "idle",
                     "reps": 0,
+                    "candidate_count": 0,
+                    "pose_valid_rep_count": 0,
+                    "no_rep_count": 0,
+                    "unsure_count": 0,
+                    "floor_reference": {},
+                    "contacts": {},
+                    "foot_events": {},
                     "feedback": [],
                     "voice_feedback": None,
                     "frame_index": 0,
@@ -350,6 +369,10 @@ class PoseStreamEngine:
             for key in ("mirror", "paused", "show_fingers"):
                 if key in values:
                     self._settings[key] = bool(values[key])
+            if "manual_floor_points" in values:
+                self._settings["manual_floor_points"] = validate_manual_floor_points(
+                    values["manual_floor_points"]
+                )
             self._state.update(
                 {
                     "action": self._settings["action"],
@@ -463,7 +486,16 @@ class PoseStreamEngine:
     ) -> tuple[Any, str]:
         resolved = resolve_backend_choice(requested, action_type=action, input_video=source_path)
         if resolved == "mediapipe":
-            return MediaPipeBackend(str(PROJECT_ROOT / "models" / "pose_landmarker_full.task")), resolved
+            # MediaPipe 0.10.35 on Windows can abort the entire process while
+            # producing segmentation masks for some non-standard video sizes.
+            # Keypoint detection remains fully available without the mask.
+            return (
+                MediaPipeBackend(
+                    str(PROJECT_ROOT / "models" / "pose_landmarker_full.task"),
+                    output_segmentation_masks=False,
+                ),
+                resolved,
+            )
         if resolved == "yolo-pose":
             return YoloPoseBackend(str(PROJECT_ROOT / "yolo11n-pose.pt"), target_select=target_select, device=resolve_torch_device("auto")), resolved
         raise ValueError(f"unknown backend: {resolved}")
@@ -534,13 +566,38 @@ class PoseStreamEngine:
                 action_state = None
                 features = None
                 if analyzer is not None:
+                    manual_points = settings.get("manual_floor_points") or []
+                    analyzer.set_manual_floor_line(
+                        manual_points[0] if len(manual_points) == 2 else None,
+                        manual_points[1] if len(manual_points) == 2 else None,
+                    )
                     if has_pose:
                         height, width = frame.shape[:2]
-                        features = extract_basic_pose_features(result.keypoints, image_width=width, image_height=height)
+                        features = extract_basic_pose_features(
+                            result.keypoints,
+                            image_width=width,
+                            image_height=height,
+                            segmentation_mask=result.extra.get("segmentation_mask"),
+                        )
                     action_state = analyzer.attach_view_context(analyzer.update(features, timestamp_ms=timestamp_ms))
 
                 phase = "idle" if action_state is None else str(action_state.get("phase", "unknown"))
                 action_debug = action_state.get("debug") if isinstance(action_state, Mapping) else None
+                floor_reference = (
+                    dict(action_debug.get("floor_reference") or {})
+                    if isinstance(action_debug, Mapping)
+                    else {}
+                )
+                contacts = (
+                    dict(action_debug.get("contacts") or {})
+                    if isinstance(action_debug, Mapping)
+                    else {}
+                )
+                foot_events = (
+                    dict(action_debug.get("foot_events") or {})
+                    if isinstance(action_debug, Mapping)
+                    else {}
+                )
                 evaluation_phase = str(action_debug.get("raw_phase", phase)) if isinstance(action_debug, Mapping) else phase
                 all_feedback = _feedback_items(action_state, phase_aware=False)
                 feedback = visible_feedback(all_feedback, evaluation_phase)
@@ -572,6 +629,22 @@ class PoseStreamEngine:
                 smooth_fps = instant_fps if smooth_fps <= 0 else smooth_fps * 0.85 + instant_fps * 0.15
                 last_frame_time = now
                 reps = 0 if action_state is None else int(action_state.get("rep_count", 0))
+                candidate_count = (
+                    0
+                    if action_state is None
+                    else int(action_state.get("candidate_count", reps))
+                )
+                pose_valid_rep_count = (
+                    reps
+                    if action_state is None
+                    else int(action_state.get("pose_valid_rep_count", reps))
+                )
+                no_rep_count = (
+                    0 if action_state is None else int(action_state.get("no_rep_count", 0))
+                )
+                unsure_count = (
+                    0 if action_state is None else int(action_state.get("unsure_count", 0))
+                )
                 voice_feedback = self._voice_feedback.update(
                     action=str(settings["action"]),
                     reps=reps,
@@ -621,6 +694,13 @@ class PoseStreamEngine:
                                 "action": settings["action"],
                                 "phase": phase,
                                 "reps": reps,
+                                "candidate_count": candidate_count,
+                                "pose_valid_rep_count": pose_valid_rep_count,
+                                "no_rep_count": no_rep_count,
+                                "unsure_count": unsure_count,
+                                "floor_reference": floor_reference,
+                                "contacts": contacts,
+                                "foot_events": foot_events,
                                 "pose_detected": has_pose,
                                 "feedback": feedback,
                                 "voice_feedback": voice_feedback,
@@ -650,6 +730,13 @@ class PoseStreamEngine:
                                 "inference_ms": round(float(result.inference_time_ms), 1),
                                 "phase": phase,
                                 "reps": reps,
+                                "candidate_count": candidate_count,
+                                "pose_valid_rep_count": pose_valid_rep_count,
+                                "no_rep_count": no_rep_count,
+                                "unsure_count": unsure_count,
+                                "floor_reference": floor_reference,
+                                "contacts": contacts,
+                                "foot_events": foot_events,
                                 "feedback": feedback,
                                 "voice_feedback": voice_feedback,
                                 "frame_index": frame_index,
@@ -988,6 +1075,9 @@ def create_app(
                 "landmark_profile": profile,
                 "show_fingers": bool(data.get("show_fingers", True)),
                 "mirror": bool(data.get("mirror", source_mode == "camera")),
+                "manual_floor_points": validate_manual_floor_points(
+                    data.get("manual_floor_points", ())
+                ),
             }
             if source_mode == "camera":
                 camera_index = int(data.get("camera_index", 0))

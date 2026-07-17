@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_rowing_config
 from hyrox.feedback import FeedbackMessage
+from hyrox.violations import TemporalViolationTracker, ViolationResult
 
 
 SENSITIVITY_FRAME_DELTAS = {"low": 1, "medium": 0, "high": -1}
@@ -55,6 +56,13 @@ class RowingAnalyzer(BaseActionAnalyzer):
         if sensitivity not in SENSITIVITY_FRAME_DELTAS:
             raise ValueError(f"unsupported HYROX sensitivity: {sensitivity}")
         values = dict(config or load_rowing_config())
+        self.early_stand_tracker = TemporalViolationTracker(
+            "ROWING_EARLY_STAND_PROXY",
+            _resolved_int(
+                values.get("standing_violation_min_hold_ms"),
+                300,
+            ),
+        )
         visibility_min = _resolved_float(values.get("visibility_min"), 0.55)
         super().__init__(action="rowing", min_visible_score=min(1.0, visibility_min))
         self.configure_feedback_limits(values)
@@ -65,6 +73,24 @@ class RowingAnalyzer(BaseActionAnalyzer):
         self.finish_torso_lean_max = _resolved_float(values.get("finish_torso_lean_max"), 35.0)
         self.too_much_back_lean = _resolved_float(values.get("too_much_back_lean"), 45.0)
         self.early_arm_pull_elbow_angle = _resolved_float(values.get("early_arm_pull_elbow_angle"), 120.0)
+        self.standing_violation_knee_angle = _resolved_float(
+            values.get("standing_violation_knee_angle_min_deg"),
+            160.0,
+        )
+        self.standing_violation_hip_angle = _resolved_float(
+            values.get("standing_violation_hip_angle_min_deg"),
+            155.0,
+        )
+        self.standing_violation_trunk_max = _resolved_float(
+            values.get("standing_violation_trunk_from_vertical_max_deg"),
+            30.0,
+        )
+        self.standing_violation_hip_rise_ratio = _resolved_float(
+            values.get(
+                "standing_violation_hip_vertical_rise_body_ratio_min"
+            ),
+            0.18,
+        )
         base_frames = _resolved_int(values.get("stable_frames"), 3, minimum=1)
         self.confirmation_frames = max(1, base_frames + SENSITIVITY_FRAME_DELTAS[sensitivity])
         self.stroke_cooldown_ms = _resolved_int(values.get("stroke_cooldown_ms"), 500)
@@ -104,6 +130,9 @@ class RowingAnalyzer(BaseActionAnalyzer):
         self.last_rep_time_ms: int | None = None
         self.incomplete_leg_drive = False
         self.rushed_recovery = False
+        self.seated_hip_center_y: float | None = None
+        self.early_stand_tracker.reset()
+        self.early_stand_result = self.early_stand_tracker.last_result
         self.rep_sequence = PhaseSequenceTracker(
             ("catch", "drive", "finish"), optional_phases=("drive",)
         )
@@ -161,6 +190,7 @@ class RowingAnalyzer(BaseActionAnalyzer):
         previous_duration: int | None,
         knee_angle: float | None,
         timestamp_ms: int | None,
+        visible_score: float,
     ) -> None:
         self.rushed_recovery = False
         self.rep_sequence.just_completed = False
@@ -176,7 +206,10 @@ class RowingAnalyzer(BaseActionAnalyzer):
         elif self.stable_phase == "finish" and self.drive_seen:
             self.finish_seen = True
             if sequence_completed:
-                self.rep_count += 1
+                self.register_completed_sequence(
+                    confidence=visible_score,
+                    events={"terminal_phase": "finish"},
+                )
                 self.last_rep_time_ms = timestamp_ms
         elif self.stable_phase == "recovery":
             if self.drive_seen and not self.finish_seen:
@@ -199,10 +232,20 @@ class RowingAnalyzer(BaseActionAnalyzer):
         elbow_angle: float | None,
         torso_angle: float | None,
         bad_view: bool,
+        early_stand: ViolationResult,
     ) -> list[FeedbackMessage]:
         if visible_score < self.min_visible_score:
             return [FeedbackMessage("warn", "LOW_VISIBILITY", "请调整摄像头，保证肩、髋、膝、踝、手腕可见", max(0.2, 1.0 - visible_score))]
         messages: list[FeedbackMessage] = []
+        if early_stand.active:
+            messages.append(
+                FeedbackMessage(
+                    "warn",
+                    "ROWING_EARLY_STAND_PROXY",
+                    "检测到训练区间内明显站起，请保持划船坐姿",
+                    early_stand.confidence,
+                )
+            )
         if self.stable_phase == "finish" and torso_angle is not None and abs(torso_angle) > self.too_much_back_lean:
             messages.append(FeedbackMessage("warn", "TOO_MUCH_BACK_LEAN", "结束阶段后仰过多，控制躯干角度", 0.8))
         if self.incomplete_leg_drive:
@@ -216,6 +259,7 @@ class RowingAnalyzer(BaseActionAnalyzer):
         return self.limit_feedback(messages)
 
     def update(self, features: dict[str, object] | None, timestamp_ms: int | None) -> dict[str, object]:
+        self.begin_frame(features, timestamp_ms)
         values = features if isinstance(features, dict) else {}
         current_timestamp = None if timestamp_ms is None else int(timestamp_ms)
         visible_score = self._visible_score(values)
@@ -225,12 +269,66 @@ class RowingAnalyzer(BaseActionAnalyzer):
         hip_angle = _min_metric(values.get("left_hip_angle"), values.get("right_hip_angle"))
         elbow_angle = _mean_metric(values.get("left_elbow_angle"), values.get("right_elbow_angle"))
         torso_angle = _safe_float(values.get("torso_angle"))
+        hip_center_y = _safe_float(values.get("hip_center_y"))
         hip_width = _safe_float(values.get("hip_width"))
-        body_height = _safe_float(values.get("body_height_norm"))
+        body_height = _safe_float(
+            values.get("body_height_reference")
+        ) or _safe_float(values.get("body_height_norm"))
         bad_view = bool(hip_width is not None and body_height is not None and body_height > 0.0 and hip_width / body_height > 0.20)
         raw_phase = "unknown" if visible_score < self.min_visible_score else self._raw_phase(knee_angle, elbow_angle, torso_angle)
         previous_phase, previous_duration = self._advance_phase(raw_phase, current_timestamp)
-        self._update_stroke_sequence(previous_phase, previous_duration, knee_angle, current_timestamp)
+        self._update_stroke_sequence(
+            previous_phase,
+            previous_duration,
+            knee_angle,
+            current_timestamp,
+            visible_score,
+        )
+        seated_reference_frame = (
+            hip_center_y is not None
+            and knee_angle is not None
+            and (
+                knee_angle < self.standing_violation_knee_angle
+                or self.stable_phase
+                in {"catch", "drive", "finish", "recovery"}
+            )
+        )
+        if seated_reference_frame:
+            self.seated_hip_center_y = (
+                hip_center_y
+                if self.seated_hip_center_y is None
+                else max(self.seated_hip_center_y, hip_center_y)
+            )
+        early_stand_condition: bool | None
+        if (
+            visible_score < self.min_visible_score
+            or knee_angle is None
+            or hip_angle is None
+            or torso_angle is None
+            or hip_center_y is None
+            or body_height is None
+            or body_height <= 1e-6
+            or self.seated_hip_center_y is None
+            or self.camera_view_profile == "front"
+        ):
+            early_stand_condition = None
+        else:
+            hip_rise_ratio = (
+                self.seated_hip_center_y - hip_center_y
+            ) / body_height
+            early_stand_condition = (
+                knee_angle >= self.standing_violation_knee_angle
+                and hip_angle >= self.standing_violation_hip_angle
+                and abs(torso_angle)
+                <= self.standing_violation_trunk_max
+                and hip_rise_ratio
+                >= self.standing_violation_hip_rise_ratio
+            )
+        self.early_stand_result = self.early_stand_tracker.update(
+            early_stand_condition,
+            current_timestamp,
+            confidence=visible_score,
+        )
         phase_duration = None if current_timestamp is None or self.phase_started_ms is None else max(0, current_timestamp - self.phase_started_ms)
         feedback_messages = self._feedback(
             visible_score=visible_score,
@@ -239,13 +337,26 @@ class RowingAnalyzer(BaseActionAnalyzer):
             elbow_angle=elbow_angle,
             torso_angle=torso_angle,
             bad_view=bad_view,
+            early_stand=self.early_stand_result,
         )
         self.previous_knee_angle = knee_angle
         self.last_timestamp_ms = current_timestamp
-        return {
+        violation_results = [self.early_stand_result.as_dict()]
+        active_violation_codes = (
+            [self.early_stand_result.code]
+            if self.early_stand_result.active
+            else []
+        )
+        return self.finalize_state({
             "action": self.action,
             "phase": self.phase,
             "rep_count": self.rep_count,
+            "cycle_count": self.rep_count,
+            "count_semantics": "analysis_cycle",
+            "official_rep_count_supported": False,
+            "violation_scope": "active_analysis_interval",
+            "violation_results": violation_results,
+            "active_violation_codes": active_violation_codes,
             "feedback_messages": feedback_messages,
             "debug": {
                 "raw_phase": self.raw_phase,
@@ -257,12 +368,16 @@ class RowingAnalyzer(BaseActionAnalyzer):
                 "elbow_angle_mean": elbow_angle,
                 "phase_duration_ms": phase_duration,
                 "side_view_likely": not bad_view,
+                "seated_hip_center_y": self.seated_hip_center_y,
+                "rowing_early_stand_proxy": (
+                    self.early_stand_result.as_dict()
+                ),
                 "frames_in_phase": self.frames_in_phase,
                 "config_name": self.config_name,
                 "sensitivity": self.sensitivity,
                 **self.rep_sequence.debug(),
             },
-        }
+        })
 
 
 __all__ = ["RowingAnalyzer"]

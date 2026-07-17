@@ -145,6 +145,7 @@ def validate_settings(values: Mapping[str, Any]) -> dict[str, Any]:
         raise RealtimeProtocolError("invalid_backend", "无效的识别模型")
     if profile not in {"full", "no-face", "upper-body", "lower-body"}:
         raise RealtimeProtocolError("invalid_profile", "无效的骨架显示模式")
+    manual_floor_points = validate_manual_floor_points(values.get("manual_floor_points", ()))
     return {
         "action": action,
         "camera_view": view,
@@ -154,13 +155,51 @@ def validate_settings(values: Mapping[str, Any]) -> dict[str, Any]:
         "show_fingers": bool(values.get("show_fingers", True)),
         "mirror": bool(values.get("mirror", True)),
         "paused": bool(values.get("paused", False)),
+        "manual_floor_points": manual_floor_points,
     }
+
+
+def validate_manual_floor_points(value: object) -> list[list[float]]:
+    if value in (None, (), []):
+        return []
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise RealtimeProtocolError("invalid_floor_points", "手动地板线需要两个点")
+    resolved: list[list[float]] = []
+    for point in value:
+        if not isinstance(point, (list, tuple)) or len(point) < 2:
+            raise RealtimeProtocolError("invalid_floor_points", "地板点必须包含 x、y 坐标")
+        try:
+            x = float(point[0])
+            y = float(point[1])
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RealtimeProtocolError("invalid_floor_points", "地板点坐标无效") from exc
+        if not math.isfinite(x) or not math.isfinite(y) or not 0.0 <= x <= 1.0 or not 0.0 <= y <= 1.0:
+            raise RealtimeProtocolError("invalid_floor_points", "地板点必须位于画面内")
+        resolved.append([x, y])
+    if abs(resolved[1][0] - resolved[0][0]) <= 0.05:
+        raise RealtimeProtocolError("invalid_floor_points", "两个地板点需要有足够的水平间距")
+    slope = abs(
+        (resolved[1][1] - resolved[0][1])
+        / (resolved[1][0] - resolved[0][0])
+    )
+    if slope > 1.0:
+        raise RealtimeProtocolError("invalid_floor_points", "地板线倾斜过大，请重新点击")
+    return resolved
 
 
 def default_backend_factory(requested: str, action: str) -> tuple[Any, str]:
     resolved = resolve_backend_choice(requested, action_type=action, input_video="")
     if resolved == "mediapipe":
-        return MediaPipeBackend(PROJECT_ROOT / "models" / "pose_landmarker_full.task"), resolved
+        # Avoid a native MediaPipe crash seen on Windows when mask generation
+        # receives certain camera/video dimensions. Pose landmarks are enough
+        # for the web analyzer and remain enabled.
+        return (
+            MediaPipeBackend(
+                PROJECT_ROOT / "models" / "pose_landmarker_full.task",
+                output_segmentation_masks=False,
+            ),
+            resolved,
+        )
     if resolved == "yolo-pose":
         return (
             YoloPoseBackend(
@@ -248,6 +287,13 @@ class RealtimePoseSession:
             "inference_ms": 0.0,
             "phase": "idle",
             "reps": 0,
+            "candidate_count": 0,
+            "pose_valid_rep_count": 0,
+            "no_rep_count": 0,
+            "unsure_count": 0,
+            "floor_reference": {},
+            "contacts": {},
+            "foot_events": {},
             "feedback": [],
             "voice_feedback": None,
             "frame_index": 0,
@@ -314,6 +360,13 @@ class RealtimePoseSession:
                             "inference_ms": 0.0,
                             "phase": "idle",
                             "reps": 0,
+                            "candidate_count": 0,
+                            "pose_valid_rep_count": 0,
+                            "no_rep_count": 0,
+                            "unsure_count": 0,
+                            "floor_reference": {},
+                            "contacts": {},
+                            "foot_events": {},
                             "feedback": [],
                             "voice_feedback": None,
                             "frame_index": 0,
@@ -522,6 +575,13 @@ class RealtimePoseSession:
                                 "inference_ms": message["metrics"]["inference_ms"],
                                 "phase": message["phase"],
                                 "reps": message["reps"],
+                                "candidate_count": message["candidate_count"],
+                                "pose_valid_rep_count": message["pose_valid_rep_count"],
+                                "no_rep_count": message["no_rep_count"],
+                                "unsure_count": message["unsure_count"],
+                                "floor_reference": message["floor_reference"],
+                                "contacts": message["contacts"],
+                                "foot_events": message["foot_events"],
                                 "feedback": message["feedback"],
                                 "voice_feedback": message["voice_feedback"],
                                 "frame_index": len(self._history),
@@ -584,7 +644,21 @@ class RealtimePoseSession:
         action_state: Mapping[str, Any] | None = None
         features = None
         if analyzer is not None:
-            features = extract_basic_pose_features(result.keypoints, width, height) if has_pose else None
+            manual_points = settings.get("manual_floor_points") or []
+            analyzer.set_manual_floor_line(
+                manual_points[0] if len(manual_points) == 2 else None,
+                manual_points[1] if len(manual_points) == 2 else None,
+            )
+            features = (
+                extract_basic_pose_features(
+                    result.keypoints,
+                    width,
+                    height,
+                    segmentation_mask=result.extra.get("segmentation_mask"),
+                )
+                if has_pose
+                else None
+            )
             action_state = analyzer.attach_view_context(analyzer.update(features, timestamp_ms=int(time.monotonic() * 1000)))
 
         all_names = {point.name for point in result.keypoints}
@@ -615,7 +689,30 @@ class RealtimePoseSession:
         ]
         phase = "idle" if action_state is None else str(action_state.get("phase", "unknown"))
         reps = 0 if action_state is None else int(action_state.get("rep_count", 0))
+        candidate_count = 0 if action_state is None else int(action_state.get("candidate_count", reps))
+        pose_valid_rep_count = (
+            reps
+            if action_state is None
+            else int(action_state.get("pose_valid_rep_count", reps))
+        )
+        no_rep_count = 0 if action_state is None else int(action_state.get("no_rep_count", 0))
+        unsure_count = 0 if action_state is None else int(action_state.get("unsure_count", 0))
         action_debug = action_state.get("debug") if isinstance(action_state, Mapping) else None
+        floor_reference = (
+            dict(action_debug.get("floor_reference") or {})
+            if isinstance(action_debug, Mapping)
+            else {}
+        )
+        contacts = (
+            dict(action_debug.get("contacts") or {})
+            if isinstance(action_debug, Mapping)
+            else {}
+        )
+        foot_events = (
+            dict(action_debug.get("foot_events") or {})
+            if isinstance(action_debug, Mapping)
+            else {}
+        )
         evaluation_phase = str(action_debug.get("raw_phase", phase)) if isinstance(action_debug, Mapping) else phase
         detected_issues = _feedback_items(action_state)
         feedback = visible_feedback(detected_issues, evaluation_phase)
@@ -636,6 +733,13 @@ class RealtimePoseSession:
             "action_label": ACTION_LABELS[str(settings["action"])],
             "phase": phase,
             "reps": reps,
+            "candidate_count": candidate_count,
+            "pose_valid_rep_count": pose_valid_rep_count,
+            "no_rep_count": no_rep_count,
+            "unsure_count": unsure_count,
+            "floor_reference": floor_reference,
+            "contacts": contacts,
+            "foot_events": foot_events,
             "pose_detected": has_pose,
             "feedback": feedback,
             "detected_issues": detected_issues,
@@ -791,4 +895,5 @@ __all__ = [
     "SessionManager",
     "unpack_frame",
     "validate_settings",
+    "validate_manual_floor_points",
 ]

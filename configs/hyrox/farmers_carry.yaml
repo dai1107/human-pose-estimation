@@ -5,6 +5,10 @@ shoulder_tilt_warn: 0.08
 hip_tilt_warn: 0.08
 torso_lean_warn: 25
 arms_down_margin: 0.05
+arm_position_elbow_angle_min_deg: 155
+wrist_below_hip_margin_body_ratio: 0.03
+wrist_lateral_from_hip_max_shoulder_width_ratio: 0.80
+arm_position_min_violation_ms: 300
 stable_frames: 2
 cooldown_ms: 350
 rest_timeout_ms: 1200

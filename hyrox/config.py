@@ -7,6 +7,13 @@ from typing import Any
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
+DEFAULT_OBSERVABILITY_CONFIG: dict[str, Any] = {
+    "config_name": "observability_default",
+    "required_landmark_confidence": 0.60,
+    "rep_mean_confidence": 0.65,
+    "decisive_rule_confidence": 0.72,
+}
+
 DEFAULT_LUNGE_CONFIG: dict[str, Any] = {
     "action_name": "lunge",
     "config_name": "lunge_default",
@@ -14,7 +21,10 @@ DEFAULT_LUNGE_CONFIG: dict[str, Any] = {
     "stand_knee_angle_min": 150.0,
     "stand_hip_angle_min": 145.0,
     "full_extension_knee_angle_min": 165.0,
-    "full_extension_hip_angle_min": 160.0,
+    "full_extension_hip_angle_min": 165.0,
+    "full_extension_hold_frames_high": 1,
+    "full_extension_hold_frames_medium": 2,
+    "full_extension_hold_frames_low": 3,
     "bottom_knee_angle_max": 115.0,
     "deep_knee_angle_max": 100.0,
     "torso_lean_warn": 20.0,
@@ -31,14 +41,23 @@ DEFAULT_WALL_BALL_CONFIG: dict[str, Any] = {
     "visibility_min": 0.45,
     "stand_knee_angle_min": 150.0,
     "stand_hip_angle_min": 145.0,
+    "tall_start_knee_angle_min": 165.0,
+    "tall_start_hip_angle_min": 165.0,
+    "tall_start_trunk_from_vertical_max_deg": 25.0,
     "bottom_knee_angle_max": 110.0,
-    "hip_below_knee_margin": -0.05,
+    "hip_below_knee_margin": 0.01,
     "throw_knee_angle_min": 150.0,
     "throw_hip_angle_min": 145.0,
     "throw_elbow_angle_min": 125.0,
     "wrist_above_shoulder_min": 0.03,
     "full_extension_knee_angle_min": 165.0,
-    "full_extension_hip_angle_min": 160.0,
+    "full_extension_hip_angle_min": 165.0,
+    "wrist_peak_time_diff_ms_pass": 120,
+    "wrist_peak_time_diff_ms_unsure": 220,
+    "both_wrists_above_shoulders_required": True,
+    "throw_wrist_rise_body_ratio_min": 0.12,
+    "throw_wrist_chest_band_body_ratio": 0.25,
+    "throw_wrist_midline_body_ratio_max": 0.60,
     "knee_cave_ratio_max": 0.72,
     "minimum_frontal_ankle_width": 0.08,
     "motion_tolerance": 3.0,
@@ -55,6 +74,10 @@ DEFAULT_FARMERS_CARRY_CONFIG: dict[str, Any] = {
     "hip_tilt_warn": 0.08,
     "torso_lean_warn": 25.0,
     "arms_down_margin": 0.05,
+    "arm_position_elbow_angle_min_deg": 155.0,
+    "wrist_below_hip_margin_body_ratio": 0.03,
+    "wrist_lateral_from_hip_max_shoulder_width_ratio": 0.80,
+    "arm_position_min_violation_ms": 300,
     "stable_frames": 2,
     "cooldown_ms": 350,
     "rest_timeout_ms": 1200,
@@ -69,6 +92,11 @@ DEFAULT_ROWING_CONFIG: dict[str, Any] = {
     "finish_torso_lean_max": 35.0,
     "too_much_back_lean": 45.0,
     "early_arm_pull_elbow_angle": 120.0,
+    "standing_violation_knee_angle_min_deg": 160.0,
+    "standing_violation_hip_angle_min_deg": 155.0,
+    "standing_violation_trunk_from_vertical_max_deg": 30.0,
+    "standing_violation_hip_vertical_rise_body_ratio_min": 0.18,
+    "standing_violation_min_hold_ms": 300,
     "stable_frames": 2,
     "stroke_cooldown_ms": 500,
     "min_phase_duration_ms": 120,
@@ -100,6 +128,10 @@ DEFAULT_BURPEE_BROAD_JUMP_CONFIG: dict[str, Any] = {
     "stable_frames": 2,
     "rep_cooldown_ms": 800,
     "min_phase_duration_ms": 100,
+    "hand_placement_pass_foot_length_ratio": 1.25,
+    "hand_placement_unsure_foot_length_ratio": 1.45,
+    "forward_jump_min_com_displacement_leg_ratio": 0.20,
+    "forward_jump_min_both_feet_displacement_leg_ratio": 0.15,
 }
 
 DEFAULT_SLED_PUSH_CONFIG: dict[str, Any] = {
@@ -126,6 +158,12 @@ DEFAULT_SLED_PULL_CONFIG: dict[str, Any] = {
     "pull_elbow_delta_min": 25.0,
     "hip_knee_drive_delta_min": 8.0,
     "wrist_asymmetry_warn": 0.08,
+    "kneeling_min_violation_ms": 150,
+    "seated_hip_drop_body_ratio_min": 0.18,
+    "seated_knee_angle_max": 130.0,
+    "seated_trunk_forward_max_deg": 30.0,
+    "seated_hip_vertical_speed_body_ratio_max": 0.05,
+    "seated_min_violation_ms": 250,
     "stable_frames": 2,
     "pull_cooldown_ms": 350,
 }
@@ -198,6 +236,14 @@ def load_lunge_config(path: str | Path | None = None) -> dict[str, Any]:
     return _load_flat_config(DEFAULT_LUNGE_CONFIG, path, "configs/hyrox/lunge.yaml")
 
 
+def load_observability_config(path: str | Path | None = None) -> dict[str, Any]:
+    return _load_flat_config(
+        DEFAULT_OBSERVABILITY_CONFIG,
+        path,
+        "configs/hyrox/observability.yaml",
+    )
+
+
 def load_wall_ball_config(path: str | Path | None = None) -> dict[str, Any]:
     return _load_flat_config(DEFAULT_WALL_BALL_CONFIG, path, "configs/hyrox/wall_ball.yaml")
 
@@ -241,6 +287,7 @@ def resolve_hyrox_config_path(action: str, configured_path: str | None = None) -
 
 
 __all__ = [
+    "DEFAULT_OBSERVABILITY_CONFIG",
     "DEFAULT_LUNGE_CONFIG",
     "DEFAULT_WALL_BALL_CONFIG",
     "DEFAULT_FARMERS_CARRY_CONFIG",
@@ -250,6 +297,7 @@ __all__ = [
     "DEFAULT_SLED_PUSH_CONFIG",
     "DEFAULT_SLED_PULL_CONFIG",
     "DEFAULT_HYROX_CONFIG_PATHS",
+    "load_observability_config",
     "load_lunge_config",
     "load_wall_ball_config",
     "load_farmers_carry_config",

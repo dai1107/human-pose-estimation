@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from hyrox.actions import WallBallAnalyzer
+from hyrox.actions.wall_ball import WALL_BALL_REQUIRED_RULES
 from hyrox.config import DEFAULT_WALL_BALL_CONFIG, load_wall_ball_config, resolve_hyrox_config_path
+from hyrox.registry import create_action_analyzer
 
 
 def _features(**overrides: float) -> dict[str, float]:
@@ -17,14 +19,64 @@ def _features(**overrides: float) -> dict[str, float]:
         "right_hip_angle": 171.0,
         "left_elbow_angle": 105.0,
         "right_elbow_angle": 106.0,
+        "torso_angle": 0.0,
+        "body_center_x": 0.50,
+        "body_box_height_norm": 0.75,
+        "body_height_norm": 0.65,
+        "lower_body_visible_score": 0.95,
+        "shoulder_center_y": 0.30,
         "hip_center_y": 0.45,
+        "hip_center_x": 0.50,
         "hip_knee_depth": -0.20,
+        "knee_center_x": 0.50,
+        "left_wrist_x": 0.44,
+        "right_wrist_x": 0.56,
+        "left_wrist_y": 0.40,
+        "right_wrist_y": 0.40,
+        "left_wrist_confidence": 0.95,
+        "right_wrist_confidence": 0.95,
+        "left_wrist_above_shoulder": -0.10,
+        "right_wrist_above_shoulder": -0.10,
         "wrist_above_shoulder": -0.08,
         "knee_width": 0.18,
         "ankle_width": 0.20,
+        "left_heel_x": 0.42,
+        "left_heel_y": 0.90,
+        "left_heel_confidence": 0.95,
+        "right_heel_x": 0.58,
+        "right_heel_y": 0.90,
+        "right_heel_confidence": 0.95,
+        "left_foot_index_x": 0.44,
+        "left_foot_index_y": 0.90,
+        "left_foot_index_confidence": 0.95,
+        "right_foot_index_x": 0.60,
+        "right_foot_index_y": 0.90,
+        "right_foot_index_confidence": 0.95,
     }
     values.update(overrides)
+    if "knee_center_y" not in overrides:
+        values["knee_center_y"] = (
+            values["hip_center_y"] - values["hip_knee_depth"]
+        )
+    if "wrist_above_shoulder" in overrides:
+        above = values["wrist_above_shoulder"]
+        if "left_wrist_above_shoulder" not in overrides:
+            values["left_wrist_above_shoulder"] = above
+        if "right_wrist_above_shoulder" not in overrides:
+            values["right_wrist_above_shoulder"] = above
+        if "left_wrist_y" not in overrides:
+            values["left_wrist_y"] = values["shoulder_center_y"] - above
+        if "right_wrist_y" not in overrides:
+            values["right_wrist_y"] = values["shoulder_center_y"] - above
     return values
+
+
+def _analyzer(
+    config: dict[str, object] | None = None,
+) -> WallBallAnalyzer:
+    analyzer = WallBallAnalyzer.from_config(config)
+    analyzer.set_manual_floor_line((0.0, 0.90), (1.0, 0.90))
+    return analyzer
 
 
 def _feed(analyzer: WallBallAnalyzer, features: dict[str, float], timestamps: tuple[int, ...]):
@@ -33,6 +85,62 @@ def _feed(analyzer: WallBallAnalyzer, features: dict[str, float], timestamps: tu
         state = analyzer.update(features, timestamp)
     assert state is not None
     return state
+
+
+def _valid_bottom(**overrides: float) -> dict[str, float]:
+    values = _features(
+        left_knee_angle=94.0,
+        right_knee_angle=96.0,
+        left_hip_angle=105.0,
+        right_hip_angle=108.0,
+        hip_center_y=0.68,
+        hip_knee_depth=0.02,
+    )
+    values.update(overrides)
+    if "hip_center_y" in overrides or "hip_knee_depth" in overrides:
+        values["knee_center_y"] = (
+            values["hip_center_y"] - values["hip_knee_depth"]
+        )
+    return values
+
+
+def _valid_throw(**overrides: float) -> dict[str, float]:
+    values = _features(
+        left_knee_angle=171.0,
+        right_knee_angle=172.0,
+        left_hip_angle=166.0,
+        right_hip_angle=167.0,
+        left_elbow_angle=168.0,
+        right_elbow_angle=170.0,
+        wrist_above_shoulder=0.12,
+    )
+    values.update(overrides)
+    return values
+
+
+def _rules(state: dict[str, object]) -> dict[str, dict[str, object]]:
+    decision = state["last_rep_decision"]
+    assert isinstance(decision, dict)
+    return {
+        str(rule["rule_id"]): rule
+        for rule in decision["rules"]
+    }
+
+
+def _run_rule_candidate(
+    analyzer: WallBallAnalyzer | None = None,
+    *,
+    start: dict[str, float] | None = None,
+    bottom: dict[str, float] | None = None,
+    throw: dict[str, float] | None = None,
+) -> dict[str, object]:
+    resolved = analyzer or _analyzer(
+        {**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1}
+    )
+    if start is not None:
+        resolved.update(start, 100)
+    resolved.update(bottom or _valid_bottom(), 200)
+    return resolved.update(throw or _valid_throw(), 500)
 
 
 def test_wall_ball_config_defaults_and_action_specific_paths(tmp_path: Path) -> None:
@@ -55,7 +163,7 @@ def test_wall_ball_config_uses_custom_file_stem(tmp_path: Path) -> None:
 
 
 def test_wall_ball_counts_deep_stand_bottom_extension_cycle() -> None:
-    analyzer = WallBallAnalyzer()
+    analyzer = _analyzer()
     stand = _features()
     squat_down = _features(
         left_knee_angle=132.0,
@@ -87,13 +195,12 @@ def test_wall_ball_counts_deep_stand_bottom_extension_cycle() -> None:
     assert _feed(analyzer, stand, (100, 150, 200))["phase"] == "stand"
     assert _feed(analyzer, squat_down, (250, 300, 350))["phase"] == "squat_down"
     assert _feed(analyzer, bottom, (400, 450, 500))["phase"] == "bottom"
-    assert _feed(analyzer, extension, (550, 600, 650))["phase"] == "drive"
-    completed = _feed(analyzer, extension, (700,))
+    completed = _feed(analyzer, extension, (550, 600))
 
     assert completed["phase"] == "throw_extension"
     assert completed["rep_count"] == 1
     assert completed["debug"]["rep_completed"] is True
-    assert completed["debug"]["last_rep_time_ms"] == 700
+    assert completed["debug"]["last_rep_time_ms"] == 600
     assert completed["debug"]["bottom_depth_met"] is False
 
     reset_state = _feed(analyzer, reset, (850, 900, 950))
@@ -102,7 +209,7 @@ def test_wall_ball_counts_deep_stand_bottom_extension_cycle() -> None:
 
 
 def test_wall_ball_keeps_rep_progress_across_a_short_landmark_dropout() -> None:
-    analyzer = WallBallAnalyzer.from_config({**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1})
+    analyzer = _analyzer({**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1})
     bottom = _features(
         left_knee_angle=94.0,
         right_knee_angle=96.0,
@@ -119,8 +226,7 @@ def test_wall_ball_keeps_rep_progress_across_a_short_landmark_dropout() -> None:
     analyzer.update(_features(), 100)
     dropout = analyzer.update({"visible_score": 0.95}, 125)
     analyzer.update(bottom, 150)  # squat-down is transition-only and may be skipped
-    analyzer.update(extension, 200)  # explicit drive phase
-    completed = analyzer.update(extension, 250)
+    completed = analyzer.update(extension, 200)
 
     assert dropout["phase"] == "stand"
     assert dropout["debug"]["raw_phase"] == "unknown"
@@ -128,8 +234,34 @@ def test_wall_ball_keeps_rep_progress_across_a_short_landmark_dropout() -> None:
     assert completed["debug"]["rep_completed"] is True
 
 
+def test_realtime_wall_ball_counts_a_single_sampled_throw_endpoint() -> None:
+    analyzer = create_action_analyzer("wall_ball", live_mode=True, camera_view="front")
+    analyzer.set_manual_floor_line((0.0, 0.90), (1.0, 0.90))
+    bottom = _features(
+        left_knee_angle=94.0,
+        right_knee_angle=96.0,
+        left_hip_angle=105.0,
+        right_hip_angle=108.0,
+        hip_knee_depth=0.02,
+    )
+    extension = _features(
+        left_elbow_angle=float("nan"),
+        right_elbow_angle=float("nan"),
+        wrist_above_shoulder=0.12,
+    )
+
+    analyzer.update(_features(), 100)
+    analyzer.update(bottom, 300)
+    completed = analyzer.update(extension, 600)
+
+    assert analyzer.confirmation_frames == 1
+    assert completed["phase"] == "throw_extension"
+    assert completed["rep_count"] == 1
+    assert completed["debug"]["rep_completed"] is True
+
+
 def test_wall_ball_does_not_count_shallow_bottom() -> None:
-    analyzer = WallBallAnalyzer.from_config({**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1})
+    analyzer = _analyzer({**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1})
     analyzer.update(_features(), 100)
     analyzer.update(
         _features(left_knee_angle=132, right_knee_angle=134, left_hip_angle=138, right_hip_angle=140),
@@ -153,7 +285,7 @@ def test_wall_ball_does_not_count_shallow_bottom() -> None:
 
 
 def test_wall_ball_knee_cave_feedback_is_low_confidence_warning() -> None:
-    analyzer = WallBallAnalyzer.from_config({**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1})
+    analyzer = _analyzer({**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1})
     analyzer.update(_features(), 100)
     state = analyzer.update(
         _features(
@@ -175,7 +307,7 @@ def test_wall_ball_knee_cave_feedback_is_low_confidence_warning() -> None:
 
 
 def test_wall_ball_waits_until_throw_before_judging_extension() -> None:
-    analyzer = WallBallAnalyzer.from_config({**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1})
+    analyzer = _analyzer({**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1})
     analyzer.update(_features(), 100)
     analyzer.update(
         _features(left_knee_angle=132, right_knee_angle=134, left_hip_angle=138, right_hip_angle=140),
@@ -217,12 +349,14 @@ def test_wall_ball_waits_until_throw_before_judging_extension() -> None:
     assert rising["rep_count"] == 0
     assert rising["feedback_messages"] == []
     assert state["phase"] == "throw_extension"
-    assert state["rep_count"] == 1
+    assert state["rep_count"] == 0
+    assert state["unsure_count"] == 1
+    assert state["last_rep_decision"]["status"] == "UNSURE"
     assert [message.code for message in state["feedback_messages"]] == ["NOT_FULL_EXTENSION"]
 
 
 def test_wall_ball_low_visibility_is_exclusive() -> None:
-    analyzer = WallBallAnalyzer.from_config({**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1})
+    analyzer = _analyzer({**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1})
 
     state = analyzer.update(
         _features(visible_score=0.1, knee_width=0.01, ankle_width=0.3),
@@ -244,7 +378,7 @@ def test_wall_ball_sensitivity_changes_phase_confirmation() -> None:
 
 
 def test_wall_ball_counts_each_complete_ordered_sequence_without_terminal_lag() -> None:
-    analyzer = WallBallAnalyzer.from_config({**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1})
+    analyzer = _analyzer({**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1})
     bottom = _features(
         left_knee_angle=95.0,
         right_knee_angle=96.0,
@@ -266,16 +400,160 @@ def test_wall_ball_counts_each_complete_ordered_sequence_without_terminal_lag() 
     analyzer.update(extension, 550)
     assert analyzer.update(extension, 600)["rep_count"] == 1
 
-    analyzer.update(_features(), 650)  # reset
-    analyzer.update(_features(), 700)  # stand
-    analyzer.update(squat, 725)
-    analyzer.update(bottom, 750)
-    analyzer.update(extension, 800)
-    assert analyzer.update(extension, 850)["rep_count"] == 2
+    analyzer.update(_features(), 700)  # reset
+    analyzer.update(_features(), 750)  # stand
+    analyzer.update(squat, 800)
+    analyzer.update(bottom, 850)
+    analyzer.update(extension, 1000)
+    assert analyzer.update(extension, 1050)["rep_count"] == 2
 
-    analyzer.update(_features(), 900)  # reset
-    analyzer.update(_features(), 950)  # stand
-    analyzer.update(squat, 975)
-    analyzer.update(bottom, 1000)
-    analyzer.update(extension, 1050)
-    assert analyzer.update(extension, 1100)["rep_count"] == 3
+    analyzer.update(_features(), 1100)  # reset
+    analyzer.update(_features(), 1150)  # stand
+    analyzer.update(squat, 1200)
+    analyzer.update(bottom, 1250)
+    analyzer.update(extension, 1450)
+    assert analyzer.update(extension, 1500)["rep_count"] == 3
+
+
+def test_wall_ball_validity_uses_all_four_required_rules_and_states() -> None:
+    analyzer = _analyzer(
+        {**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1}
+    )
+
+    start = analyzer.update(_features(), 100)
+    bottom = analyzer.update(_valid_bottom(), 200)
+    completed = analyzer.update(_valid_throw(), 500)
+    rules = _rules(completed)
+
+    assert start["debug"]["wall_ball_validation_state"] == "TALL_START"
+    assert bottom["debug"]["wall_ball_validation_state"] == (
+        "HIP_BELOW_KNEE_CONFIRMED"
+    )
+    assert completed["debug"]["wall_ball_validation_state"] == "POSE_VALID_REP"
+    assert completed["candidate_count"] == 1
+    assert completed["rep_count"] == 1
+    assert completed["last_rep_decision"]["status"] == "VALID"
+    assert tuple(rules) == WALL_BALL_REQUIRED_RULES
+    assert all(rule["status"] == "PASS" for rule in rules.values())
+    assert completed["last_rep_candidate"]["events"]["throw_proxy_name"] == (
+        "BILATERAL_THROW_PROXY"
+    )
+
+
+def test_wall_ball_requires_a_tall_start_before_descent() -> None:
+    missing_start = _run_rule_candidate()
+    short_start = _run_rule_candidate(
+        start=_features(
+            left_knee_angle=160.0,
+            right_knee_angle=161.0,
+            left_hip_angle=160.0,
+            right_hip_angle=161.0,
+            torso_angle=30.0,
+        )
+    )
+
+    assert missing_start["last_rep_decision"]["status"] == "UNSURE"
+    assert _rules(missing_start)["tall_start"]["status"] == "UNSURE"
+    assert short_start["last_rep_decision"]["status"] == "UNSURE"
+    assert _rules(short_start)["tall_start"]["status"] == "FAIL"
+
+
+def test_wall_ball_hip_depth_uses_floor_relative_height() -> None:
+    completed = _run_rule_candidate(
+        start=_features(),
+        bottom=_valid_bottom(hip_knee_depth=-0.01),
+    )
+    rule = _rules(completed)["hip_below_knee"]
+
+    assert completed["last_rep_decision"]["status"] == "UNSURE"
+    assert rule["status"] == "FAIL"
+    assert rule["value"] == pytest.approx(-0.01 / 0.75)
+
+
+def test_wall_ball_missing_floor_depth_evidence_is_unsure() -> None:
+    analyzer = WallBallAnalyzer.from_config(
+        {**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1}
+    )
+    completed = _run_rule_candidate(
+        analyzer,
+        start=_features(),
+    )
+
+    assert completed["last_rep_decision"]["status"] == "UNSURE"
+    assert _rules(completed)["hip_below_knee"]["status"] == "UNSURE"
+
+
+def test_wall_ball_upward_extension_is_required_for_count() -> None:
+    completed = _run_rule_candidate(
+        start=_features(),
+        throw=_valid_throw(
+            left_knee_angle=155.0,
+            right_knee_angle=156.0,
+            left_hip_angle=150.0,
+            right_hip_angle=151.0,
+        ),
+    )
+
+    assert completed["last_rep_decision"]["status"] == "UNSURE"
+    assert _rules(completed)["upward_extension"]["status"] == "FAIL"
+
+
+def test_wall_ball_bilateral_throw_requires_both_wrists() -> None:
+    completed = _run_rule_candidate(
+        start=_features(),
+        throw=_valid_throw(
+            right_wrist_y=0.40,
+            right_wrist_above_shoulder=-0.10,
+        ),
+    )
+
+    assert completed["last_rep_decision"]["status"] == "NO_REP"
+    assert _rules(completed)["bilateral_throw_proxy"]["status"] == "FAIL"
+
+
+@pytest.mark.parametrize(
+    ("final_timestamp", "decision_status", "rule_status"),
+    ((360, "UNSURE", "UNSURE"), (450, "NO_REP", "FAIL")),
+)
+def test_wall_ball_wrist_peak_timing_has_pass_unsure_fail_windows(
+    final_timestamp: int,
+    decision_status: str,
+    rule_status: str,
+) -> None:
+    analyzer = _analyzer(
+        {**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1}
+    )
+    analyzer.update(_features(), 50)
+    analyzer.update(_valid_bottom(), 100)
+    analyzer.update(
+        _features(
+            left_knee_angle=155.0,
+            right_knee_angle=156.0,
+            left_hip_angle=150.0,
+            right_hip_angle=151.0,
+            left_wrist_y=0.15,
+            right_wrist_y=0.40,
+            wrist_above_shoulder=-0.05,
+        ),
+        200,
+    )
+    completed = analyzer.update(_valid_throw(), final_timestamp)
+    rule = _rules(completed)["bilateral_throw_proxy"]
+
+    assert completed["last_rep_decision"]["status"] == decision_status
+    assert rule["status"] == rule_status
+    assert rule["value"] == final_timestamp - 200
+
+
+def test_wall_ball_missing_one_wrist_is_unsure_not_valid() -> None:
+    completed = _run_rule_candidate(
+        start=_features(),
+        throw=_valid_throw(
+            right_wrist_x=float("nan"),
+            right_wrist_y=float("nan"),
+            right_wrist_above_shoulder=float("nan"),
+        ),
+    )
+
+    assert completed["last_rep_decision"]["status"] == "UNSURE"
+    assert _rules(completed)["bilateral_throw_proxy"]["status"] == "UNSURE"

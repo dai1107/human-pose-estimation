@@ -385,6 +385,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 sensitivity=args.hyrox_sensitivity,
                 camera_view=args.camera_view,
+                live_mode=not bool(args.input_video),
             )
             if hyrox_action_enabled
             else None
@@ -451,6 +452,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         ),
                         sensitivity=args.hyrox_sensitivity,
                         camera_view=args.camera_view,
+                        live_mode=not bool(args.input_video),
                     )
                     if action_name != "none"
                     else None
@@ -623,7 +625,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             if (args.hyrox_debug or hyrox_action_enabled) and has_pose:
                 try:
                     height, width = display_frame.shape[:2]
-                    hyrox_features = extract_basic_pose_features(result.keypoints, image_width=width, image_height=height)
+                    hyrox_features = extract_basic_pose_features(
+                        result.keypoints,
+                        image_width=width,
+                        image_height=height,
+                        segmentation_mask=result.extra.get("segmentation_mask"),
+                    )
                 except Exception as exc:
                     hyrox_features = None
                     if not hyrox_debug_error_printed:
@@ -690,17 +697,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             if args.hyrox_debug:
                 try:
-                    draw_hyrox_debug_overlay(annotated, hyrox_features, has_pose=has_pose)
+                    draw_hyrox_debug_overlay(
+                        annotated,
+                        hyrox_features,
+                        has_pose=has_pose,
+                        action_state=hyrox_action_state,
+                    )
                 except Exception as exc:
                     if not hyrox_debug_error_printed:
                         print(f"WARN: HYROX debug overlay failed: {exc}", file=sys.stderr)
                         hyrox_debug_error_printed = True
-            if hyrox_action_enabled:
+            if hyrox_action_enabled and not args.hyrox_debug:
                 try:
                     draw_hyrox_action_overlay(
                         annotated,
                         hyrox_action_state,
-                        origin=(250, 214 if args.hyrox_debug else 26),
+                        origin=(250, 26),
                     )
                 except Exception as exc:
                     if not hyrox_action_error_printed:

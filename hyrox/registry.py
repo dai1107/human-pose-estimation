@@ -75,14 +75,12 @@ def create_action_analyzer(
         raise FileNotFoundError(f"HYROX config not found: {configured_path}")
     config_data = dict(config) if isinstance(config, Mapping) else _ACTION_CONFIG_LOADERS[normalized_name](configured_path)
     if live_mode and sensitivity != "low":
-        # Live inference commonly processes fewer frames than the camera captures.
-        # Requiring three processed frames for every short endpoint makes a valid
-        # movement easy to miss, so use a smaller debounce window in live mode.
-        configured_frames = config_data.get("stable_frames", 3)
-        try:
-            config_data["stable_frames"] = min(2, max(1, int(configured_frames)))
-        except (TypeError, ValueError, OverflowError):
-            config_data["stable_frames"] = 2
+        # The realtime queue intentionally keeps only the newest frame. During
+        # inference pressure a short terminal pose may therefore be observed
+        # once even when the camera itself runs at 30/60 FPS. The ordered
+        # endpoint tracker provides the anti-jitter guard, so a single confirmed
+        # realtime frame is sufficient for medium/high sensitivity.
+        config_data["stable_frames"] = 1
     analyzer = analyzer_class.from_config(config_data, sensitivity=sensitivity)
     analyzer.configure_feedback_limits(config_data)
     analyzer.set_camera_view(camera_view)

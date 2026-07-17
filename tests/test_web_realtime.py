@@ -19,6 +19,7 @@ from webui.realtime import (
     RealtimePoseSession,
     RealtimeProtocolError,
     unpack_frame,
+    validate_manual_floor_points,
     validate_settings,
 )
 from webui.realtime import _profile_names
@@ -82,6 +83,27 @@ def test_finger_nodes_can_be_hidden_independently() -> None:
 
     assert validate_settings({"show_fingers": False})["show_fingers"] is False
     assert _profile_names("full", names, show_fingers=False) == {"left_wrist", "left_knee"}
+
+
+def test_validate_manual_floor_points_accepts_two_normalized_points() -> None:
+    points = validate_manual_floor_points([[0.1, 0.82], [0.9, 0.91]])
+
+    assert points == [[0.1, 0.82], [0.9, 0.91]]
+    assert validate_settings({"manual_floor_points": points})["manual_floor_points"] == points
+
+
+@pytest.mark.parametrize(
+    "points",
+    (
+        [[0.1, 0.8]],
+        [[-0.1, 0.8], [0.9, 0.9]],
+        [[0.50, 0.2], [0.52, 0.9]],
+        [[0.1, 0.1], [0.2, 0.9]],
+    ),
+)
+def test_validate_manual_floor_points_rejects_invalid_lines(points: list[list[float]]) -> None:
+    with pytest.raises(RealtimeProtocolError):
+        validate_manual_floor_points(points)
 
 
 def test_frame_protocol_validates_header_size_and_media_signature() -> None:

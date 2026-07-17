@@ -7,6 +7,12 @@ over_lean_back_angle: 35
 pull_elbow_delta_min: 25
 hip_knee_drive_delta_min: 8
 wrist_asymmetry_warn: 0.08
+kneeling_min_violation_ms: 150
+seated_hip_drop_body_ratio_min: 0.18
+seated_knee_angle_max: 130
+seated_trunk_forward_max_deg: 30
+seated_hip_vertical_speed_body_ratio_max: 0.05
+seated_min_violation_ms: 250
 stable_frames: 2
 pull_cooldown_ms: 350
 feedback_limits:

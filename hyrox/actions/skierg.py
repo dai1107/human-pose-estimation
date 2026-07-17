@@ -154,7 +154,13 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
     def _cooldown_elapsed(self, timestamp_ms: int | None) -> bool:
         return timestamp_ms is None or self.last_rep_time_ms is None or timestamp_ms - self.last_rep_time_ms >= self.pull_cooldown_ms
 
-    def _update_sequence(self, previous: str, previous_duration: int | None, timestamp_ms: int | None) -> None:
+    def _update_sequence(
+        self,
+        previous: str,
+        previous_duration: int | None,
+        timestamp_ms: int | None,
+        visible_score: float,
+    ) -> None:
         self.rushed_return = False
         self.arms_not_high_enough = False
         self.rep_sequence.just_completed = False
@@ -172,7 +178,10 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
         elif self.stable_phase == "top":
             self.rushed_return = previous == "return" and previous_duration is not None and previous_duration < self.min_phase_duration_ms
             if sequence_completed:
-                self.rep_count += 1
+                self.register_completed_sequence(
+                    confidence=visible_score,
+                    events={"terminal_phase": "top"},
+                )
                 self.last_rep_time_ms = timestamp_ms
             self.pull_down_seen = False
             self.bottom_seen = False
@@ -203,6 +212,7 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
         return self.limit_feedback(messages)
 
     def update(self, features: dict[str, object] | None, timestamp_ms: int | None) -> dict[str, object]:
+        self.begin_frame(features, timestamp_ms)
         values = features if isinstance(features, dict) else {}
         current_timestamp = None if timestamp_ms is None else int(timestamp_ms)
         visible_score = self._visible_score(values)
@@ -227,7 +237,7 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
             knee_angle=knee_angle,
         )
         previous, previous_duration = self._advance_phase(raw_phase, current_timestamp)
-        self._update_sequence(previous, previous_duration, current_timestamp)
+        self._update_sequence(previous, previous_duration, current_timestamp, visible_score)
         phase_duration = None if current_timestamp is None or self.phase_started_ms is None else max(0, current_timestamp - self.phase_started_ms)
         feedback_messages = self._feedback(
             visible_score=visible_score,
@@ -238,10 +248,13 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
         )
         self.previous_wrist_height = wrist_height
         self.last_timestamp_ms = current_timestamp
-        return {
+        return self.finalize_state({
             "action": self.action,
             "phase": self.phase,
             "rep_count": self.rep_count,
+            "cycle_count": self.rep_count,
+            "count_semantics": "analysis_cycle",
+            "official_rep_count_supported": False,
             "feedback_messages": feedback_messages,
             "debug": {
                 "raw_phase": self.raw_phase,
@@ -257,7 +270,7 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
                 "sensitivity": self.sensitivity,
                 **self.rep_sequence.debug(),
             },
-        }
+        })
 
 
 __all__ = ["SkiErgAnalyzer"]

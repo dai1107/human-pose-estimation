@@ -4,7 +4,10 @@ visibility_min: 0.45
 stand_knee_angle_min: 150.0
 stand_hip_angle_min: 145.0
 full_extension_knee_angle_min: 165.0
-full_extension_hip_angle_min: 160.0
+full_extension_hip_angle_min: 165.0
+full_extension_hold_frames_high: 1
+full_extension_hold_frames_medium: 2
+full_extension_hold_frames_low: 3
 bottom_knee_angle_max: 115.0
 deep_knee_angle_max: 100.0
 torso_lean_warn: 20.0

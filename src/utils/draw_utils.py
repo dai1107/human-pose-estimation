@@ -236,9 +236,10 @@ def draw_realtime_overlay(
 
 
 def format_hyrox_debug_lines(
-    features: Mapping[str, float | None] | None,
+    features: Mapping[str, object] | None,
     *,
     has_pose: bool,
+    action_state: Mapping[str, object] | None = None,
 ) -> list[str]:
     if not has_pose or not features:
         return ["No pose"]
@@ -248,29 +249,229 @@ def format_hyrox_debug_lines(
             return f"{name}: N/A"
         return f"{name}: {value:.{decimals}f}"
 
-    return [
+    lines = [
         fmt("visible", features.get("visible_score"), decimals=2),
         fmt("lknee", features.get("left_knee_angle")),
         fmt("rknee", features.get("right_knee_angle")),
         fmt("lhip", features.get("left_hip_angle")),
         fmt("rhip", features.get("right_hip_angle")),
-        fmt("torso", features.get("torso_angle")),
     ]
+    if "floor_reference_status" in features:
+        lines.extend(
+            [
+                f"floor: {features.get('floor_reference_status', 'UNSURE')} / {features.get('floor_reference_source', 'none')}",
+                fmt("floor_y", features.get("floor_y"), decimals=3),
+                fmt("floor_conf", features.get("floor_reference_confidence"), decimals=2),
+                fmt("body_h", features.get("body_height_reference"), decimals=3),
+            ]
+        )
+    lines.append(fmt("torso", features.get("torso_angle")))
+
+    if not isinstance(action_state, Mapping):
+        return lines
+    debug = action_state.get("debug")
+    debug = debug if isinstance(debug, Mapping) else {}
+    action = str(action_state.get("action", "unknown"))
+    phase = str(action_state.get("phase", "unknown"))
+    candidate_count = int(action_state.get("candidate_count", 0) or 0)
+    lines.append(f"{action.upper()} CANDIDATE #{candidate_count} / {phase}")
+
+    contacts = debug.get("contacts")
+    contacts = contacts if isinstance(contacts, Mapping) else {}
+    knee_contact = contacts.get("knee")
+    chest_contact = contacts.get("chest_proxy")
+    knee_contact = knee_contact if isinstance(knee_contact, Mapping) else {}
+    chest_contact = chest_contact if isinstance(chest_contact, Mapping) else {}
+    lines.append(
+        "contact knee/chest: "
+        f"{knee_contact.get('status', 'UNSURE')} / "
+        f"{chest_contact.get('status', 'UNSURE')}"
+    )
+    lines.append(
+        "height knee/chest: "
+        f"{_format_optional_ratio(knee_contact.get('surface_height_ratio'))} / "
+        f"{_format_optional_ratio(chest_contact.get('surface_height_ratio'))}"
+    )
+
+    foot_events = debug.get("foot_events")
+    foot_events = foot_events if isinstance(foot_events, Mapping) else {}
+    left_foot = foot_events.get("left")
+    right_foot = foot_events.get("right")
+    sync = foot_events.get("sync")
+    stagger = foot_events.get("stagger")
+    left_foot = left_foot if isinstance(left_foot, Mapping) else {}
+    right_foot = right_foot if isinstance(right_foot, Mapping) else {}
+    sync = sync if isinstance(sync, Mapping) else {}
+    stagger = stagger if isinstance(stagger, Mapping) else {}
+    lines.append(
+        "feet L/R: "
+        f"{left_foot.get('state', 'NOT_OBSERVABLE')} / "
+        f"{right_foot.get('state', 'NOT_OBSERVABLE')}"
+    )
+    lines.append(
+        "sync takeoff/landing: "
+        f"{_format_optional_ms(sync.get('takeoff_delta_ms'))} / "
+        f"{_format_optional_ms(sync.get('landing_delta_ms'))}"
+    )
+    lines.append(
+        "foot stagger: "
+        f"{stagger.get('status', 'UNSURE')} "
+        f"{_format_optional_ratio(stagger.get('stagger_ratio'))}"
+    )
+
+    decision = action_state.get("last_rep_decision")
+    decision = decision if isinstance(decision, Mapping) else None
+    if decision is None:
+        lines.append("RULES: awaiting completed candidate")
+        lines.append("RESULT: PENDING")
+    else:
+        rules = decision.get("rules")
+        if isinstance(rules, Sequence) and not isinstance(rules, (str, bytes)):
+            for rule in rules:
+                if not isinstance(rule, Mapping):
+                    continue
+                status = str(rule.get("status", "UNSURE"))
+                rule_id = str(rule.get("rule_id", "unknown")).upper()
+                confidence = _format_optional_confidence(rule.get("confidence"))
+                value = _format_rule_value(rule.get("value"))
+                suffix = f" {value}" if value else ""
+                lines.append(f"{status:<6} {rule_id} {confidence}{suffix}")
+        lines.append(f"RESULT: {decision.get('status', 'UNSURE')}")
+
+    feedback_messages = action_state.get("feedback_messages")
+    if isinstance(feedback_messages, Sequence) and not isinstance(
+        feedback_messages,
+        (str, bytes),
+    ):
+        for message in feedback_messages[:2]:
+            _, text = _feedback_message_parts(message)
+            if text:
+                lines.append(f"tip: {text}")
+    return lines
+
+
+def _finite_float(value: object) -> float | None:
+    try:
+        resolved = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return resolved if np.isfinite(resolved) else None
+
+
+def _format_optional_ratio(value: object) -> str:
+    resolved = _finite_float(value)
+    return "N/A" if resolved is None else f"{resolved:.3f}"
+
+
+def _format_optional_ms(value: object) -> str:
+    resolved = _finite_float(value)
+    return "N/A" if resolved is None else f"{resolved:.0f}ms"
+
+
+def _format_optional_confidence(value: object) -> str:
+    resolved = _finite_float(value)
+    return "N/A" if resolved is None else f"{resolved:.2f}"
+
+
+def _format_rule_value(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return str(value).upper()
+    resolved = _finite_float(value)
+    if resolved is not None:
+        return f"{resolved:.2f}"
+    return str(value)
 
 
 def draw_hyrox_debug_overlay(
     frame: np.ndarray,
-    features: Mapping[str, float | None] | None,
+    features: Mapping[str, object] | None,
     *,
     has_pose: bool,
+    action_state: Mapping[str, object] | None = None,
     origin: tuple[int, int] = (250, 26),
-) -> None:
-    lines = format_hyrox_debug_lines(features, has_pose=has_pose)
+) -> int:
+    lines = format_hyrox_debug_lines(
+        features,
+        has_pose=has_pose,
+        action_state=action_state,
+    )
     for row, line in enumerate(lines):
         color = (245, 245, 245)
         if line == "No pose":
             color = (0, 190, 255)
-        put_text(frame, line, (origin[0], origin[1] + row * 27), color)
+        elif line.startswith("PASS") or line == "RESULT: VALID":
+            color = (80, 230, 120)
+        elif line.startswith("FAIL") or line == "RESULT: NO_REP":
+            color = (60, 80, 255)
+        elif line.startswith("UNSURE") or line == "RESULT: UNSURE":
+            color = (0, 190, 255)
+        put_text(frame, line, (origin[0], origin[1] + row * 21), color)
+    if features:
+        try:
+            x1 = float(features.get("floor_line_x1"))
+            y1 = float(features.get("floor_line_y1"))
+            x2 = float(features.get("floor_line_x2"))
+            y2 = float(features.get("floor_line_y2"))
+        except (TypeError, ValueError, OverflowError):
+            x1 = y1 = x2 = y2 = float("nan")
+        if all(np.isfinite(value) for value in (x1, y1, x2, y2)):
+            height, width = frame.shape[:2]
+            status = str(features.get("floor_reference_status", "UNSURE"))
+            color = (80, 230, 120) if status == "READY" else (0, 190, 255)
+            cv2.line(
+                frame,
+                (int(round(x1 * width)), int(round(y1 * height))),
+                (int(round(x2 * width)), int(round(y2 * height))),
+                color,
+                2,
+                cv2.LINE_AA,
+            )
+    _draw_contact_surface_points(frame, action_state)
+    return len(lines)
+
+
+def _draw_contact_surface_points(
+    frame: np.ndarray,
+    action_state: Mapping[str, object] | None,
+) -> None:
+    if not isinstance(action_state, Mapping):
+        return
+    debug = action_state.get("debug")
+    if not isinstance(debug, Mapping):
+        return
+    contacts = debug.get("contacts")
+    if not isinstance(contacts, Mapping):
+        return
+    height, width = frame.shape[:2]
+    styles = {
+        "knee": ((255, 80, 220), "K"),
+        "chest_proxy": ((255, 210, 80), "C"),
+    }
+    for name, (color, label) in styles.items():
+        result = contacts.get(name)
+        if not isinstance(result, Mapping):
+            continue
+        point = result.get("surface_point")
+        if not isinstance(point, Mapping):
+            continue
+        x = _finite_float(point.get("x"))
+        y = _finite_float(point.get("y"))
+        if x is None or y is None:
+            continue
+        pixel = to_pixel(x, y, width, height)
+        cv2.circle(frame, pixel, 7, color, 2, cv2.LINE_AA)
+        cv2.putText(
+            frame,
+            label,
+            (pixel[0] + 8, pixel[1] - 8),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
 
 
 def _feedback_message_parts(message: object) -> tuple[str, str]:

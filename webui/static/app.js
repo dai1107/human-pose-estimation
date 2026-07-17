@@ -33,6 +33,8 @@ const ui = {
   voiceEnabled: true,
   voiceSupported: "speechSynthesis" in window && "SpeechSynthesisUtterance" in window,
   lastVoiceEventId: "",
+  manualFloorPoints: [],
+  floorCalibrationActive: false,
 };
 
 const phaseLabels = {
@@ -173,6 +175,7 @@ function settingsPayload() {
     show_fingers: $("#fingerToggle").checked,
     mirror: $("#mirrorToggle").checked,
     paused: ui.paused,
+    manual_floor_points: ui.manualFloorPoints,
   };
 }
 
@@ -300,6 +303,9 @@ async function refreshCameraDevices() {
 }
 
 function closeCamera() {
+  ui.floorCalibrationActive = false;
+  $("#overlayCanvas").classList.remove("floor-calibrating");
+  $("#floorCalibrateButton").classList.remove("active");
   stopCaptureLoop();
   stopMediaTracks();
   clearOverlay();
@@ -482,6 +488,11 @@ function handleRealtimeResult(result) {
     inference_ms: result.metrics.inference_ms,
     phase: result.phase,
     reps: result.reps,
+    candidate_count: result.candidate_count,
+    pose_valid_rep_count: result.pose_valid_rep_count,
+    no_rep_count: result.no_rep_count,
+    unsure_count: result.unsure_count,
+    floor_reference: result.floor_reference,
     feedback: result.feedback,
     voice_feedback: result.voice_feedback,
     frame_index: result.sequence,
@@ -515,19 +526,7 @@ function drawSkeleton(result) {
   resizeOverlayIfNeeded();
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const stageRatio = canvas.width / canvas.height;
-  const videoRatio = video.videoWidth / video.videoHeight;
-  let drawWidth = canvas.width;
-  let drawHeight = canvas.height;
-  let offsetX = 0;
-  let offsetY = 0;
-  if (videoRatio > stageRatio) {
-    drawHeight = canvas.width / videoRatio;
-    offsetY = (canvas.height - drawHeight) / 2;
-  } else {
-    drawWidth = canvas.height * videoRatio;
-    offsetX = (canvas.width - drawWidth) / 2;
-  }
+  const { drawWidth, drawHeight, offsetX, offsetY } = videoContentRect(canvas, video);
   const mirrored = $("#mirrorToggle").checked;
   const points = new Map((result.keypoints || []).map(point => [point.name, point]));
   const xy = point => [offsetX + (mirrored ? 1 - point.x : point.x) * drawWidth, offsetY + point.y * drawHeight];
@@ -572,7 +571,155 @@ function drawSkeleton(result) {
     ctx.fillStyle = color;
     ctx.fillText(label, x + 11, y - 5);
   }
+  drawFloorReferenceOverlay(ctx, { drawWidth, drawHeight, offsetX, offsetY }, result.floor_reference);
   canvas.hidden = false;
+}
+
+function videoContentRect(canvas, video) {
+  const stageRatio = canvas.width / canvas.height;
+  const videoRatio = video.videoWidth / video.videoHeight;
+  let drawWidth = canvas.width;
+  let drawHeight = canvas.height;
+  let offsetX = 0;
+  let offsetY = 0;
+  if (videoRatio > stageRatio) {
+    drawHeight = canvas.width / videoRatio;
+    offsetY = (canvas.height - drawHeight) / 2;
+  } else {
+    drawWidth = canvas.height * videoRatio;
+    offsetX = (canvas.width - drawWidth) / 2;
+  }
+  return { drawWidth, drawHeight, offsetX, offsetY };
+}
+
+function drawFloorReferenceOverlay(ctx, rect, floorReference) {
+  const mirrored = $("#mirrorToggle").checked;
+  const backendToCanvas = point => [
+    rect.offsetX + (mirrored ? 1 - point[0] : point[0]) * rect.drawWidth,
+    rect.offsetY + point[1] * rect.drawHeight,
+  ];
+  let points = null;
+  const line = floorReference?.line;
+  if (ui.floorCalibrationActive && ui.manualFloorPoints.length) points = ui.manualFloorPoints;
+  else if (line) points = [[line.x1, line.y1], [line.x2, line.y2]];
+  else if (ui.manualFloorPoints.length) points = ui.manualFloorPoints;
+  if (!points?.length) return;
+
+  const canvasPoints = points.map(backendToCanvas);
+  ctx.save();
+  ctx.strokeStyle = floorReference?.status === "UNSURE" ? "#f0a023" : "#c9ff38";
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.lineWidth = Math.max(2, ctx.canvas.width / 360);
+  ctx.setLineDash([10, 7]);
+  if (canvasPoints.length === 2) {
+    ctx.beginPath();
+    ctx.moveTo(...canvasPoints[0]);
+    ctx.lineTo(...canvasPoints[1]);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  for (const [x, y] of canvasPoints) {
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(5, ctx.canvas.width / 180), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function renderFloorCalibrationStatus(floorReference) {
+  const status = $("#floorCalibrationStatus");
+  if (!status || ui.floorCalibrationActive) return;
+  if (ui.manualFloorPoints.length === 2) {
+    status.textContent = floorReference?.status === "UNSURE"
+      ? "手动线已设置，但当前人体或脚部参考不可靠"
+      : "手动地板线已启用";
+  } else if (floorReference?.status === "READY") {
+    status.textContent = `自动地板线已就绪 · 置信度 ${Math.round(Number(floorReference.confidence || 0) * 100)}%`;
+  } else {
+    status.textContent = "正在自动估计；请站直并保持双脚完整可见";
+  }
+}
+
+function beginFloorCalibration() {
+  if (!ui.mediaStream || !$("#localVideo").videoWidth) {
+    toast("请先开启本机摄像头预览", true);
+    return;
+  }
+  ui.manualFloorPoints = [];
+  ui.floorCalibrationActive = true;
+  const canvas = $("#overlayCanvas");
+  resizeOverlayIfNeeded();
+  canvas.hidden = false;
+  canvas.classList.add("floor-calibrating");
+  $("#floorCalibrateButton").classList.add("active");
+  $("#floorCalibrateButton").textContent = "点击两个点";
+  $("#floorCalibrationStatus").textContent = "请依次点击脚下地板的两个相距较远的点";
+  drawSkeleton(ui.latestResult || { keypoints: [], connections: [], assessment: {} });
+}
+
+function handleFloorCalibrationClick(event) {
+  if (!ui.floorCalibrationActive) return;
+  const canvas = $("#overlayCanvas");
+  const video = $("#localVideo");
+  const bounds = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / Math.max(bounds.width, 1);
+  const scaleY = canvas.height / Math.max(bounds.height, 1);
+  const x = (event.clientX - bounds.left) * scaleX;
+  const y = (event.clientY - bounds.top) * scaleY;
+  const rect = videoContentRect(canvas, video);
+  if (
+    x < rect.offsetX
+    || x > rect.offsetX + rect.drawWidth
+    || y < rect.offsetY
+    || y > rect.offsetY + rect.drawHeight
+  ) {
+    toast("请点击实际视频画面内的地板", true);
+    return;
+  }
+  const visualX = (x - rect.offsetX) / rect.drawWidth;
+  const backendX = $("#mirrorToggle").checked ? 1 - visualX : visualX;
+  ui.manualFloorPoints.push([
+    Math.max(0, Math.min(1, backendX)),
+    Math.max(0, Math.min(1, (y - rect.offsetY) / rect.drawHeight)),
+  ]);
+  drawSkeleton(ui.latestResult || { keypoints: [], connections: [], assessment: {} });
+  if (ui.manualFloorPoints.length < 2) {
+    $("#floorCalibrationStatus").textContent = "已记录第一个点，请点击另一侧地板";
+    return;
+  }
+  if (Math.abs(ui.manualFloorPoints[1][0] - ui.manualFloorPoints[0][0]) <= 0.05) {
+    ui.manualFloorPoints = [];
+    $("#floorCalibrationStatus").textContent = "两点水平距离太近，请重新点击";
+    drawSkeleton(ui.latestResult || { keypoints: [], connections: [], assessment: {} });
+    return;
+  }
+  const floorSlope = Math.abs(
+    (ui.manualFloorPoints[1][1] - ui.manualFloorPoints[0][1])
+    / (ui.manualFloorPoints[1][0] - ui.manualFloorPoints[0][0])
+  );
+  if (floorSlope > 1) {
+    ui.manualFloorPoints = [];
+    $("#floorCalibrationStatus").textContent = "地板线倾斜过大，请重新点击";
+    drawSkeleton(ui.latestResult || { keypoints: [], connections: [], assessment: {} });
+    return;
+  }
+  ui.floorCalibrationActive = false;
+  canvas.classList.remove("floor-calibrating");
+  $("#floorCalibrateButton").classList.remove("active");
+  $("#floorCalibrateButton").textContent = "重新标定";
+  $("#floorCalibrationStatus").textContent = "手动地板线已设置";
+  updateLiveSetting("manual_floor_points", ui.manualFloorPoints);
+}
+
+function resetFloorCalibration() {
+  ui.manualFloorPoints = [];
+  ui.floorCalibrationActive = false;
+  $("#overlayCanvas").classList.remove("floor-calibrating");
+  $("#floorCalibrateButton").classList.remove("active");
+  $("#floorCalibrateButton").textContent = "两点标定";
+  $("#floorCalibrationStatus").textContent = "已恢复自动估计；请站直并保持双脚完整可见";
+  updateLiveSetting("manual_floor_points", []);
+  drawSkeleton(ui.latestResult || { keypoints: [], connections: [], assessment: {} });
 }
 
 function resizeOverlayIfNeeded() {
@@ -879,6 +1026,10 @@ function updateState(state) {
   $("#poseMetric").textContent = state.pose_detected ? "已锁定人体" : state.running ? "正在寻找人体" : "等待画面";
   $("#poseMetric").className = state.pose_detected ? "good" : state.running ? "bad" : "neutral";
   $("#repCount").textContent = state.reps ?? 0;
+  $("#candidateCount").textContent = state.candidate_count ?? state.reps ?? 0;
+  $("#noRepCount").textContent = state.no_rep_count ?? 0;
+  $("#unsureCount").textContent = state.unsure_count ?? 0;
+  renderFloorCalibrationStatus(state.floor_reference);
   $("#videoRepCount").textContent = state.reps ?? 0;
   $("#videoRepBadge").hidden = !(state.running || state.status === "completed");
   $("#actionLabel").textContent = state.action_label || "动作指导关闭";
@@ -934,6 +1085,9 @@ $("#stopButton").addEventListener("click", stopAnalysis);
 $("#pauseButton").addEventListener("click", togglePause);
 $("#recordButton").addEventListener("click", toggleRecording);
 $("#screenshotButton").addEventListener("click", takeScreenshot);
+$("#floorCalibrateButton").addEventListener("click", beginFloorCalibration);
+$("#floorResetButton").addEventListener("click", resetFloorCalibration);
+$("#overlayCanvas").addEventListener("click", handleFloorCalibrationClick);
 $("#generateReportButton").addEventListener("click", generateReport);
 $("#openReportButton").addEventListener("click", generateReport);
 $("#deleteSessionButton").addEventListener("click", deleteCurrentSession);
