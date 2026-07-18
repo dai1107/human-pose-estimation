@@ -280,7 +280,10 @@ class BaseActionAnalyzer:
         self._candidate_start_frame = 1
         self._candidate_frames: list[Mapping[str, object]] = []
         self._candidate_phases: set[str] = set()
-        self.floor_reference = LocalFloorReference()
+        floor_action = str(self.action).strip().lower().replace(" ", "_")
+        self.floor_reference = LocalFloorReference(
+            allow_supported_pose_calibration=floor_action in {"lunge", "wall_ball"}
+        )
         self.last_floor_reference: FloorReferenceResult = self.floor_reference.last_result
         self.last_timestamp_ms: int | None = None
         self.contact_detectors = ContactDetectorSuite(

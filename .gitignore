@@ -12,6 +12,9 @@ __pycache__/
 logs/
 *.log
 
+# Downloaded inference weights (see models/README.md)
+models/rtmw-dw-x-l_simcc-cocktail14_270e-256x192_20231122.onnx
+
 # Generated analysis and test artifacts
 outputs/pytest_*/
 outputs/*_smoke.csv

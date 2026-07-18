@@ -276,7 +276,7 @@ def test_only_valid_candidate_updates_previous_contact_leg() -> None:
     assert analyzer.previous_valid_contact_leg == "left"
 
 
-def test_direction_fallback_uses_lower_knee_with_reduced_confidence() -> None:
+def test_clear_lower_knee_resolves_trailing_leg_without_direction() -> None:
     state = _run_cycle(
         _analyzer(),
         trailing="left",
@@ -284,14 +284,103 @@ def test_direction_fallback_uses_lower_knee_with_reduced_confidence() -> None:
     )
     events = state["last_rep_candidate"]["events"]
 
-    assert state["last_rep_decision"]["status"] == "UNSURE"
-    assert state["rep_count"] == 0
+    assert state["last_rep_decision"]["status"] == "VALID"
+    assert state["rep_count"] == 1
     assert events["contact_leg"] == "left"
-    assert events["trailing_leg_source"] == "knee_height_fallback"
-    assert events["trailing_leg_confidence"] <= 0.65
-    assert state["last_rep_observability"]["reason_codes"] == [
-        "DECISIVE_RULE_CONFIDENCE_LOW"
-    ]
+    assert events["trailing_leg_source"] == "knee_height_override"
+    assert events["trailing_leg_confidence"] >= 0.72
+    assert state["last_rep_observability"]["reason_codes"] == []
+
+
+def test_clear_knee_height_overrides_a_wrong_direction_side_assignment() -> None:
+    analyzer = _analyzer()
+    state: dict[str, object] = {}
+    frames: Iterable[tuple[str, int]] = (
+        ("stand", 0),
+        ("descent", 100),
+        ("bottom", 200),
+        ("bottom", 300),
+        ("bottom", 400),
+        ("ascent", 500),
+        ("stand", 600),
+        ("stand", 700),
+    )
+    for phase, timestamp in frames:
+        features = _pose(phase, trailing="left")
+        if phase != "stand":
+            # Deliberately make the toe ordering suggest the opposite side.
+            features["left_foot_index_x"] = 0.70
+            features["right_foot_index_x"] = 0.30
+        state = analyzer.update(features, timestamp_ms=timestamp)
+
+    events = state["last_rep_candidate"]["events"]
+    assert state["last_rep_decision"]["status"] == "VALID"
+    assert events["contact_leg"] == "left"
+    assert events["trailing_leg_source"] == "knee_height_override"
+
+
+def test_candidate_foot_observability_ignores_pre_candidate_warmup() -> None:
+    analyzer = _analyzer()
+    analyzer._foot_interval_observable = False
+
+    state = _run_cycle(analyzer)
+
+    assert state["last_rep_decision"]["status"] == "VALID"
+    assert _rules(state)["no_extra_step_or_shuffle"]["status"] == "PASS"
+
+
+def test_unconfirmed_warmup_stand_cannot_start_or_pollute_a_candidate() -> None:
+    analyzer = LungeAnalyzer.from_config(
+        {
+            "stable_frames": 2,
+            "full_extension_hold_frames_medium": 2,
+        }
+    )
+    analyzer.set_manual_floor_line((0.0, 0.90), (1.0, 0.90))
+
+    analyzer.update(_pose("stand"), timestamp_ms=0)
+    analyzer.update(_pose("bottom"), timestamp_ms=100)
+    analyzer.update(_pose("bottom"), timestamp_ms=200)
+
+    assert analyzer._candidate_rule_active is False
+    assert analyzer._contact_confirmed_frame is None
+
+
+def test_side_view_extension_uses_the_more_observable_leg_chain() -> None:
+    analyzer = _analyzer()
+    analyzer.set_camera_view("side")
+    state: dict[str, object] = {}
+    frames: Iterable[tuple[str, int]] = (
+        ("stand", 0),
+        ("descent", 100),
+        ("bottom", 200),
+        ("bottom", 300),
+        ("bottom", 400),
+        ("ascent", 500),
+        ("stand", 600),
+        ("stand", 700),
+    )
+    for phase, timestamp in frames:
+        features = _pose(phase, trailing="left")
+        if phase == "stand" and timestamp >= 600:
+            features.update(
+                {
+                    "left_knee_angle": 178.0,
+                    "left_hip_angle": 145.0,
+                    "left_hip_confidence": 0.40,
+                    "left_knee_confidence": 0.40,
+                    "left_ankle_confidence": 0.40,
+                    "right_knee_angle": 163.0,
+                    "right_hip_angle": 163.0,
+                    "right_hip_confidence": 0.95,
+                    "right_knee_confidence": 0.95,
+                    "right_ankle_confidence": 0.95,
+                }
+            )
+        state = analyzer.update(features, timestamp_ms=timestamp)
+
+    assert state["last_rep_decision"]["status"] == "VALID"
+    assert state["last_rep_candidate"]["events"]["extension_side"] == "right"
 
 
 def test_wrong_side_or_multiple_step_events_fail_no_shuffle_rule() -> None:

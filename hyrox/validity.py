@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from statistics import median
 from typing import Literal, Mapping, Sequence
 
 
@@ -216,13 +217,19 @@ def apply_observability_policy(
         evidence_snapshots = candidate.frames[-1:] if candidate.frames else ()
 
     landmark_scores = tuple(
-        confidence
-        for frame in evidence_snapshots
+        float(median(scores))
         for name in required_landmarks
-        for confidence in (
-            _safe_confidence(frame.get(f"{name}_confidence")),
+        for scores in (
+            tuple(
+                confidence
+                for frame in evidence_snapshots
+                for confidence in (
+                    _safe_confidence(frame.get(f"{name}_confidence")),
+                )
+                if confidence is not None
+            ),
         )
-        if confidence is not None
+        if scores
     )
     landmark_confidence = (
         min(landmark_scores) if landmark_scores else None

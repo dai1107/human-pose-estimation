@@ -56,6 +56,8 @@ def test_web_home_and_options_are_available() -> None:
     assert page.status_code == 200
     assert "HYROX 动作分析台" in page.get_data(as_text=True)
     assert 'id="videoRepCount"' in page.get_data(as_text=True)
+    assert 'id="poseValidRepCount"' in page.get_data(as_text=True)
+    assert "完整动作周期" in page.get_data(as_text=True)
     assert 'id="voiceToggle"' in page.get_data(as_text=True)
     assert options.status_code == 200
     assert {item["value"] for item in options.json["actions"]} >= {"lunge", "wall_ball", "rowing"}
@@ -145,6 +147,20 @@ def test_crowded_lunge_sample_selects_the_largest_foreground_person() -> None:
         "auto",
         "tracking",
     )
+    assert _backend_plan(
+        {
+            "source_mode": "sample",
+            "action": "lunge",
+            "backend": "rtmw-wholebody",
+        }
+    ) == ("rtmw-wholebody", "area")
+
+
+def test_web_page_offers_rtmw_wholebody_model() -> None:
+    response = create_app(FakeEngine()).test_client().get("/")
+
+    assert response.status_code == 200
+    assert b'value="rtmw-wholebody"' in response.data
 
 
 def test_server_screenshot_is_disabled_for_privacy() -> None:

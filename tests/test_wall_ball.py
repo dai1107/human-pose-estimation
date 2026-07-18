@@ -440,6 +440,22 @@ def test_wall_ball_validity_uses_all_four_required_rules_and_states() -> None:
     )
 
 
+def test_throw_extension_is_the_tall_start_of_the_next_continuous_rep() -> None:
+    analyzer = _analyzer(
+        {**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1}
+    )
+
+    analyzer.update(_valid_bottom(), 100)
+    first = analyzer.update(_valid_throw(), 300)
+    analyzer.update(_valid_bottom(), 500)
+    second = analyzer.update(_valid_throw(), 800)
+
+    assert first["last_rep_decision"]["status"] == "UNSURE"
+    assert second["candidate_count"] == 2
+    assert second["last_rep_decision"]["status"] == "VALID"
+    assert _rules(second)["tall_start"]["status"] == "PASS"
+
+
 def test_wall_ball_requires_a_tall_start_before_descent() -> None:
     missing_start = _run_rule_candidate()
     short_start = _run_rule_candidate(

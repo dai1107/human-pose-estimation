@@ -80,7 +80,7 @@ def test_low_required_landmark_confidence_is_unsure() -> None:
         },
         {
             "visible_score": 0.95,
-            "left_wrist_confidence": 0.90,
+            "left_wrist_confidence": 0.59,
         },
     )
 
@@ -94,6 +94,27 @@ def test_low_required_landmark_confidence_is_unsure() -> None:
     assert decision.status == "UNSURE"
     assert "REQUIRED_LANDMARK_CONFIDENCE_LOW" in decision.reason_codes
     assert assessment.required_landmark_confidence == 0.59
+
+
+def test_one_transient_low_landmark_frame_does_not_hide_clear_evidence() -> None:
+    raw = aggregate_rep_decision(
+        (_rule("PASS", evidence_frames=(1, 2, 3)),)
+    )
+    candidate = _candidate(
+        {"visible_score": 0.95, "left_wrist_confidence": 0.30},
+        {"visible_score": 0.95, "left_wrist_confidence": 0.90},
+        {"visible_score": 0.95, "left_wrist_confidence": 0.92},
+    )
+
+    decision, assessment = apply_observability_policy(
+        raw,
+        candidate,
+        policy=_policy(),
+        required_landmarks=("left_wrist",),
+    )
+
+    assert decision.status == "VALID"
+    assert assessment.required_landmark_confidence == 0.90
 
 
 def test_low_decisive_rule_confidence_is_unsure() -> None:

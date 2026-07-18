@@ -808,6 +808,10 @@ class WallBallAnalyzer(BaseActionAnalyzer):
             else "RULE_VALIDATION"
         )
         self._clear_rule_candidate(clear_pending=True)
+        # In continuous wall balls, the fully extended throw endpoint also
+        # serves as the upright starting posture for the next repetition.
+        self._pending_tall_evidence = [self.frame_index]
+        self._capture_pending_tall_rule(self._current_features)
         return decision
 
     def _validation_state(self, raw_phase: str) -> str:

@@ -5,12 +5,13 @@
 - **网页版**：在电脑或手机浏览器中使用本机摄像头，支持多人匿名会话、实时骨架与动作反馈、逐次动作语音改进提示、上传视频分析，以及文字/JSON/CSV 报告下载。
 - **桌面版**：通过 OpenCV 窗口使用摄像头或视频文件，适合本机调试、录像、指标导出和模型对比。
 
-当前聚焦 8 项 HYROX 动作的人体姿态识别、人体规则有效计数、距离动作分析周期和实时指导；独立深蹲与篮球投篮分析模式已移除。姿态后端支持 MediaPipe Pose 与 YOLO11n Pose，实时关键点默认使用 One Euro 平滑，参考动作比较支持 DTW 对齐。
+当前聚焦 8 项 HYROX 动作的人体姿态识别、人体规则有效计数、距离动作分析周期和实时指导；独立深蹲与篮球投篮分析模式已移除。网页版可手动选择 MediaPipe Pose、YOLO11n Pose 或 `YOLO + RTMW WholeBody`，另有按动作选择标准后端的自动模式；实时关键点默认使用 One Euro 平滑，参考动作比较支持 DTW 对齐。
 
 ## 文档导航
 
 - [完整使用说明](使用说明.md)：网页版、桌面版、拍摄、计数语义、调试与故障排查；
 - [网页版使用说明](网页版使用说明.md)：浏览器摄像头、匿名会话、隐私、报告和部署；
+- [模型安装说明](models/README.md)：MediaPipe、手部模型、RTMW 权重与 CPU/GPU 环境；
 - [动作配置说明](configs/hyrox/README.md)：默认阈值、触地/脚部事件、可观测性与自定义配置；
 - [人体计数与违规任务清单](HYROX%20人体动作计数与违规检测任务清单.md)：第 1–11 轮实现和验收记录。
 
@@ -54,7 +55,7 @@
 
 最终计数前还会执行统一可观测性门控。整次动作平均可见度低于 `0.65`、必需关键点置信度低于 `0.60`、决定性规则置信度低于 `0.72`、局部地板失效、已知拍摄视角不适合或失败只出现一个异常帧时，结论统一降级为 `UNSURE`。逐规则结果仍保留原始 `PASS/FAIL`，降级依据可在 `last_rep_observability` 查看；持续多帧且证据充分的明确失败仍记为 `NO_REP`。
 
-负重箭步蹲已接入五项必需人体规则：后膝触地、触地后的双膝伸展、触地后的双髋伸展、有效触地腿交替，以及无额外调整步。前后腿优先按人体前进方向和脚位置确定；方向不足时才以更接近地面的膝作为降置信度回退。只有 `VALID` 动作会更新上一条触地腿，遮挡或地板不可靠会记为 `UNSURE`。
+负重箭步蹲已接入五项必需人体规则：后膝触地、触地后的膝部伸展、触地后的髋部伸展、有效触地腿交替，以及无额外调整步。系统会综合人体前进方向、脚位置和双膝离地高度确定前后腿；清晰的近地膝证据可纠正侧视图中的左右误配。正面证据要求双侧伸展；推荐的侧面视角使用置信度更高的同侧腿链并保留 3° 二维测量容差。只有 `VALID` 动作会更新上一条触地腿，遮挡或地板不可靠会记为 `UNSURE`。
 
 Burpee Broad Jump 已接入八项必需人体规则：通用胸部触地代理、双脚同步起落、起跳与落地错位代理、`LEGAL_HAND_PLACEMENT_PROXY`、落地后无额外步或碎步，以及身体中心和双脚均发生同向前移。落地只生成待验证候选并显示 `AWAITING_NEXT_HANDS`；系统会继续观察到下一次 hands-down/chest-down，再把该候选记为 `VALID`、`NO_REP` 或 `UNSURE`。脚部错位和手部位置都按本人脚长归一化，不代表精确测得官方厘米距离。
 
@@ -75,7 +76,36 @@ python -m pip install -r requirements.txt
 - `models/pose_landmarker_full.task`：MediaPipe Pose；
 - `models/hand_landmarker.task`：可选手部关键点；
 - `yolo11n-pose.pt`：YOLO11n Pose；
+- `models/rtmw-dw-x-l_simcc-cocktail14_270e-256x192_20231122.onnx`：RTMW-X/L WholeBody 133 点，约 229 MB，不提交到 Git；
 - `yolo11n.pt`：可选人体检测器。
+
+RTMW 属于可选高精度依赖。安装 CPU 或 NVIDIA GPU 运行时（二选一）：
+
+```powershell
+# CPU
+.venv\Scripts\python.exe -m pip install -r requirements-rtmw-cpu.txt
+
+# NVIDIA GPU
+.venv\Scripts\python.exe -m pip uninstall -y onnxruntime onnxruntime-gpu
+.venv\Scripts\python.exe -m pip install -r requirements-rtmw-gpu.txt
+```
+
+权重下载地址、GPU 环境和 Provider 检查命令见 [模型安装说明](models/README.md)。
+
+## 网页版识别模型
+
+高级设置中有三种可手动选择的姿态方案；“自动选择”只是按动作在标准后端之间选择，不是第四种模型，也不会自动启用计算量较大的 RTMW。
+
+| 页面选项 | 关键点与用途 | 运行说明 |
+|---|---|---|
+| `MediaPipe` | 33 个姿态点，速度快，适合普通实时分析 | 可使用 CPU；显示手指时另行运行 Hand Landmarker |
+| `YOLO Pose` | YOLO 锁定目标人物并输出 17 个身体点，适合多人画面中的目标跟踪 | 负重箭步蹲会自动使用 `YOLO + MediaPipe` 同人融合补充脚跟和脚尖 |
+| `YOLO + RTMW WholeBody（高精度 133 点）` | YOLO 锁定人物，RTMW 在该人物框中输出身体、脚部、面部和双手关键点 | 推荐 NVIDIA GPU；适合需要脚跟、脚尖和手指细节的 Lunge、Wall Ball |
+| `自动选择（推荐）` | 根据动作选择 MediaPipe 或 YOLO Pose | 不算独立模型；如需 RTMW，应手动选择 |
+
+RTMW 结果会用最多 13 个 YOLO/RTMW 共有身体点复核身份，只有匹配成功后才接受 133 点结果，避免把背景人物的脚部或手部节点用于当前运动员。RTMW 权重、ONNX Runtime 或初始化不可用时，页面会明确显示 `YOLO + MediaPipe（RTMW 降级）`，而不是中断分析。
+
+网页分析负重箭步蹲并选择 YOLO Pose 时，会使用 `YOLO + MediaPipe` 融合后端：YOLO 先锁定前景运动员，MediaPipe 最多输出 5 个人体候选，再用鼻、肩、肘、腕、髋、膝和踝的共有节点做身份匹配。髋、膝、踝等核心动作节点保留 YOLO 结果，脚跟和脚尖只从匹配成功的同一人补入；匹配失败时不会改用背景人物。短时漏检只保存脚部相对当前 YOLO 脚踝的偏移，并带置信度衰减和过期限制。
 
 ## 网页版快速开始
 
@@ -93,9 +123,9 @@ python -m pip install -r requirements.txt
 
 语音使用浏览器 Web Speech API 在当前设备本机合成，不申请麦克风权限、不向服务器上传音频，也不会写入录制视频。开关选择会保存在当前浏览器；若浏览器不支持语音合成，页面会显示“语音不可用”。
 
-页面的“高级设置”中，“骨架设置”只选择完整骨架、仅上半身或仅下半身；“显示手指节点”“隐藏面部”和“镜像画面”是与其分开的同级开关。手指节点默认显示，隐藏面部默认关闭；摄像头模式默认开启镜像，示例和上传视频默认关闭镜像。
+页面的“高级设置”中，“骨架设置”只选择完整骨架、仅上半身或仅下半身；“显示手指节点”“隐藏面部”和“镜像画面”是与其分开的同级开关。选择 RTMW WholeBody 时，“显示手指节点”直接使用 RTMW 的双手各 21 点；其他姿态模型会按约 10 FPS 运行独立的 MediaPipe Hand Landmarker。页面为每只手绘制五根手指的 20 个非手腕关节点，手部短暂漏检时最多保留约 0.35 秒以减少闪烁。手指节点默认显示，隐藏面部默认关闭；摄像头模式默认开启镜像，示例和上传视频默认关闭镜像。
 
-系统会在用户站直、双脚稳定且全身完整入镜时，用最近约 0.5 秒的脚跟和脚尖位置自动估计局部地板线。摄像头明显倾斜时，可在“高级设置 → 手动地板线”中依次点击脚下地板的两个点。该标定只用于归一化人体部位的离地高度，不识别赛道，也不测量真实厘米距离；足部被遮挡、人体出画或相机移动时，地板参考会标记为 `UNSURE`。
+系统优先在用户站直、双脚稳定且全身完整入镜时，用最近约 0.5 秒的脚跟和脚尖位置自动估计局部地板线；负重箭步蹲和 Wall Ball 若视频没有完整站姿，也可由连续稳定的支撑脚建立地板线，但不会把屈膝姿态误用为站立身高。摄像头明显倾斜时，可在“高级设置 → 手动地板线”中依次点击脚下地板的两个点。该标定只用于归一化人体部位的离地高度，不识别赛道，也不测量真实厘米距离；足部被遮挡、人体出画或相机移动时，地板参考会标记为 `UNSURE`。
 
 通用触地检测器在可靠地板参考之上，综合虚拟膝盖/胸部表面距离、动作阶段、垂直速度、局部最低点、持续时间和关键点置信度，并通过进入/退出双阈值防止临界位置抖动。MediaPipe 会使用可选人体分割辅助胸部判断；YOLO Pose 或没有分割的帧仍可运行，但胸部代理置信度封顶为 `0.74`。该结果是二维视觉代理，不能等同于正式裁判对真实乳头线触地的判定。
 
@@ -156,7 +186,7 @@ python main.py `
 - `--hyrox-config PATH`：覆盖动作默认配置；
 - `--camera-view front|side|front_left|front_right|unknown`：拍摄视角；
 - `CAMERA_VIEW_LIMITED`：当前拍摄视角不足以可靠判断某项动作标准时的提示码；
-- `--backend auto|mediapipe|yolo-pose`：姿态后端；
+- `--backend auto|mediapipe|yolo-pose`：桌面版姿态后端；RTMW WholeBody 当前通过网页版高级设置使用；
 - `--input-video PATH`：使用视频而不是摄像头；
 - `--hyrox-debug`：显示 HYROX 特征调试面板；
 - `--headless`：关闭 OpenCV 窗口；
@@ -187,7 +217,7 @@ python tools/replay_hyrox_video.py --video "HYROX视频\药球.mp4" --hyrox-acti
 ```text
 hyrox/                   # 8 个 HYROX 动作分析器与通用逻辑
 configs/hyrox/           # 动作配置
-src/backends/            # MediaPipe / YOLO Pose
+src/backends/            # MediaPipe / YOLO Pose / YOLO + RTMW WholeBody
 src/biomechanics/        # 通用运动学数据
 src/realtime/            # 桌面实时反馈
 webui/                   # 网页后端、实时会话、前端页面与静态资源

@@ -118,6 +118,30 @@ def test_auto_floor_uses_stable_standing_foot_median_and_calibrates_height() -> 
     assert result.confidence >= 0.80
 
 
+def test_supported_pose_calibration_finds_floor_without_claiming_standing_height() -> None:
+    estimator = LocalFloorReference(
+        min_samples=5,
+        allow_supported_pose_calibration=True,
+    )
+    result = None
+    for frame, floor_y in enumerate((0.900, 0.902, 0.899, 0.901, 0.900), start=1):
+        features = _standing_features(floor_y)
+        features["min_knee_angle"] = 105.0
+        features["min_hip_angle"] = 120.0
+        result = estimator.update(
+            features,
+            timestamp_ms=frame * 100,
+            frame_index=frame,
+        )
+
+    assert result is not None
+    assert result.status == "READY"
+    assert result.line is not None
+    assert result.line.y_at(0.5) == pytest.approx(0.900)
+    assert result.body_height == pytest.approx(0.72)
+    assert result.body_height_source == "current_body_box"
+
+
 def test_manual_two_point_floor_overrides_auto_floor() -> None:
     estimator = LocalFloorReference()
     estimator.set_manual_line((0.1, 0.85), (0.9, 0.93))

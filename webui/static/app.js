@@ -53,6 +53,13 @@ const viewTips = {
   front_left: "左前方兼顾身体对称与前后动作幅度。",
   front_right: "右前方兼顾身体对称与前后动作幅度。",
 };
+const backendLabels = {
+  "yolo-rtmw-wholebody": "YOLO + RTMW WholeBody",
+  "yolo-guided-mediapipe-fallback": "YOLO + MediaPipe（RTMW 降级）",
+  "yolo-guided-mediapipe": "YOLO + MediaPipe",
+  "yolo-pose": "YOLO Pose",
+  mediapipe: "MediaPipe",
+};
 
 function toast(message, error = false) {
   const node = $("#toast");
@@ -974,7 +981,7 @@ async function generateReport(options = {}) {
     const rate = analysis.compliance_rate == null ? "暂无" : `${analysis.compliance_rate}%`;
     $("#reportPreview").innerHTML = `
       <div class="report-heading"><div><small>本次训练结论</small><h3>${escapeHtml(report.summary?.action_label || "动作")} · ${escapeHtml(analysis.overall_status || "已完成")}</h3></div><strong>${rate}</strong></div>
-      <div class="report-metrics"><span><b>${Number(report.summary?.reps || 0)}</b>完整动作</span><span><b>${Number(analysis.evaluable_frames || 0)}</b>可评价画面</span><span><b>${Number(analysis.nonstandard_frames || 0)}</b>明显偏离画面</span></div>
+      <div class="report-metrics"><span><b>${Number(report.summary?.candidate_count ?? report.summary?.reps ?? 0)}</b>完整周期</span><span><b>${Number(report.summary?.pose_valid_rep_count ?? report.summary?.reps ?? 0)}</b>有效动作</span><span><b>${Number(analysis.evaluable_frames || 0)}</b>可评价画面</span><span><b>${Number(analysis.nonstandard_frames || 0)}</b>明显偏离画面</span></div>
       <p class="report-explanation">${escapeHtml(analysis.compliance_explanation || "")}</p>
       <p class="report-download-tip">做得好的地方、优先改进建议和逐次动作表现已写入文字报告，请点击上方“文字报告”下载查看。</p>`;
     $("#reportPreview").hidden = false;
@@ -1020,17 +1027,18 @@ function updateState(state) {
   $("#statusDot").className = `status-dot${state.status === "running" ? " live" : state.status === "error" ? " error" : ""}`;
   $("#stageTitle").textContent = state.running || state.status === "completed" ? `${state.action_label || "动作"} · ${state.source_name}` : "准备开始训练分析";
   $("#sourceBadge").textContent = state.source_name || "本机画面";
-  $("#backendMetric").textContent = state.backend === "yolo-pose" ? "YOLO Pose" : state.backend === "mediapipe" ? "MediaPipe" : state.backend || "—";
+  $("#backendMetric").textContent = backendLabels[state.backend] || state.backend || "—";
   $("#fpsMetric").textContent = Number(state.fps || 0).toFixed(1);
   $("#latencyMetric").textContent = Number(state.inference_ms || 0).toFixed(1);
   $("#poseMetric").textContent = state.pose_detected ? "已锁定人体" : state.running ? "正在寻找人体" : "等待画面";
   $("#poseMetric").className = state.pose_detected ? "good" : state.running ? "bad" : "neutral";
-  $("#repCount").textContent = state.reps ?? 0;
-  $("#candidateCount").textContent = state.candidate_count ?? state.reps ?? 0;
+  const candidateCount = state.candidate_count ?? state.reps ?? 0;
+  $("#repCount").textContent = candidateCount;
+  $("#poseValidRepCount").textContent = state.pose_valid_rep_count ?? state.reps ?? 0;
   $("#noRepCount").textContent = state.no_rep_count ?? 0;
   $("#unsureCount").textContent = state.unsure_count ?? 0;
   renderFloorCalibrationStatus(state.floor_reference);
-  $("#videoRepCount").textContent = state.reps ?? 0;
+  $("#videoRepCount").textContent = candidateCount;
   $("#videoRepBadge").hidden = !(state.running || state.status === "completed");
   $("#actionLabel").textContent = state.action_label || "动作指导关闭";
   const phase = state.phase || "idle";

@@ -16,6 +16,12 @@ hip_motion_tolerance: 0.004
 hip_drop_min: 0.035
 stable_frames: 2
 rep_cooldown_ms: 400
+# Trailing-knee contact is a 2D proxy around the joint-centre landmark.
+knee_surface_radius_shank_ratio: 0.25
+knee_contact_enter_height_body_ratio: 0.060
+knee_contact_exit_height_body_ratio: 0.090
+# Side view uses the more observable leg chain and a small 2D angle tolerance.
+side_extension_tolerance_deg: 3.0
 feedback_limits:
   max_messages: 2
   low_visibility_exclusive: true

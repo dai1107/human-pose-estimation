@@ -85,6 +85,13 @@ def test_finger_nodes_can_be_hidden_independently() -> None:
     assert _profile_names("full", names, show_fingers=False) == {"left_wrist", "left_knee"}
 
 
+def test_validate_settings_accepts_rtmw_wholebody() -> None:
+    assert (
+        validate_settings({"backend": "rtmw-wholebody"})["backend"]
+        == "rtmw-wholebody"
+    )
+
+
 def test_validate_manual_floor_points_accepts_two_normalized_points() -> None:
     points = validate_manual_floor_points([[0.1, 0.82], [0.9, 0.91]])
 

@@ -30,12 +30,21 @@ from hyrox.features import extract_basic_pose_features
 from hyrox.registry import create_action_analyzer
 from hyrox.view_policy import CAMERA_VIEWS
 from src.backends.mediapipe_backend import MediaPipeBackend
+from src.backends.yolo_guided_mediapipe_backend import YoloGuidedMediaPipeBackend
 from src.backends.yolo_pose_backend import YoloPoseBackend
+from src.backends.yolo_rtmw_backend import YoloRtmwWholeBodyBackend
 from src.utils.backend_policy import resolve_backend_choice
 from src.utils.device import resolve_torch_device
 from src.utils.draw_utils import draw_hyrox_action_overlay, draw_pose_result_filtered, to_pixel
 from src.utils.smoothing import KeypointSmoother
 from webui.analysis import RepVoiceFeedbackTracker, assess_action, enrich_report, official_rules_for, render_text_report, standards_for, visible_feedback
+from webui.hands import (
+    WebHandOverlay,
+    draw_hand_overlay,
+    hand_overlay_visible,
+    rtmw_hand_detections,
+    serialize_hand_overlay,
+)
 from webui.realtime import (
     BrowserSession,
     RealtimePoseSession,
@@ -211,8 +220,11 @@ def _draw_angle_overlay(frame: Any, result: Any, assessment: Mapping[str, Any]) 
 def _backend_plan(config: Mapping[str, Any]) -> tuple[str, str]:
     """Keep the foreground athlete selected in the crowded lunge sample."""
     requested = str(config.get("backend", "auto"))
-    if requested == "auto" and config.get("source_mode") == "sample" and config.get("action") == "lunge":
-        return "yolo-pose", "area"
+    if config.get("source_mode") == "sample" and config.get("action") == "lunge":
+        if requested == "auto":
+            return "yolo-pose", "area"
+        if requested in {"yolo-pose", "rtmw-wholebody"}:
+            return requested, "area"
     return requested, "tracking"
 
 
@@ -237,7 +249,7 @@ class PoseStreamEngine:
             "sensitivity": "medium",
             "mirror": True,
             "landmark_profile": "full",
-            "show_fingers": True,
+            "show_fingers": False,
             "paused": False,
             "manual_floor_points": [],
         }
@@ -289,7 +301,7 @@ class PoseStreamEngine:
                     "sensitivity": config["sensitivity"],
                     "mirror": bool(config.get("mirror", True)),
                     "landmark_profile": config.get("landmark_profile", "full"),
-                    "show_fingers": bool(config.get("show_fingers", True)),
+                    "show_fingers": bool(config.get("show_fingers", False)),
                     "paused": False,
                     "manual_floor_points": validate_manual_floor_points(
                         config.get("manual_floor_points", ())
@@ -424,6 +436,10 @@ class PoseStreamEngine:
                 "action": state["action"],
                 "action_label": state["action_label"],
                 "reps": state["reps"],
+                "candidate_count": state["candidate_count"],
+                "pose_valid_rep_count": state["pose_valid_rep_count"],
+                "no_rep_count": state["no_rep_count"],
+                "unsure_count": state["unsure_count"],
                 "last_phase": state["phase"],
                 "processed_frames": len(frames),
                 "dropped_frames": 0,
@@ -497,7 +513,45 @@ class PoseStreamEngine:
                 resolved,
             )
         if resolved == "yolo-pose":
+            if action == "lunge":
+                return (
+                    YoloGuidedMediaPipeBackend(
+                        PROJECT_ROOT / "yolo11n-pose.pt",
+                        PROJECT_ROOT / "models" / "pose_landmarker_full.task",
+                        target_select=target_select,
+                        device=resolve_torch_device("auto"),
+                    ),
+                    "yolo-guided-mediapipe",
+                )
             return YoloPoseBackend(str(PROJECT_ROOT / "yolo11n-pose.pt"), target_select=target_select, device=resolve_torch_device("auto")), resolved
+        if resolved == "rtmw-wholebody":
+            try:
+                return (
+                    YoloRtmwWholeBodyBackend(
+                        PROJECT_ROOT
+                        / "models"
+                        / "rtmw-dw-x-l_simcc-cocktail14_270e-256x192_20231122.onnx",
+                        PROJECT_ROOT / "yolo11n-pose.pt",
+                        target_select=target_select,
+                        yolo_device=resolve_torch_device("auto"),
+                        rtmw_device="auto",
+                    ),
+                    "yolo-rtmw-wholebody",
+                )
+            except Exception as exc:
+                logging.getLogger("pose.web").warning(
+                    "RTMW WholeBody unavailable; falling back to YOLO + MediaPipe: %s",
+                    exc,
+                )
+                return (
+                    YoloGuidedMediaPipeBackend(
+                        PROJECT_ROOT / "yolo11n-pose.pt",
+                        PROJECT_ROOT / "models" / "pose_landmarker_full.task",
+                        target_select=target_select,
+                        device=resolve_torch_device("auto"),
+                    ),
+                    "yolo-guided-mediapipe-fallback",
+                )
         raise ValueError(f"unknown backend: {resolved}")
 
     def _run(self, config: dict[str, Any]) -> None:
@@ -506,6 +560,7 @@ class PoseStreamEngine:
         writer = None
         record_path: Path | None = None
         finished_normally = False
+        hand_overlay = WebHandOverlay(PROJECT_ROOT / "models" / "hand_landmarker.task")
         try:
             source_path = str(config.get("video_path", ""))
             capture, source_fps, total_frames = self._open_capture(config)
@@ -549,6 +604,26 @@ class PoseStreamEngine:
                 timestamp_ms = int(round((frame_index * 1000.0) / source_fps)) if config["source_mode"] != "camera" else int((time.perf_counter() - started) * 1000)
                 result = smoother.smooth_result(backend.detect(frame, timestamp_ms=timestamp_ms))
                 has_pose = bool(result.success and result.keypoints)
+                show_hand_overlay = hand_overlay_visible(
+                    str(settings["landmark_profile"]),
+                    bool(settings["show_fingers"]),
+                )
+                hand_detections = (
+                    rtmw_hand_detections(result.extra)
+                    if show_hand_overlay
+                    else {}
+                )
+                hand_detections = hand_detections or hand_overlay.update(
+                    frame,
+                    timestamp_ms=timestamp_ms,
+                    enabled=show_hand_overlay,
+                )
+                if hand_detections and result.extra.get("rtmw_hand_keypoints"):
+                    hand_overlay.update(
+                        frame,
+                        timestamp_ms=timestamp_ms,
+                        enabled=False,
+                    )
 
                 key = (settings["action"], settings["sensitivity"], settings["camera_view"])
                 if key != analyzer_key:
@@ -620,6 +695,8 @@ class PoseStreamEngine:
                     line_color=skeleton_color,
                     point_color=skeleton_color,
                 )
+                if hand_detections:
+                    draw_hand_overlay(annotated, hand_detections)
                 _draw_angle_overlay(annotated, result, assessment)
                 if action_state is not None:
                     draw_hyrox_action_overlay(annotated, action_state, origin=(16, 32))
@@ -668,6 +745,8 @@ class PoseStreamEngine:
                     for point in result.keypoints
                     if point.name in visible_names and math.isfinite(float(point.x)) and math.isfinite(float(point.y))
                 ]
+                hand_keypoints, _ = serialize_hand_overlay(hand_detections)
+                keypoints.extend(hand_keypoints)
 
                 if record_requested and writer is None:
                     record_path = self._output_dir / "recordings" / f"{time.strftime('%Y-%m-%d_%H%M%S')}.mp4"
@@ -702,6 +781,7 @@ class PoseStreamEngine:
                                 "contacts": contacts,
                                 "foot_events": foot_events,
                                 "pose_detected": has_pose,
+                                "hands_detected": bool(hand_keypoints),
                                 "feedback": feedback,
                                 "voice_feedback": voice_feedback,
                                 "detected_issues": all_feedback,
@@ -762,6 +842,7 @@ class PoseStreamEngine:
                 self._state.update({"running": False, "status": "error", "status_text": "运行出错", "error": str(exc), "recording": False})
                 self._frame_ready.notify_all()
         finally:
+            hand_overlay.close()
             if writer is not None:
                 writer.release()
             if capture is not None:
@@ -1062,7 +1143,12 @@ def create_app(
                 raise ValueError("无效的拍摄视角")
             if sensitivity not in {"low", "medium", "high"}:
                 raise ValueError("无效的灵敏度")
-            if backend not in {"auto", "mediapipe", "yolo-pose"}:
+            if backend not in {
+                "auto",
+                "mediapipe",
+                "yolo-pose",
+                "rtmw-wholebody",
+            }:
                 raise ValueError("无效的识别后端")
             if profile not in {"full", "no-face", "upper-body", "lower-body"}:
                 raise ValueError("无效的骨架显示模式")
@@ -1073,7 +1159,7 @@ def create_app(
                 "sensitivity": sensitivity,
                 "backend": backend,
                 "landmark_profile": profile,
-                "show_fingers": bool(data.get("show_fingers", True)),
+                "show_fingers": bool(data.get("show_fingers", False)),
                 "mirror": bool(data.get("mirror", source_mode == "camera")),
                 "manual_floor_points": validate_manual_floor_points(
                     data.get("manual_floor_points", ())

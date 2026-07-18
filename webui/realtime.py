@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import math
 import os
 import queue
@@ -23,11 +24,19 @@ from hyrox.features import extract_basic_pose_features
 from hyrox.registry import create_action_analyzer
 from hyrox.view_policy import CAMERA_VIEWS
 from src.backends.mediapipe_backend import MediaPipeBackend
+from src.backends.yolo_guided_mediapipe_backend import YoloGuidedMediaPipeBackend
 from src.backends.yolo_pose_backend import YoloPoseBackend
+from src.backends.yolo_rtmw_backend import YoloRtmwWholeBodyBackend
 from src.utils.backend_policy import resolve_backend_choice
 from src.utils.device import resolve_torch_device
 from src.utils.smoothing import KeypointSmoother
 from webui.analysis import RepVoiceFeedbackTracker, assess_action, enrich_report, visible_feedback
+from webui.hands import (
+    WebHandOverlay,
+    hand_overlay_visible,
+    rtmw_hand_detections,
+    serialize_hand_overlay,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -141,7 +150,7 @@ def validate_settings(values: Mapping[str, Any]) -> dict[str, Any]:
         raise RealtimeProtocolError("invalid_view", "无效的拍摄视角")
     if sensitivity not in {"low", "medium", "high"}:
         raise RealtimeProtocolError("invalid_sensitivity", "无效的灵敏度")
-    if backend not in {"auto", "mediapipe", "yolo-pose"}:
+    if backend not in {"auto", "mediapipe", "yolo-pose", "rtmw-wholebody"}:
         raise RealtimeProtocolError("invalid_backend", "无效的识别模型")
     if profile not in {"full", "no-face", "upper-body", "lower-body"}:
         raise RealtimeProtocolError("invalid_profile", "无效的骨架显示模式")
@@ -152,7 +161,7 @@ def validate_settings(values: Mapping[str, Any]) -> dict[str, Any]:
         "sensitivity": sensitivity,
         "backend": backend,
         "landmark_profile": profile,
-        "show_fingers": bool(values.get("show_fingers", True)),
+        "show_fingers": bool(values.get("show_fingers", False)),
         "mirror": bool(values.get("mirror", True)),
         "paused": bool(values.get("paused", False)),
         "manual_floor_points": manual_floor_points,
@@ -201,6 +210,16 @@ def default_backend_factory(requested: str, action: str) -> tuple[Any, str]:
             resolved,
         )
     if resolved == "yolo-pose":
+        if action == "lunge":
+            return (
+                YoloGuidedMediaPipeBackend(
+                    PROJECT_ROOT / "yolo11n-pose.pt",
+                    PROJECT_ROOT / "models" / "pose_landmarker_full.task",
+                    target_select="tracking",
+                    device=resolve_torch_device("auto"),
+                ),
+                "yolo-guided-mediapipe",
+            )
         return (
             YoloPoseBackend(
                 str(PROJECT_ROOT / "yolo11n-pose.pt"),
@@ -209,6 +228,34 @@ def default_backend_factory(requested: str, action: str) -> tuple[Any, str]:
             ),
             resolved,
         )
+    if resolved == "rtmw-wholebody":
+        try:
+            return (
+                YoloRtmwWholeBodyBackend(
+                    PROJECT_ROOT
+                    / "models"
+                    / "rtmw-dw-x-l_simcc-cocktail14_270e-256x192_20231122.onnx",
+                    PROJECT_ROOT / "yolo11n-pose.pt",
+                    target_select="tracking",
+                    yolo_device=resolve_torch_device("auto"),
+                    rtmw_device="auto",
+                ),
+                "yolo-rtmw-wholebody",
+            )
+        except Exception as exc:
+            logging.getLogger("pose.web").warning(
+                "RTMW WholeBody unavailable; falling back to YOLO + MediaPipe: %s",
+                exc,
+            )
+            return (
+                YoloGuidedMediaPipeBackend(
+                    PROJECT_ROOT / "yolo11n-pose.pt",
+                    PROJECT_ROOT / "models" / "pose_landmarker_full.task",
+                    target_select="tracking",
+                    device=resolve_torch_device("auto"),
+                ),
+                "yolo-guided-mediapipe-fallback",
+            )
     raise RealtimeProtocolError("invalid_backend", "无法选择识别模型")
 
 
@@ -475,6 +522,10 @@ class RealtimePoseSession:
                 "action": state["action"],
                 "action_label": state["action_label"],
                 "reps": state["reps"],
+                "candidate_count": state["candidate_count"],
+                "pose_valid_rep_count": state["pose_valid_rep_count"],
+                "no_rep_count": state["no_rep_count"],
+                "unsure_count": state["unsure_count"],
                 "last_phase": state["phase"],
                 "processed_frames": len(frames),
                 "dropped_frames": state["queue_dropped"],
@@ -531,6 +582,7 @@ class RealtimePoseSession:
         smoother = KeypointSmoother(mode="one-euro", max_missing_frames=5, occlusion_guard=True)
         analyzer: Any | None = None
         analyzer_key: tuple[str, str, str] | None = None
+        hand_overlay = WebHandOverlay(PROJECT_ROOT / "models" / "hand_landmarker.task")
         last_processed = time.perf_counter()
         smooth_fps = 0.0
         try:
@@ -553,7 +605,16 @@ class RealtimePoseSession:
                         backend, backend_name = self._backend_factory(settings["backend"], settings["action"])
                         backend_request = requested_backend
                         smoother = KeypointSmoother(mode="one-euro", max_missing_frames=5, occlusion_guard=True)
-                    message = self._process_packet(packet, backend, backend_name, smoother, settings, analyzer, analyzer_key)
+                    message = self._process_packet(
+                        packet,
+                        backend,
+                        backend_name,
+                        smoother,
+                        settings,
+                        analyzer,
+                        analyzer_key,
+                        hand_overlay,
+                    )
                     analyzer = message.pop("_analyzer")
                     analyzer_key = message.pop("_analyzer_key")
                     now = time.perf_counter()
@@ -598,6 +659,7 @@ class RealtimePoseSession:
                         self._state.update({"status": "error", "status_text": "识别出错", "error": str(exc)})
                     self._publish(error.as_message())
         finally:
+            hand_overlay.close()
             if backend is not None:
                 backend.close()
             with self._lock:
@@ -615,6 +677,7 @@ class RealtimePoseSession:
         settings: Mapping[str, Any],
         analyzer: Any | None,
         analyzer_key: tuple[str, str, str] | None,
+        hand_overlay: WebHandOverlay,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         array = np.frombuffer(packet.jpeg, dtype=np.uint8)
@@ -625,8 +688,31 @@ class RealtimePoseSession:
         if width <= 0 or height <= 0 or width > MAX_FRAME_WIDTH or height > MAX_FRAME_HEIGHT or width * height > MAX_FRAME_PIXELS:
             raise RealtimeProtocolError("invalid_dimensions", "摄像头帧最大支持 1280×720")
 
+        inference_timestamp_ms = int(time.monotonic() * 1000)
         with self._inference_gate:
-            result = smoother.smooth_result(backend.detect(frame, timestamp_ms=int(time.monotonic() * 1000)))
+            result = smoother.smooth_result(
+                backend.detect(frame, timestamp_ms=inference_timestamp_ms)
+            )
+            show_hand_overlay = hand_overlay_visible(
+                str(settings["landmark_profile"]),
+                bool(settings["show_fingers"]),
+            )
+            hand_detections = (
+                rtmw_hand_detections(result.extra)
+                if show_hand_overlay
+                else {}
+            )
+            hand_detections = hand_detections or hand_overlay.update(
+                frame,
+                timestamp_ms=inference_timestamp_ms,
+                enabled=show_hand_overlay,
+            )
+            if hand_detections and result.extra.get("rtmw_hand_keypoints"):
+                hand_overlay.update(
+                    frame,
+                    timestamp_ms=inference_timestamp_ms,
+                    enabled=False,
+                )
         has_pose = bool(result.success and result.keypoints)
         next_analyzer_key = (str(settings["action"]), str(settings["sensitivity"]), str(settings["camera_view"]))
         if next_analyzer_key != analyzer_key:
@@ -687,6 +773,9 @@ class RealtimePoseSession:
             and names_by_index[start] in visible_names
             and names_by_index[end] in visible_names
         ]
+        hand_keypoints, hand_connections = serialize_hand_overlay(hand_detections)
+        keypoints.extend(hand_keypoints)
+        connections.extend(hand_connections)
         phase = "idle" if action_state is None else str(action_state.get("phase", "unknown"))
         reps = 0 if action_state is None else int(action_state.get("rep_count", 0))
         candidate_count = 0 if action_state is None else int(action_state.get("candidate_count", reps))
@@ -741,6 +830,7 @@ class RealtimePoseSession:
             "contacts": contacts,
             "foot_events": foot_events,
             "pose_detected": has_pose,
+            "hands_detected": bool(hand_keypoints),
             "feedback": feedback,
             "detected_issues": detected_issues,
             "assessment": assessment,

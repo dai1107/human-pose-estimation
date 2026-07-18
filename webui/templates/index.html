@@ -94,6 +94,7 @@
                 <option value="auto">自动选择（推荐）</option>
                 <option value="mediapipe">MediaPipe</option>
                 <option value="yolo-pose">YOLO Pose</option>
+                <option value="rtmw-wholebody">YOLO + RTMW WholeBody（高精度 133 点）</option>
               </select>
             </div>
             <div class="control-group">
@@ -112,7 +113,7 @@
               </div>
             </div>
             <label class="switch-row">
-              <span><strong>显示手指节点</strong><small>显示拇指、食指和小指姿态点</small></span>
+              <span><strong>显示手指节点</strong><small>使用 WholeBody 或独立手部模型显示五根手指的 20 个关节点</small></span>
               <input id="fingerToggle" type="checkbox" checked>
               <span class="switch" aria-hidden="true"></span>
             </label>
@@ -166,7 +167,7 @@
             <span id="sourceBadge">摄像头 0</span>
           </div>
           <div class="video-rep-badge" id="videoRepBadge" hidden aria-live="polite">
-            <span>完成次数</span><strong id="videoRepCount">0</strong>
+            <span>完整周期</span><strong id="videoRepCount">0</strong>
           </div>
           <div class="loading-overlay" id="loadingOverlay" hidden><span class="spinner"></span><strong>正在加载模型</strong><small>首次启动可能需要几秒</small></div>
         </div>
@@ -200,10 +201,10 @@
           <span>人体动作判定</span>
           <div class="rep-primary">
             <strong id="repCount">0</strong>
-            <small>有效动作</small>
+            <small>完整动作周期</small>
           </div>
           <div class="rep-breakdown">
-            <div><b id="candidateCount">0</b><small>动作周期</small></div>
+            <div><b id="poseValidRepCount">0</b><small>有效动作</small></div>
             <div><b id="noRepCount">0</b><small>未完成</small></div>
             <div><b id="unsureCount">0</b><small>无法确认</small></div>
           </div>

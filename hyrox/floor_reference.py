@@ -122,6 +122,7 @@ class LocalFloorReference:
         stable_foot_y_tolerance: float = 0.012,
         contradiction_tolerance: float = 0.05,
         missing_timeout_ms: int = 750,
+        allow_supported_pose_calibration: bool = False,
     ) -> None:
         self.window_ms = max(100, int(window_ms))
         self.min_samples = max(3, int(min_samples))
@@ -129,6 +130,9 @@ class LocalFloorReference:
         self.stable_foot_y_tolerance = max(0.001, float(stable_foot_y_tolerance))
         self.contradiction_tolerance = max(0.01, float(contradiction_tolerance))
         self.missing_timeout_ms = max(self.window_ms, int(missing_timeout_ms))
+        self.allow_supported_pose_calibration = bool(
+            allow_supported_pose_calibration
+        )
         self.reset()
 
     def reset(self) -> None:
@@ -287,10 +291,13 @@ class LocalFloorReference:
             )
             self._previous_floor_candidate = floor_candidate
 
-        if standing and stable_feet and full_body_visible and floor_candidate is not None:
-            body_height = _safe_float(features.get("body_box_height_norm"))
-            if body_height is None:
-                body_height = _safe_float(features.get("body_height_norm"))
+        calibration_pose = standing or self.allow_supported_pose_calibration
+        if calibration_pose and stable_feet and full_body_visible and floor_candidate is not None:
+            body_height = None
+            if standing:
+                body_height = _safe_float(features.get("body_box_height_norm"))
+                if body_height is None:
+                    body_height = _safe_float(features.get("body_height_norm"))
             self._samples.append((current_timestamp, floor_candidate, body_height))
             self._trim_samples(current_timestamp)
             if len(self._samples) >= self.min_samples:

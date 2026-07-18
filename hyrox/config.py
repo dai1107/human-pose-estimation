@@ -33,6 +33,10 @@ DEFAULT_LUNGE_CONFIG: dict[str, Any] = {
     "hip_drop_min": 0.035,
     "stable_frames": 2,
     "rep_cooldown_ms": 400,
+    "knee_surface_radius_shank_ratio": 0.25,
+    "knee_contact_enter_height_body_ratio": 0.060,
+    "knee_contact_exit_height_body_ratio": 0.090,
+    "side_extension_tolerance_deg": 3.0,
 }
 
 DEFAULT_WALL_BALL_CONFIG: dict[str, Any] = {

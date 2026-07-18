@@ -29,6 +29,10 @@ class MediaPipeBackend:
         model_path: str | Path = "models/pose_landmarker_full.task",
         *,
         output_segmentation_masks: bool = True,
+        num_poses: int = 1,
+        min_pose_detection_confidence: float = 0.5,
+        min_pose_presence_confidence: float = 0.5,
+        min_tracking_confidence: float = 0.5,
     ) -> None:
         if mp is None or mp_python is None or vision is None:
             raise RuntimeError(
@@ -37,13 +41,14 @@ class MediaPipeBackend:
         self.model_path = Path(model_path)
         if not self.model_path.exists():
             raise FileNotFoundError(f"MediaPipe model file not found: {self.model_path}")
+        self.num_poses = max(1, int(num_poses))
         options = vision.PoseLandmarkerOptions(
             base_options=mp_python.BaseOptions(model_asset_path=str(self.model_path)),
             running_mode=vision.RunningMode.VIDEO,
-            num_poses=1,
-            min_pose_detection_confidence=0.5,
-            min_pose_presence_confidence=0.5,
-            min_tracking_confidence=0.5,
+            num_poses=self.num_poses,
+            min_pose_detection_confidence=float(min_pose_detection_confidence),
+            min_pose_presence_confidence=float(min_pose_presence_confidence),
+            min_tracking_confidence=float(min_tracking_confidence),
             output_segmentation_masks=bool(output_segmentation_masks),
         )
         self._landmarker = vision.PoseLandmarker.create_from_options(options)
@@ -56,7 +61,14 @@ class MediaPipeBackend:
         image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb_frame))
         result = self._landmarker.detect_for_video(image, timestamp_ms)
         inference_time_ms = (time.perf_counter() - started) * 1000.0
-        extra = {"raw_result": result}
+        pose_candidates = [
+            self._to_keypoints(landmarks)
+            for landmarks in (result.pose_landmarks or ())
+        ]
+        extra = {
+            "raw_result": result,
+            "pose_candidates": pose_candidates,
+        }
         segmentation_masks = getattr(result, "segmentation_masks", None)
         if segmentation_masks:
             try:
@@ -79,7 +91,7 @@ class MediaPipeBackend:
                 extra=extra,
             )
 
-        keypoints = self._to_keypoints(result.pose_landmarks[0])
+        keypoints = pose_candidates[0]
         return PoseResult(
             keypoints=keypoints,
             connections=MEDIAPIPE_CONNECTIONS,

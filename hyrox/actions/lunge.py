@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_lunge_config
-from hyrox.contact import ContactResult, KneeContactDetector
+from hyrox.contact import ContactResult, KneeContactConfig, KneeContactDetector
 from hyrox.feedback import FeedbackMessage
 from hyrox.validity import BodyRuleResult, RepDecision
 
@@ -241,6 +241,48 @@ class LungeAnalyzer(BaseActionAnalyzer):
             FULL_EXTENSION_HOLD_FRAMES[sensitivity],
             minimum=1,
         )
+        contact_defaults = KneeContactConfig()
+        contact_enter = _resolved_float(
+            config_value("knee_contact_enter_height_body_ratio", 0.060),
+            0.060,
+            minimum=0.0,
+        )
+        contact_exit = max(
+            contact_enter,
+            _resolved_float(
+                config_value("knee_contact_exit_height_body_ratio", 0.090),
+                0.090,
+                minimum=0.0,
+            ),
+        )
+        self.knee_contact_config = KneeContactConfig(
+            # The pose landmark is the knee joint centre, not the lower skin
+            # surface. This virtual radius makes the floor proxy anatomically
+            # meaningful and absorbs normal side-view perspective error.
+            surface_radius_shank_ratio=_resolved_float(
+                config_value("knee_surface_radius_shank_ratio", 0.25),
+                0.25,
+                minimum=0.0,
+            ),
+            enter_height_body_ratio=contact_enter,
+            exit_height_body_ratio=contact_exit,
+            max_vertical_speed_body_per_second=contact_defaults.max_vertical_speed_body_per_second,
+            min_hold_frames=contact_defaults.min_hold_frames,
+            min_landmark_confidence=contact_defaults.min_landmark_confidence,
+            confirm_confidence=contact_defaults.confirm_confidence,
+        )
+        self.side_extension_tolerance_deg = _resolved_float(
+            config_value("side_extension_tolerance_deg", 3.0),
+            3.0,
+            minimum=0.0,
+        )
+        self._side_knee_detectors = {
+            side: KneeContactDetector(
+                self.knee_contact_config,
+                sensitivity=self.sensitivity,
+            )
+            for side in ("left", "right")
+        }
 
     @classmethod
     def from_config(
@@ -288,8 +330,18 @@ class LungeAnalyzer(BaseActionAnalyzer):
         self._last_stand_body_center_x: float | None = None
         self._previous_raw_phase_for_rules = "unknown"
         self._candidate_rule_active = False
+        contact_config = getattr(
+            self,
+            "knee_contact_config",
+            KneeContactConfig(
+                surface_radius_shank_ratio=0.25,
+                enter_height_body_ratio=0.060,
+                exit_height_body_ratio=0.090,
+            ),
+        )
         self._side_knee_detectors = {
             side: KneeContactDetector(
+                contact_config,
                 sensitivity=str(getattr(self, "sensitivity", "medium"))
             )
             for side in ("left", "right")
@@ -382,6 +434,7 @@ class LungeAnalyzer(BaseActionAnalyzer):
         self._knee_extension_hold = 0
         self._hip_extension_hold = 0
         self._extension_observation_frames = 0
+        self._extension_side: Literal["left", "right"] | None = None
         self._knee_extension_observable_frames = 0
         self._hip_extension_observable_frames = 0
         self._knee_extension_evidence: list[int] = []
@@ -391,6 +444,8 @@ class LungeAnalyzer(BaseActionAnalyzer):
     def _start_candidate_rules(self) -> None:
         self._candidate_rule_active = True
         self._reset_candidate_rule_tracking()
+        # Ignore floor/foot-event warm-up before this repetition begins.
+        self._foot_interval_observable = True
         for detector in self._side_knee_detectors.values():
             detector.reset()
 
@@ -428,7 +483,10 @@ class LungeAnalyzer(BaseActionAnalyzer):
             for detector in self._side_knee_detectors.values()
         ):
             self._side_knee_detectors = {
-                side: KneeContactDetector(sensitivity=desired_sensitivity)
+                side: KneeContactDetector(
+                    self.knee_contact_config,
+                    sensitivity=desired_sensitivity,
+                )
                 for side in ("left", "right")
             }
         rank = {"NOT_OBSERVABLE": 0, "UNSURE": 1, "NO_CONTACT": 2, "CONTACT": 3}
@@ -463,8 +521,41 @@ class LungeAnalyzer(BaseActionAnalyzer):
         self,
         features: Mapping[str, object],
         body_center_x: float | None,
+        *,
+        phase: str,
     ) -> None:
-        if self.current_contact_leg is not None and self.trailing_leg_source == "movement_direction":
+        left_height = self._best_side_contacts["left"].surface_height_ratio
+        right_height = self._best_side_contacts["right"].surface_height_ratio
+        if (
+            phase == "bottom"
+            and left_height is not None
+            and right_height is not None
+        ):
+            height_gap = abs(left_height - right_height)
+            lower_side: Literal["left", "right"] = (
+                "left" if left_height <= right_height else "right"
+            )
+            if height_gap >= 0.08 and min(left_height, right_height) <= 0.16:
+                if (
+                    self.current_contact_leg != lower_side
+                    or self.trailing_leg_source == "knee_height_fallback"
+                ):
+                    self.current_contact_leg = lower_side
+                    self.current_leading_leg = (
+                        "right" if lower_side == "left" else "left"
+                    )
+                    self.trailing_leg_source = "knee_height_override"
+                self.trailing_leg_confidence = max(
+                    self.trailing_leg_confidence,
+                    min(0.95, 0.65 + height_gap),
+                )
+                return
+
+        if (
+            self.current_contact_leg is not None
+            and self.trailing_leg_source
+            in {"movement_direction", "knee_height_override"}
+        ):
             return
         start_x = self.rep_start_body_center_x
         displacement = (
@@ -492,8 +583,6 @@ class LungeAnalyzer(BaseActionAnalyzer):
             self.trailing_leg_confidence = min(left_confidence, right_confidence)
             return
 
-        left_height = self._best_side_contacts["left"].surface_height_ratio
-        right_height = self._best_side_contacts["right"].surface_height_ratio
         if left_height is None and right_height is None:
             return
         if right_height is None or (
@@ -515,6 +604,7 @@ class LungeAnalyzer(BaseActionAnalyzer):
     def _observe_post_contact_extension(
         self,
         *,
+        features: Mapping[str, object],
         raw_phase: str,
         left_knee_angle: float | None,
         right_knee_angle: float | None,
@@ -527,21 +617,59 @@ class LungeAnalyzer(BaseActionAnalyzer):
                 self._hip_extension_hold = 0
             return
         self._extension_observation_frames += 1
-        if left_knee_angle is not None and right_knee_angle is not None:
+
+        knee_values = (left_knee_angle, right_knee_angle)
+        hip_values = (left_hip_angle, right_hip_angle)
+        knee_threshold = self.full_extension_knee_angle
+        hip_threshold = self.full_extension_hip_angle
+        if self.camera_view_profile == "side":
+            if self._extension_side is None:
+                side_scores: list[
+                    tuple[float, bool, Literal["left", "right"]]
+                ] = []
+                for side in ("left", "right"):
+                    confidences = [
+                        value
+                        for name in ("hip", "knee", "ankle")
+                        for value in (
+                            _safe_float(
+                                features.get(f"{side}_{name}_confidence")
+                            ),
+                        )
+                        if value is not None
+                    ]
+                    if confidences:
+                        side_scores.append(
+                            (
+                                min(confidences),
+                                side == self.current_leading_leg,
+                                side,
+                            )
+                        )
+                if side_scores and max(side_scores)[0] >= 0.60:
+                    self._extension_side = max(side_scores)[2]
+            if self._extension_side == "left":
+                knee_values = (left_knee_angle,)
+                hip_values = (left_hip_angle,)
+            elif self._extension_side == "right":
+                knee_values = (right_knee_angle,)
+                hip_values = (right_hip_angle,)
+            knee_threshold -= self.side_extension_tolerance_deg
+            hip_threshold -= self.side_extension_tolerance_deg
+
+        if all(value is not None for value in knee_values):
             self._knee_extension_observable_frames += 1
-        if left_hip_angle is not None and right_hip_angle is not None:
+        if all(value is not None for value in hip_values):
             self._hip_extension_observable_frames += 1
         knee_pass = (
-            left_knee_angle is not None
-            and right_knee_angle is not None
-            and min(left_knee_angle, right_knee_angle)
-            >= self.full_extension_knee_angle
+            all(value is not None for value in knee_values)
+            and min(value for value in knee_values if value is not None)
+            >= knee_threshold
         )
         hip_pass = (
-            left_hip_angle is not None
-            and right_hip_angle is not None
-            and min(left_hip_angle, right_hip_angle)
-            >= self.full_extension_hip_angle
+            all(value is not None for value in hip_values)
+            and min(value for value in hip_values if value is not None)
+            >= hip_threshold
         )
         if knee_pass:
             self._knee_extension_hold += 1
@@ -753,6 +881,7 @@ class LungeAnalyzer(BaseActionAnalyzer):
                 "full_extension_confirmed_frame": (
                     self._full_extension_confirmed_frame
                 ),
+                "extension_side": self._extension_side,
                 "visible_score": visible_score,
             },
         )
@@ -903,10 +1032,10 @@ class LungeAnalyzer(BaseActionAnalyzer):
         if (
             raw_phase in {"descent", "bottom"}
             and not self._candidate_rule_active
-            and (
-                self._previous_raw_phase_for_rules == "stand"
-                or self.rep_sequence.progress > 0
-            )
+            # A raw one-frame stand during app/model warm-up is not a valid
+            # repetition start. Wait for the debounced sequence tracker to
+            # confirm stand so a partial clip cannot be joined to the next rep.
+            and self.rep_sequence.progress > 0
         ):
             self._start_candidate_rules()
         if self._candidate_rule_active:
@@ -917,12 +1046,14 @@ class LungeAnalyzer(BaseActionAnalyzer):
             self._select_trailing_leg(
                 features if isinstance(features, Mapping) else {},
                 body_center_x,
+                phase=raw_phase,
             )
             if self.current_contact_leg is not None:
                 contact = self._best_side_contacts[self.current_contact_leg]
                 if contact.status == "CONTACT" and self._contact_confirmed_frame is None:
                     self._contact_confirmed_frame = self.frame_index
             self._observe_post_contact_extension(
+                features=features if isinstance(features, Mapping) else {},
                 raw_phase=raw_phase,
                 left_knee_angle=left_knee_angle,
                 right_knee_angle=right_knee_angle,
@@ -1012,6 +1143,7 @@ class LungeAnalyzer(BaseActionAnalyzer):
                 "extension_observation_frames": self._extension_observation_frames,
                 "contact_confirmed_frame": self._contact_confirmed_frame,
                 "full_extension_confirmed_frame": self._full_extension_confirmed_frame,
+                "extension_side": self._extension_side,
                 "lunge_validation_state": self._validation_state(raw_phase),
                 "current_contact_leg": self.current_contact_leg,
                 "current_leading_leg": self.current_leading_leg,
