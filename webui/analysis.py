@@ -135,6 +135,84 @@ ACTION_REP_LABELS = {
     "farmers_carry": "负重行走",
 }
 
+REP_DECISION_LABELS = {
+    "VALID": "有效动作",
+    "NO_REP": "未完成（NO_REP）",
+    "UNSURE": "无法确认（UNSURE）",
+}
+
+BODY_RULE_LABELS = {
+    "body_sequence_valid": "完整动作端点顺序",
+    "trailing_knee_contact": "后膝触地",
+    "full_knee_extension": "触地后的膝关节完全伸展",
+    "full_hip_extension": "触地后的髋关节完全伸展",
+    "alternating_contact_leg": "左右触地腿交替",
+    "no_extra_step_or_shuffle": "无额外走步或碎步",
+    "tall_start": "起始姿势站直",
+    "hip_below_knee": "深蹲最低点髋部低于膝盖",
+    "upward_extension": "投掷前髋膝完全伸展",
+    "bilateral_throw_proxy": "双手完成投掷动作",
+    "chest_ground_contact": "胸部触地",
+    "simultaneous_takeoff": "双脚同步起跳",
+    "simultaneous_landing": "双脚同步落地",
+    "takeoff_stagger_proxy": "起跳时双脚前后差",
+    "landing_stagger_proxy": "落地时双脚前后差",
+    "legal_hand_placement_proxy": "双手落地点位置",
+    "forward_jump_detected": "向前跳跃距离",
+}
+
+REP_REASON_TEXT = {
+    "NO_REQUIRED_RULES": "没有可用于计数判定的必需人体规则。",
+    "RULE_NOT_EVALUATED": "必需规则没有得到评价。",
+    "REP_MEAN_CONFIDENCE_LOW": "整次动作的平均关键点清晰度不足。",
+    "REQUIRED_LANDMARK_CONFIDENCE_LOW": "判定所需的关键身体点置信度不足。",
+    "DECISIVE_RULE_CONFIDENCE_LOW": "决定计数结果的规则证据置信度不足。",
+    "CAMERA_VIEW_UNSUITABLE": "当前拍摄视角不适合可靠判断这项动作规则。",
+    "FLOOR_REFERENCE_UNSURE": "地板参考线不可靠，无法确认触地或相对高度。",
+    "SINGLE_FRAME_RULE_FAILURE": "异常只出现在单个画面，证据不足以判为未完成。",
+    "TRAILING_LEG_UNRESOLVED": "无法可靠分辨后侧腿。",
+    "TRAILING_KNEE_NO_CONTACT": "没有检测到后膝明确触地。",
+    "TRAILING_KNEE_CONTACT_UNSURE": "后膝触地证据不足。",
+    "TRAILING_KNEE_CONTACT_NOT_OBSERVABLE": "后膝区域不可可靠观察。",
+    "EXTENSION_NOT_AFTER_CONFIRMED_CONTACT": "没有在本次已确认触地之后观察到伸展。",
+    "FULL_KNEE_EXTENSION_NOT_OBSERVABLE": "触地后的膝关节伸展不可可靠观察。",
+    "FULL_HIP_EXTENSION_NOT_OBSERVABLE": "触地后的髋关节伸展不可可靠观察。",
+    "FULL_KNEE_EXTENSION_NOT_HELD": "膝关节完全伸展没有保持足够画面。",
+    "FULL_HIP_EXTENSION_NOT_HELD": "髋关节完全伸展没有保持足够画面。",
+    "CONTACT_LEG_UNRESOLVED": "无法可靠确定本次触地腿。",
+    "SAME_CONTACT_LEG_REPEATED": "连续两次使用了同一条触地腿。",
+    "FOOT_EVENTS_NOT_OBSERVABLE": "脚部事件不可可靠观察。",
+    "LEADING_LEG_UNRESOLVED": "无法可靠确定前侧腿。",
+    "EXTRA_STEP_OR_SHUFFLE": "动作之间检测到额外走步或碎步。",
+    "TALL_START_NOT_OBSERVABLE": "起始站姿不可可靠观察。",
+    "TALL_START_REQUIREMENTS_NOT_MET": "起始时髋、膝或躯干没有达到站直要求。",
+    "HIP_KNEE_FLOOR_HEIGHT_NOT_OBSERVABLE": "最低点的髋膝相对高度不可可靠观察。",
+    "HIP_NOT_BELOW_KNEE": "深蹲最低点髋部没有低于膝盖。",
+    "UPWARD_EXTENSION_NOT_OBSERVABLE": "投掷前的髋膝伸展不可可靠观察。",
+    "UPWARD_EXTENSION_INCOMPLETE": "投掷前髋膝没有完全伸展。",
+    "WRIST_START_NOT_OBSERVABLE": "双手起始位置不可可靠观察。",
+    "WRISTS_DID_NOT_START_NEAR_CHEST": "双手没有从胸前附近开始投掷。",
+    "BILATERAL_THROW_ENDPOINT_NOT_OBSERVABLE": "双手投掷终点不可可靠观察。",
+    "BILATERAL_THROW_NOT_OBSERVABLE": "双手投掷过程不可可靠观察。",
+    "BILATERAL_THROW_BODY_SCALE_NOT_OBSERVABLE": "身体尺度不足，无法可靠换算双手投掷幅度。",
+    "BOTH_WRISTS_NOT_ABOVE_SHOULDERS": "投掷终点双手腕没有都高于肩部。",
+    "BILATERAL_WRIST_RISE_TOO_SMALL": "双手腕从胸前向上的移动幅度不足。",
+    "WRISTS_TOO_FAR_FROM_BODY_MIDLINE": "投掷时双手离身体中线过远。",
+    "WRIST_PEAK_TIMING_UNSURE": "双手最高点时序证据不足。",
+    "WRIST_PEAKS_NOT_SYNCHRONIZED": "双手没有同步到达投掷最高点。",
+    "CHEST_GROUND_CONTACT_NOT_CONFIRMED": "没有确认胸部触地。",
+    "CHEST_GROUND_CONTACT_UNSURE": "胸部触地证据不足。",
+    "CHEST_GROUND_CONTACT_NOT_OBSERVABLE": "胸部触地区域不可可靠观察。",
+    "FORWARD_JUMP_NOT_OBSERVABLE": "向前跳跃位移不可可靠观察。",
+    "FORWARD_JUMP_DISPLACEMENT_TOO_SMALL": "向前跳跃位移不足。",
+    "POST_LANDING_FEET_NOT_OBSERVABLE": "落地后的脚部动作不可可靠观察。",
+    "LEGAL_HAND_PLACEMENT_PROXY_NOT_OBSERVABLE": "双手与脚尖的相对落点不可可靠观察。",
+    "LEGAL_HAND_PLACEMENT_PROXY_FLOOR_UNSURE": "地板参考不足，无法确认双手落点。",
+    "LEGAL_HAND_PLACEMENT_PROXY_FOOT_LENGTH_UNSURE": "脚长尺度不足，无法确认双手落点距离。",
+    "LEGAL_HAND_PLACEMENT_PROXY_BORDERLINE": "双手落点接近允许距离边界。",
+    "LEGAL_HAND_PLACEMENT_PROXY_TOO_FAR": "双手落地点离脚尖过远。",
+}
+
 CAPTURE_ISSUE_CODES = {
     "LOW_VISIBILITY",
     "POSE_MISSING",
@@ -548,6 +626,8 @@ def render_text_report(report: Mapping[str, Any]) -> str:
         f"生成时间：{generated_at}",
         f"识别完整周期：{int(summary.get('candidate_count', summary.get('reps')) or 0)} 次",
         f"人体规则有效动作：{int(summary.get('pose_valid_rep_count', summary.get('reps')) or 0)} 次",
+        f"人体规则未完成：{int(summary.get('no_rep_count') or 0)} 次",
+        f"人体规则无法确认：{int(summary.get('unsure_count') or 0)} 次",
         f"总体评价：{analysis.get('overall_status', '暂无评价')}",
         f"关键阶段合规率：{'暂无' if compliance is None else f'{compliance}%'}",
         "说明：合规率不包含过渡阶段、低清晰度和接近判定边界的画面。姿态系统无法确认器械重量、距离、是否击中目标或是否越过场地线。",
@@ -564,10 +644,32 @@ def render_text_report(report: Mapping[str, Any]) -> str:
     if not rep_details:
         lines.append("- 未识别到一套完整动作，无法按次数拆分。")
     for detail in rep_details:
+        count_status = str(detail.get("count_status", ""))
+        count_status_text = str(detail.get("count_status_text", ""))
+        header_status = (
+            f"{count_status_text}；动作质量：{detail['status']}"
+            if count_status_text
+            else str(detail["status"])
+        )
         lines.extend(
             [
                 "",
-                f"{detail['title']}（{detail['status']}，{detail['time_text']}）",
+                f"{detail['title']}（{header_status}，{detail['time_text']}）",
+            ]
+        )
+        if count_status in {"NO_REP", "UNSURE"}:
+            lines.extend(
+                [
+                    "  未计为有效动作的原因：",
+                    *[
+                        f"  - {item}"
+                        for item in detail.get("invalid_reasons")
+                        or ["本次计数判定的必需证据不足。"]
+                    ],
+                ]
+            )
+        lines.extend(
+            [
                 "  做得好：",
                 *[f"  - {item}" for item in detail.get("positives") or ["本次没有足够清晰的达标阶段可总结。"]],
                 "  需要改进：",
@@ -631,21 +733,36 @@ def _rep_details(action: str, frames: Sequence[Mapping[str, Any]]) -> list[dict[
         return []
     label = ACTION_REP_LABELS.get(action, "动作")
     base_timestamp = _number(frames[0].get("timestamp_unix_ms"))
-    previous_count = _safe_int(frames[0].get("reps"))
+    has_candidate_counts = any("candidate_count" in frame for frame in frames)
+    count_key = "candidate_count" if has_candidate_counts else "reps"
+    previous_count = 0
     segment_start = 0
-    segments: list[tuple[int, Sequence[Mapping[str, Any]]]] = []
+    segments: list[tuple[int, Sequence[Mapping[str, Any]], Mapping[str, Any] | None]] = []
     for index, frame in enumerate(frames):
-        count = _safe_int(frame.get("reps"))
+        count = _safe_int(frame.get(count_key))
         if count <= previous_count:
             continue
-        segments.append((count, frames[segment_start : index + 1]))
+        decision = frame.get("last_rep_decision")
+        segments.append(
+            (
+                count,
+                frames[segment_start : index + 1],
+                decision if isinstance(decision, Mapping) else None,
+            )
+        )
         segment_start = index + 1
         previous_count = count
     if not segments and action == "farmers_carry":
         return [_summarize_rep_segment(0, "整段负重行走", frames, base_timestamp)]
     return [
-        _summarize_rep_segment(rep_index, f"第 {rep_index} 次{label}", segment, base_timestamp)
-        for rep_index, segment in segments
+        _summarize_rep_segment(
+            rep_index,
+            f"第 {rep_index} 次{label}",
+            segment,
+            base_timestamp,
+            decision,
+        )
+        for rep_index, segment, decision in segments
     ]
 
 
@@ -654,6 +771,7 @@ def _summarize_rep_segment(
     title: str,
     frames: Sequence[Mapping[str, Any]],
     base_timestamp: float | None,
+    decision: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     evaluable = [frame for frame in frames if (frame.get("assessment") or {}).get("evaluable") is True]
     good = sum(1 for frame in evaluable if (frame.get("assessment") or {}).get("status") == "good")
@@ -708,16 +826,92 @@ def _summarize_rep_segment(
         time_text = f"视频 {max(0.0, (start_timestamp - base_timestamp) / 1000.0):.1f}-{max(0.0, (end_timestamp - base_timestamp) / 1000.0):.1f} 秒"
     else:
         time_text = f"{len(frames)} 个画面"
+    count_status = str(decision.get("status", "")) if decision is not None else ""
+    if not count_status and rep_index > 0:
+        count_status = "VALID"
     return {
         "rep_index": rep_index,
         "title": title,
         "status": _overall_status(compliance),
+        "count_status": count_status,
+        "count_status_text": REP_DECISION_LABELS.get(count_status, ""),
+        "invalid_reasons": _invalid_rep_reasons(decision),
         "compliance_rate": compliance,
         "evaluable_frames": len(evaluable),
         "time_text": time_text,
         "positives": positives[:4],
         "improvements": list(dict.fromkeys(improvements))[:4],
     }
+
+
+def _invalid_rep_reasons(decision: Mapping[str, Any] | None) -> list[str]:
+    if decision is None:
+        return []
+    status = str(decision.get("status", ""))
+    if status not in {"NO_REP", "UNSURE"}:
+        return []
+
+    reasons: list[str] = []
+    rule_reason_codes: set[str] = set()
+    decisive_statuses = {"FAIL"} if status == "NO_REP" else {"UNSURE", "NOT_APPLICABLE"}
+    for rule in decision.get("rules") or []:
+        if not isinstance(rule, Mapping) or rule.get("required_for_count") is False:
+            continue
+        rule_status = str(rule.get("status", ""))
+        if rule_status not in decisive_statuses:
+            continue
+        rule_id = str(rule.get("rule_id", ""))
+        label = BODY_RULE_LABELS.get(rule_id, _humanize_code(rule_id))
+        reason_code = str(rule.get("reason_code", "")).strip().upper()
+        if reason_code:
+            rule_reason_codes.add(reason_code)
+        reason = _rep_reason_text(reason_code)
+        if reason:
+            reasons.append(f"{label}：{reason}")
+        elif status == "NO_REP":
+            reasons.append(f"{label}未达到计数要求。")
+        else:
+            reasons.append(f"{label}的证据不足，无法确认。")
+
+    if status == "UNSURE":
+        for code in decision.get("reason_codes") or []:
+            resolved_code = str(code).strip().upper()
+            if resolved_code in rule_reason_codes:
+                continue
+            text = _rep_reason_text(resolved_code)
+            if text:
+                reasons.append(text)
+
+    if not reasons:
+        fallback = (
+            "一项或多项必需人体规则没有达到计数要求。"
+            if status == "NO_REP"
+            else "判定所需的人体关键点、视角或动作时序证据不足。"
+        )
+        reasons.append(fallback)
+    return list(dict.fromkeys(reasons))
+
+
+def _rep_reason_text(code: str) -> str:
+    resolved = str(code).strip().upper()
+    if not resolved:
+        return ""
+    if resolved in REP_REASON_TEXT:
+        return REP_REASON_TEXT[resolved]
+    if resolved.endswith("_NOT_OBSERVABLE"):
+        return "相关身体部位或动作阶段不可可靠观察。"
+    if resolved.endswith("_UNSURE") or resolved.endswith("_BORDERLINE"):
+        return "证据接近判定边界，无法可靠确认。"
+    if resolved.endswith("_ASYNCHRONOUS"):
+        return "左右动作没有达到同步要求。"
+    if resolved.endswith("_NOT_HELD"):
+        return "目标姿势没有保持足够画面。"
+    return ""
+
+
+def _humanize_code(code: str) -> str:
+    resolved = str(code).strip().replace("_", " ")
+    return resolved if resolved else "必需人体规则"
 
 
 def _safe_int(value: Any) -> int:

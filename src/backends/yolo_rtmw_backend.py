@@ -23,6 +23,10 @@ DEFAULT_RTMW_MODEL = (
     "models/rtmw-dw-x-l_simcc-cocktail14_270e-256x192_20231122.onnx"
 )
 RTMW_INPUT_SIZE = (192, 256)
+RTMW_HAND_MIN_CONFIDENCE = 0.30
+RTMW_HAND_MIN_POINTS = 12
+RTMW_HAND_MAX_WRIST_DISTANCE = 0.12
+RTMW_HAND_MAX_TORSO_OVERLAP = 0.60
 IDENTITY_MATCH_NAMES: tuple[str, ...] = (
     "nose",
     "left_shoulder",
@@ -79,6 +83,10 @@ class YoloRtmwWholeBodyBackend:
         min_match_points: int = 6,
         max_match_distance: float = 0.20,
         match_confidence: float = 0.20,
+        hand_min_confidence: float = RTMW_HAND_MIN_CONFIDENCE,
+        hand_min_points: int = RTMW_HAND_MIN_POINTS,
+        hand_max_wrist_distance: float = RTMW_HAND_MAX_WRIST_DISTANCE,
+        hand_max_torso_overlap: float = RTMW_HAND_MAX_TORSO_OVERLAP,
         yolo_backend: Any | None = None,
         session: Any | None = None,
     ) -> None:
@@ -94,6 +102,13 @@ class YoloRtmwWholeBodyBackend:
         self.min_match_points = int(min_match_points)
         self.max_match_distance = float(max_match_distance)
         self.match_confidence = float(match_confidence)
+        self.hand_min_confidence = max(0.0, min(1.0, float(hand_min_confidence)))
+        self.hand_min_points = max(1, min(21, int(hand_min_points)))
+        self.hand_max_wrist_distance = max(0.0, float(hand_max_wrist_distance))
+        self.hand_max_torso_overlap = max(
+            0.0,
+            min(1.0, float(hand_max_torso_overlap)),
+        )
         self.yolo_backend = yolo_backend or YoloPoseBackend(
             str(yolo_model_path),
             target_select=target_select,
@@ -151,11 +166,20 @@ class YoloRtmwWholeBodyBackend:
                 match_points=match_points,
             )
 
+        hand_keypoints, rejected_hands = self._hand_keypoints(
+            coordinates,
+            scores,
+            width,
+            height,
+            yolo_result.keypoints,
+        )
         keypoints = self._mediapipe33_keypoints(
             coordinates,
             scores,
             width,
             height,
+            yolo_result.keypoints,
+            accepted_hand_sides=frozenset(hand_keypoints),
         )
         extra = {
             **dict(yolo_result.extra),
@@ -166,12 +190,8 @@ class YoloRtmwWholeBodyBackend:
             "rtmw_keypoint_count": int(coordinates.shape[0]),
             "rtmw_provider": self.provider,
             "rtmw_inference_time_ms": rtmw_time_ms,
-            "rtmw_hand_keypoints": self._hand_keypoints(
-                coordinates,
-                scores,
-                width,
-                height,
-            ),
+            "rtmw_hand_keypoints": hand_keypoints,
+            "rtmw_rejected_hands": rejected_hands,
         }
         return PoseResult(
             keypoints=keypoints,
@@ -375,6 +395,8 @@ class YoloRtmwWholeBodyBackend:
         scores: np.ndarray,
         width: int,
         height: int,
+        yolo_keypoints: Sequence[Keypoint] = (),
+        accepted_hand_sides: frozenset[str] | None = None,
     ) -> list[Keypoint]:
         resolved: dict[str, Keypoint] = {
             point.name: point
@@ -386,6 +408,13 @@ class YoloRtmwWholeBodyBackend:
             )
         }
         for name, index in COCO133_SUPPLEMENTAL_INDEX.items():
+            side = name.split("_", 1)[0]
+            if (
+                name.endswith(("thumb", "index", "pinky"))
+                and accepted_hand_sides is not None
+                and side not in accepted_hand_sides
+            ):
+                continue
             resolved[name] = self._point_from_index(
                 name,
                 index,
@@ -403,6 +432,12 @@ class YoloRtmwWholeBodyBackend:
                 width,
                 height,
             )
+        # YOLO owns the target identity and is more stable for the 17 core
+        # joints under self-occlusion. RTMW only supplements the extra feet
+        # and hand points after the two models have matched the same person.
+        for point in yolo_keypoints:
+            if point.name in COCO_17_NAMES:
+                resolved[point.name] = point
         return [
             resolved.get(name) or self._missing_keypoint(name)
             for name in MEDIAPIPE_33_NAMES
@@ -414,8 +449,11 @@ class YoloRtmwWholeBodyBackend:
         scores: np.ndarray,
         width: int,
         height: int,
-    ) -> dict[str, tuple[Keypoint, ...]]:
+        body_keypoints: Sequence[Keypoint] = (),
+    ) -> tuple[dict[str, tuple[Keypoint, ...]], dict[str, str]]:
         hands: dict[str, tuple[Keypoint, ...]] = {}
+        rejected: dict[str, str] = {}
+        body_by_name = {point.name: point for point in body_keypoints}
         for side, indices in COCO133_HAND_RANGES.items():
             points = tuple(
                 self._point_from_index(
@@ -428,9 +466,105 @@ class YoloRtmwWholeBodyBackend:
                 )
                 for hand_index, wholebody_index in enumerate(indices)
             )
-            if any(self._usable(point) for point in points):
+            rejection = self._hand_rejection_reason(
+                side,
+                points,
+                body_by_name,
+            )
+            if rejection is None:
                 hands[side] = points
-        return hands
+            else:
+                rejected[side] = rejection
+        return hands, rejected
+
+    def _hand_rejection_reason(
+        self,
+        side: str,
+        points: Sequence[Keypoint],
+        body_by_name: dict[str, Keypoint],
+    ) -> str | None:
+        visible = [
+            point
+            for point in points
+            if point.confidence >= self.hand_min_confidence
+            and isfinite(point.x)
+            and isfinite(point.y)
+        ]
+        if len(visible) < self.hand_min_points:
+            return "low_confidence"
+
+        xs = [point.x for point in visible]
+        ys = [point.y for point in visible]
+        hand_span = hypot(max(xs) - min(xs), max(ys) - min(ys))
+        if hand_span < 0.008 or hand_span > 0.35:
+            return "implausible_geometry"
+
+        body_wrist = body_by_name.get(f"{side}_wrist")
+        hand_wrist = points[0] if points else None
+        if (
+            body_wrist is not None
+            and hand_wrist is not None
+            and self._usable(body_wrist)
+            and self._usable(hand_wrist)
+            and hypot(
+                body_wrist.x - hand_wrist.x,
+                body_wrist.y - hand_wrist.y,
+            )
+            > self.hand_max_wrist_distance
+        ):
+            return "wrist_mismatch"
+
+        if self._hand_torso_overlap(points[1:], body_by_name):
+            return "torso_occlusion"
+        return None
+
+    def _hand_torso_overlap(
+        self,
+        finger_points: Sequence[Keypoint],
+        body_by_name: dict[str, Keypoint],
+    ) -> bool:
+        torso_points = [
+            body_by_name.get(name)
+            for name in (
+                "left_shoulder",
+                "right_shoulder",
+                "left_hip",
+                "right_hip",
+            )
+        ]
+        if any(point is None or not self._usable(point) for point in torso_points):
+            return False
+        resolved = [point for point in torso_points if point is not None]
+        left = min(point.x for point in resolved)
+        right = max(point.x for point in resolved)
+        top = min(point.y for point in resolved)
+        bottom = max(point.y for point in resolved)
+        torso_width = right - left
+        torso_height = bottom - top
+        if torso_width < 0.025 or torso_height < 0.06:
+            return False
+
+        # Only count points well inside the torso. Boundary points can be a
+        # visible hand resting beside the shoulder or hip.
+        inner_left = left + torso_width * 0.10
+        inner_right = right - torso_width * 0.10
+        inner_top = top + torso_height * 0.08
+        inner_bottom = bottom - torso_height * 0.08
+        usable = [
+            point
+            for point in finger_points
+            if point.confidence >= self.hand_min_confidence
+            and isfinite(point.x)
+            and isfinite(point.y)
+        ]
+        if len(usable) < self.hand_min_points - 1:
+            return False
+        inside = sum(
+            inner_left <= point.x <= inner_right
+            and inner_top <= point.y <= inner_bottom
+            for point in usable
+        )
+        return inside / len(usable) >= self.hand_max_torso_overlap
 
     def _point_from_index(
         self,

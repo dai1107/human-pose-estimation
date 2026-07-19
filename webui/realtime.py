@@ -199,6 +199,16 @@ def validate_manual_floor_points(value: object) -> list[list[float]]:
 def default_backend_factory(requested: str, action: str) -> tuple[Any, str]:
     resolved = resolve_backend_choice(requested, action_type=action, input_video="")
     if resolved == "mediapipe":
+        if action == "lunge":
+            return (
+                YoloGuidedMediaPipeBackend(
+                    PROJECT_ROOT / "yolo11n-pose.pt",
+                    PROJECT_ROOT / "models" / "pose_landmarker_full.task",
+                    target_select="tracking",
+                    device=resolve_torch_device("auto"),
+                ),
+                "yolo-guided-mediapipe",
+            )
         # Avoid a native MediaPipe crash seen on Windows when mask generation
         # receives certain camera/video dimensions. Pose landmarks are enough
         # for the web analyzer and remain enabled.
@@ -802,6 +812,16 @@ class RealtimePoseSession:
             if isinstance(action_debug, Mapping)
             else {}
         )
+        last_rep_decision = (
+            dict(action_state.get("last_rep_decision") or {})
+            if isinstance(action_state, Mapping)
+            else {}
+        )
+        last_rep_observability = (
+            dict(action_state.get("last_rep_observability") or {})
+            if isinstance(action_state, Mapping)
+            else {}
+        )
         evaluation_phase = str(action_debug.get("raw_phase", phase)) if isinstance(action_debug, Mapping) else phase
         detected_issues = _feedback_items(action_state)
         feedback = visible_feedback(detected_issues, evaluation_phase)
@@ -829,6 +849,8 @@ class RealtimePoseSession:
             "floor_reference": floor_reference,
             "contacts": contacts,
             "foot_events": foot_events,
+            "last_rep_decision": last_rep_decision,
+            "last_rep_observability": last_rep_observability,
             "pose_detected": has_pose,
             "hands_detected": bool(hand_keypoints),
             "feedback": feedback,

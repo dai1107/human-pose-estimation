@@ -218,13 +218,11 @@ def _draw_angle_overlay(frame: Any, result: Any, assessment: Mapping[str, Any]) 
 
 
 def _backend_plan(config: Mapping[str, Any]) -> tuple[str, str]:
-    """Keep the foreground athlete selected in the crowded lunge sample."""
+    """Lock the foreground athlete throughout the crowded lunge sample."""
     requested = str(config.get("backend", "auto"))
     if config.get("source_mode") == "sample" and config.get("action") == "lunge":
         if requested == "auto":
-            return "yolo-pose", "area"
-        if requested in {"yolo-pose", "rtmw-wholebody"}:
-            return requested, "area"
+            return "yolo-pose", "tracking"
     return requested, "tracking"
 
 
@@ -502,6 +500,16 @@ class PoseStreamEngine:
     ) -> tuple[Any, str]:
         resolved = resolve_backend_choice(requested, action_type=action, input_video=source_path)
         if resolved == "mediapipe":
+            if action == "lunge":
+                return (
+                    YoloGuidedMediaPipeBackend(
+                        PROJECT_ROOT / "yolo11n-pose.pt",
+                        PROJECT_ROOT / "models" / "pose_landmarker_full.task",
+                        target_select=target_select,
+                        device=resolve_torch_device("auto"),
+                    ),
+                    "yolo-guided-mediapipe",
+                )
             # MediaPipe 0.10.35 on Windows can abort the entire process while
             # producing segmentation masks for some non-standard video sizes.
             # Keypoint detection remains fully available without the mask.
@@ -673,6 +681,16 @@ class PoseStreamEngine:
                     if isinstance(action_debug, Mapping)
                     else {}
                 )
+                last_rep_decision = (
+                    dict(action_state.get("last_rep_decision") or {})
+                    if isinstance(action_state, Mapping)
+                    else {}
+                )
+                last_rep_observability = (
+                    dict(action_state.get("last_rep_observability") or {})
+                    if isinstance(action_state, Mapping)
+                    else {}
+                )
                 evaluation_phase = str(action_debug.get("raw_phase", phase)) if isinstance(action_debug, Mapping) else phase
                 all_feedback = _feedback_items(action_state, phase_aware=False)
                 feedback = visible_feedback(all_feedback, evaluation_phase)
@@ -780,6 +798,8 @@ class PoseStreamEngine:
                                 "floor_reference": floor_reference,
                                 "contacts": contacts,
                                 "foot_events": foot_events,
+                                "last_rep_decision": last_rep_decision,
+                                "last_rep_observability": last_rep_observability,
                                 "pose_detected": has_pose,
                                 "hands_detected": bool(hand_keypoints),
                                 "feedback": feedback,

@@ -63,11 +63,30 @@ def test_lunge_sample_uses_yolo_guided_mediapipe(monkeypatch: Any) -> None:
         "yolo-pose",
         "lunge",
         "",
-        target_select="area",
+        target_select="tracking",
     )
 
     assert resolved == "yolo-guided-mediapipe"
-    assert FakeYoloGuidedMediaPipeBackend.calls[0][1]["target_select"] == "area"
+    assert FakeYoloGuidedMediaPipeBackend.calls[0][1]["target_select"] == "tracking"
+
+
+def test_lunge_mediapipe_uses_yolo_identity_lock(monkeypatch: Any) -> None:
+    FakeYoloGuidedMediaPipeBackend.calls.clear()
+    monkeypatch.setattr(
+        web_app,
+        "YoloGuidedMediaPipeBackend",
+        FakeYoloGuidedMediaPipeBackend,
+    )
+
+    _, resolved = web_app.PoseStreamEngine()._create_backend(
+        "mediapipe",
+        "lunge",
+        "",
+        target_select="tracking",
+    )
+
+    assert resolved == "yolo-guided-mediapipe"
+    assert FakeYoloGuidedMediaPipeBackend.calls[0][1]["target_select"] == "tracking"
 
 
 def test_realtime_lunge_yolo_uses_yolo_guided_mediapipe(monkeypatch: Any) -> None:
@@ -84,6 +103,22 @@ def test_realtime_lunge_yolo_uses_yolo_guided_mediapipe(monkeypatch: Any) -> Non
     assert FakeYoloGuidedMediaPipeBackend.calls[0][1]["target_select"] == "tracking"
 
 
+def test_realtime_lunge_mediapipe_uses_yolo_identity_lock(
+    monkeypatch: Any,
+) -> None:
+    FakeYoloGuidedMediaPipeBackend.calls.clear()
+    monkeypatch.setattr(
+        web_realtime,
+        "YoloGuidedMediaPipeBackend",
+        FakeYoloGuidedMediaPipeBackend,
+    )
+
+    _, resolved = web_realtime.default_backend_factory("mediapipe", "lunge")
+
+    assert resolved == "yolo-guided-mediapipe"
+    assert FakeYoloGuidedMediaPipeBackend.calls[0][1]["target_select"] == "tracking"
+
+
 def test_sample_can_select_rtmw_wholebody(monkeypatch: Any) -> None:
     FakeYoloRtmwBackend.calls.clear()
     monkeypatch.setattr(web_app, "YoloRtmwWholeBodyBackend", FakeYoloRtmwBackend)
@@ -92,11 +127,11 @@ def test_sample_can_select_rtmw_wholebody(monkeypatch: Any) -> None:
         "rtmw-wholebody",
         "lunge",
         "",
-        target_select="area",
+        target_select="tracking",
     )
 
     assert resolved == "yolo-rtmw-wholebody"
-    assert FakeYoloRtmwBackend.calls[0][1]["target_select"] == "area"
+    assert FakeYoloRtmwBackend.calls[0][1]["target_select"] == "tracking"
 
 
 def test_realtime_can_select_rtmw_wholebody(monkeypatch: Any) -> None:

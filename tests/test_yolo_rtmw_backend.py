@@ -90,8 +90,12 @@ def _wholebody_output(
     coordinates[20] = (60.0, 82.0)
     coordinates[21] = (80.0, 82.0)
     coordinates[22] = (75.0, 78.0)
-    for index in range(91, 133):
-        coordinates[index] = (30.0 + (index - 91) * 0.5, 35.0)
+    for start in (91, 112):
+        for hand_index in range(21):
+            coordinates[start + hand_index] = (
+                48.0 + (hand_index % 5),
+                48.0 + (hand_index // 5),
+            )
     return coordinates, scores
 
 
@@ -107,6 +111,7 @@ def _backend(yolo_result: PoseResult) -> tuple[YoloRtmwWholeBodyBackend, FakeSes
 def test_maps_matched_wholebody_feet_and_both_21_point_hands() -> None:
     backend, _ = _backend(_yolo_result())
     coordinates, scores = _wholebody_output()
+    coordinates[13] = (60.0, 50.0)
     backend._infer = lambda _frame, _bbox: (coordinates, scores)  # type: ignore[method-assign]
 
     result = backend.detect(np.zeros((100, 100, 3), dtype=np.uint8), timestamp_ms=7)
@@ -122,8 +127,11 @@ def test_maps_matched_wholebody_feet_and_both_21_point_hands() -> None:
     assert points["right_heel"].x == 0.75
     assert points["right_foot_index"].x == pytest.approx(0.70)
     assert points["left_heel"].source_model == "rtmw-wholebody"
+    assert points["left_knee"].x == pytest.approx(0.50)
+    assert points["left_knee"].source_model == "yolo-pose"
     assert len(result.extra["rtmw_hand_keypoints"]["left"]) == 21
     assert len(result.extra["rtmw_hand_keypoints"]["right"]) == 21
+    assert result.extra["rtmw_rejected_hands"] == {}
 
 
 def test_rejects_identity_mismatch_and_returns_only_yolo_core_points() -> None:
@@ -152,6 +160,51 @@ def test_does_not_run_rtmw_without_a_yolo_target() -> None:
     assert result.keypoints == []
     assert result.extra["rtmw_wholebody_available"] is False
     assert session.run_calls == 0
+
+
+def test_hides_rtmw_fingers_when_the_hand_is_occluded_inside_the_torso() -> None:
+    yolo_result = _yolo_result()
+    layout = {
+        "left_shoulder": (0.40, 0.30),
+        "right_shoulder": (0.60, 0.30),
+        "left_hip": (0.43, 0.65),
+        "right_hip": (0.57, 0.65),
+        "left_wrist": (0.50, 0.42),
+        "right_wrist": (0.75, 0.42),
+    }
+    yolo_points = [
+        replace(
+            point,
+            x=layout.get(point.name, (point.x, point.y))[0],
+            y=layout.get(point.name, (point.x, point.y))[1],
+        )
+        for point in yolo_result.keypoints
+    ]
+    yolo_result = replace(yolo_result, keypoints=yolo_points)
+    backend, _ = _backend(yolo_result)
+    coordinates, scores = _wholebody_output()
+    for index, point in enumerate(yolo_points):
+        coordinates[index] = (point.x * 100.0, point.y * 100.0)
+    for hand_index in range(21):
+        coordinates[91 + hand_index] = (
+            48.0 + hand_index % 5,
+            40.0 + hand_index // 5,
+        )
+        coordinates[112 + hand_index] = (
+            73.0 + hand_index % 5,
+            40.0 + hand_index // 5,
+        )
+    backend._infer = lambda _frame, _bbox: (coordinates, scores)  # type: ignore[method-assign]
+
+    result = backend.detect(np.zeros((100, 100, 3), dtype=np.uint8))
+
+    points = {point.name: point for point in result.keypoints}
+    assert set(result.extra["rtmw_hand_keypoints"]) == {"right"}
+    assert result.extra["rtmw_rejected_hands"]["left"] == "torso_occlusion"
+    assert points["left_thumb"].confidence == 0.0
+    assert points["left_index"].confidence == 0.0
+    assert points["left_pinky"].confidence == 0.0
+    assert points["right_index"].confidence > 0.0
 
 
 def test_closes_the_yolo_target_tracker() -> None:

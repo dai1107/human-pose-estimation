@@ -203,6 +203,88 @@ def test_each_completed_rep_summarizes_strengths_and_improvements() -> None:
     assert any("躯干前倾过多" in item for item in detail["improvements"])
 
 
+def test_text_report_explains_every_candidate_that_is_not_valid() -> None:
+    report = enrich_report(
+        {
+            "summary": {
+                "action": "lunge",
+                "action_label": "沙袋弓步",
+                "reps": 0,
+                "candidate_count": 2,
+                "pose_valid_rep_count": 0,
+                "no_rep_count": 1,
+                "unsure_count": 1,
+            },
+            "frames": [
+                {
+                    "timestamp_unix_ms": 1000,
+                    "reps": 0,
+                    "candidate_count": 0,
+                    "assessment": {"status": "good", "evaluable": True},
+                    "detected_issues": [],
+                },
+                {
+                    "timestamp_unix_ms": 1500,
+                    "reps": 0,
+                    "candidate_count": 1,
+                    "assessment": {"status": "bad", "evaluable": True},
+                    "detected_issues": [],
+                    "last_rep_decision": {
+                        "status": "NO_REP",
+                        "reason_codes": ["FULL_KNEE_EXTENSION_NOT_HELD"],
+                        "rules": [
+                            {
+                                "rule_id": "full_knee_extension",
+                                "status": "FAIL",
+                                "reason_code": "FULL_KNEE_EXTENSION_NOT_HELD",
+                                "required_for_count": True,
+                            }
+                        ],
+                    },
+                },
+                {
+                    "timestamp_unix_ms": 2000,
+                    "reps": 0,
+                    "candidate_count": 1,
+                    "assessment": {"status": "good", "evaluable": False},
+                    "detected_issues": [],
+                },
+                {
+                    "timestamp_unix_ms": 2500,
+                    "reps": 0,
+                    "candidate_count": 2,
+                    "assessment": {"status": "good", "evaluable": False},
+                    "detected_issues": [],
+                    "last_rep_decision": {
+                        "status": "UNSURE",
+                        "reason_codes": ["CAMERA_VIEW_UNSUITABLE"],
+                        "rules": [
+                            {
+                                "rule_id": "trailing_knee_contact",
+                                "status": "PASS",
+                                "reason_code": None,
+                                "required_for_count": True,
+                            }
+                        ],
+                    },
+                },
+            ],
+        }
+    )
+
+    details = report["analysis"]["rep_details"]
+    assert [item["count_status"] for item in details] == ["NO_REP", "UNSURE"]
+    assert "膝关节完全伸展没有保持足够画面" in details[0]["invalid_reasons"][0]
+    assert details[1]["invalid_reasons"] == ["当前拍摄视角不适合可靠判断这项动作规则。"]
+
+    text_report = render_text_report(report)
+    assert "人体规则未完成：1 次" in text_report
+    assert "人体规则无法确认：1 次" in text_report
+    assert text_report.count("未计为有效动作的原因") == 2
+    assert "第 1 次弓步（未完成（NO_REP）" in text_report
+    assert "第 2 次弓步（无法确认（UNSURE）" in text_report
+
+
 def test_completed_rep_voice_feedback_reuses_report_improvements() -> None:
     tracker = RepVoiceFeedbackTracker()
     tracker.update(

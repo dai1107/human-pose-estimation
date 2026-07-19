@@ -157,7 +157,7 @@ def serialize_hand_overlay(
 def rtmw_hand_detections(
     extra: Mapping[str, object],
     *,
-    min_confidence: float = 0.05,
+    min_confidence: float = 0.30,
 ) -> dict[str, HandDetection]:
     """Adapt RTMW's 21-point hands to the existing web hand overlay."""
     raw_hands = extra.get("rtmw_hand_keypoints")
@@ -181,13 +181,18 @@ def rtmw_hand_detections(
                 )
             except (TypeError, ValueError, OverflowError):
                 x, y, z, confidence = float("nan"), float("nan"), 0.0, 0.0
+            display_confidence = (
+                confidence
+                if isfinite(x) and isfinite(y) and confidence >= min_confidence
+                else 0.0
+            )
             landmarks.append(
                 LandmarkPoint(
                     x=x,
                     y=y,
                     z=z,
-                    visibility=confidence,
-                    presence=confidence,
+                    visibility=display_confidence,
+                    presence=display_confidence,
                 )
             )
             if isfinite(x) and isfinite(y) and confidence >= min_confidence:

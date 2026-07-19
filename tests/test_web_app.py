@@ -138,10 +138,10 @@ def test_sample_action_and_video_are_linked_by_the_api() -> None:
     assert "不一致" in mismatch.json["error"]
 
 
-def test_crowded_lunge_sample_selects_the_largest_foreground_person() -> None:
+def test_crowded_lunge_sample_locks_the_foreground_person() -> None:
     assert _backend_plan({"source_mode": "sample", "action": "lunge", "backend": "auto"}) == (
         "yolo-pose",
-        "area",
+        "tracking",
     )
     assert _backend_plan({"source_mode": "camera", "action": "lunge", "backend": "auto"}) == (
         "auto",
@@ -153,7 +153,7 @@ def test_crowded_lunge_sample_selects_the_largest_foreground_person() -> None:
             "action": "lunge",
             "backend": "rtmw-wholebody",
         }
-    ) == ("rtmw-wholebody", "area")
+    ) == ("rtmw-wholebody", "tracking")
 
 
 def test_web_page_offers_rtmw_wholebody_model() -> None:
