@@ -46,12 +46,43 @@ const phaseLabels = {
   step_or_jump_in: "收腿", broad_jump_takeoff: "跳远起跳", flight_or_move: "腾空或移动",
   reach: "前伸取绳", recover: "向前移动回位", walking: "行走", airborne: "腾空", landing: "落地", support: "支撑",
 };
-const viewTips = {
-  unknown: "选择实际拍摄视角后，可获得更准确的动作反馈。",
-  front: "正面适合观察左右对称、膝部轨迹和站姿。",
-  side: "侧面适合观察躯干角度、髋铰链和步幅。",
-  front_left: "左前方兼顾身体对称与前后动作幅度。",
-  front_right: "右前方兼顾身体对称与前后动作幅度。",
+const actionCameraTips = {
+  none: {
+    view: "根据训练动作选择",
+    framing: "保持全身、双手、双脚和脚下地板完整入镜",
+  },
+  lunge: {
+    view: "侧面或斜侧面",
+    framing: "全身、双脚与脚下地板，确保站立和后膝触地阶段不出画",
+  },
+  wall_ball: {
+    view: "正面或斜前方",
+    framing: "全身、脚下地板、双脚与双手腕，手臂上举时也不得出画",
+  },
+  rowing: {
+    view: "侧面",
+    framing: "全身、双手和双脚，并覆盖划船起始与结束位置",
+  },
+  skierg: {
+    view: "正面或斜前方",
+    framing: "全身、双手和双脚，并预留双手到顶部与下拉底部的垂直空间",
+  },
+  burpee_broad_jump: {
+    view: "侧面约 45°",
+    framing: "全身、双手、双脚和下一落地区域，前进方向预留足够空间",
+  },
+  sled_push: {
+    view: "侧面或斜侧面",
+    framing: "全身、双手、双脚及前方移动区域，推动过程中持续不出画",
+  },
+  sled_pull: {
+    view: "侧面或斜侧面",
+    framing: "全身、双手、双脚及拉动和回位区域，移动过程中持续不出画",
+  },
+  farmers_carry: {
+    view: "正面或斜前方",
+    framing: "全身、双手、双脚及身体两侧负重区域，行走过程中持续不出画",
+  },
 };
 const backendLabels = {
   "yolo-rtmw-wholebody": "YOLO + RTMW WholeBody",
@@ -167,6 +198,7 @@ async function loadOptions() {
     $("#viewSelect").innerHTML = options.views.map(item => `<option value="${item.value}">${item.label}</option>`).join("");
     $("#viewSelect").value = "side";
     renderStandards($("#actionSelect").value);
+    renderCameraTip($("#actionSelect").value);
   } catch (error) {
     toast(error.message, true);
   }
@@ -206,6 +238,13 @@ function renderStandards(action) {
   list.innerHTML = ruleRows + standardRows;
 }
 
+function renderCameraTip(action) {
+  const node = $("#cameraTip");
+  if (!node) return;
+  const tip = actionCameraTips[action] || actionCameraTips.none;
+  node.textContent = `推荐视角：${tip.view}；入镜范围：${tip.framing}。`;
+}
+
 function selectSource(mode) {
   if (ui.running) return;
   if (ui.sourceMode === "camera" && mode !== "camera") closeCamera();
@@ -220,6 +259,7 @@ function selectSource(mode) {
     if (firstAction) $("#actionSelect").value = firstAction;
   }
   renderStandards($("#actionSelect").value);
+  renderCameraTip($("#actionSelect").value);
 }
 
 function setRunning(running) {
@@ -1045,7 +1085,7 @@ function updateState(state) {
   $("#phaseValue").textContent = phaseLabels[phase] || phase.replaceAll("_", " ");
   $("#phaseIndicator").style.width = state.pose_detected ? `${Math.min(100, 18 + ((state.frame_index || 0) % 5) * 19)}%` : "8%";
   $("#progressBar").style.width = `${state.progress || 0}%`;
-  $("#cameraTip").textContent = viewTips[state.camera_view] || viewTips.unknown;
+  renderCameraTip(state.action);
   speakVoiceFeedback(state.voice_feedback);
   renderFeedback(state.feedback || [], state.pose_detected, state.running);
   ui.lastStatus = state.status;
@@ -1099,8 +1139,8 @@ $("#overlayCanvas").addEventListener("click", handleFloorCalibrationClick);
 $("#generateReportButton").addEventListener("click", generateReport);
 $("#openReportButton").addEventListener("click", generateReport);
 $("#deleteSessionButton").addEventListener("click", deleteCurrentSession);
-$("#actionSelect").addEventListener("change", event => { resetVoiceSession(); renderStandards(event.target.value); updateLiveSetting("action", event.target.value); });
-$("#viewSelect").addEventListener("change", event => { updateLiveSetting("camera_view", event.target.value); $("#cameraTip").textContent = viewTips[event.target.value]; });
+$("#actionSelect").addEventListener("change", event => { resetVoiceSession(); renderStandards(event.target.value); renderCameraTip(event.target.value); updateLiveSetting("action", event.target.value); });
+$("#viewSelect").addEventListener("change", event => updateLiveSetting("camera_view", event.target.value));
 $("#sensitivitySelect").addEventListener("change", event => updateLiveSetting("sensitivity", event.target.value));
 $("#profileSelect").addEventListener("change", () => updateLiveSetting("landmark_profile", selectedLandmarkProfile()));
 $("#fingerToggle").addEventListener("change", event => updateLiveSetting("show_fingers", event.target.checked));
