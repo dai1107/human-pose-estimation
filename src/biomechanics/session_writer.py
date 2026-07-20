@@ -10,6 +10,12 @@ from typing import Any
 
 from src.utils.time_utils import make_session_id, now_iso
 from src.version import __version__
+from src.output_schema import (
+    OUTPUT_SCHEMA_VERSION,
+    artifact_metadata,
+    versioned_csv_columns,
+    versioned_csv_row,
+)
 
 from .hand_landmarks import SUPPLEMENTAL_FINGER_JOINTS, empty_hand_landmarks, hand_landmark_name
 from .landmarks import LANDMARK_NAMES, empty_landmarks
@@ -26,6 +32,25 @@ POSE_LANDMARK_PROFILES: dict[str, frozenset[int]] = {
 }
 
 
+class SessionWriteError(RuntimeError):
+    error_code = "OUT002"
+
+    def __init__(
+        self,
+        session_dir: Path,
+        cause: Exception,
+        recovered_files: list[str],
+    ) -> None:
+        self.session_dir = session_dir
+        self.cause = cause
+        self.recovered_files = recovered_files
+        recovered = ", ".join(recovered_files) if recovered_files else "none"
+        super().__init__(
+            f"session save incomplete at {session_dir}: {cause}; "
+            f"recoverable files: {recovered}"
+        )
+
+
 @dataclass(frozen=True)
 class SessionConfig:
     camera_index: int
@@ -39,7 +64,7 @@ class SessionConfig:
     hands_enabled: bool = False
     hand_model_name: str | None = None
     program_version: str = __version__
-    schema_version: int = 1
+    schema_version: int = OUTPUT_SCHEMA_VERSION
     camera_view: str = "unknown"
 
 
@@ -114,23 +139,76 @@ class SessionWriter:
             return None
         self.ended_at = now_iso()
         session_dir = self.session_dir
-        self._write_landmarks_csv(session_dir / "landmarks.csv")
-        self._write_kinematics_csv(session_dir / "kinematics.csv")
-        write_report_outputs(session_dir, self.pose_frames, self.kinematic_frames, plot_on_save=self.config.plot_on_save)
-        self._write_metadata(session_dir / "metadata.json", final_mirror=final_mirror)
-
-        self.session_dir = None
-        self.config = None
+        try:
+            self._write_metadata(
+                session_dir / "metadata.json",
+                final_mirror=final_mirror,
+                write_status="partial",
+            )
+            self._write_landmarks_csv(session_dir / "landmarks.csv")
+            self._write_kinematics_csv(session_dir / "kinematics.csv")
+            write_report_outputs(
+                session_dir,
+                self.pose_frames,
+                self.kinematic_frames,
+                plot_on_save=self.config.plot_on_save,
+            )
+            self._write_metadata(
+                session_dir / "metadata.json",
+                final_mirror=final_mirror,
+                write_status="complete",
+            )
+        except Exception as exc:
+            recovered_files: list[str] = []
+            try:
+                candidates = list(session_dir.iterdir())
+            except OSError:
+                candidates = []
+            for candidate in candidates:
+                if candidate.name.endswith(".tmp"):
+                    continue
+                try:
+                    if candidate.is_file() and candidate.stat().st_size > 0:
+                        recovered_files.append(candidate.name)
+                except OSError:
+                    continue
+            recovered_files.sort()
+            try:
+                self._write_metadata(
+                    session_dir / "metadata.json",
+                    final_mirror=final_mirror,
+                    write_status="partial",
+                    recovery_error=f"{type(exc).__name__}: {exc}",
+                    recovered_files=recovered_files,
+                )
+            except Exception:
+                pass
+            raise SessionWriteError(session_dir, exc, recovered_files) from exc
+        finally:
+            self.session_dir = None
+            self.config = None
+            self.pose_frames = []
+            self.kinematic_frames = []
         return session_dir
 
-    def _metadata_payload(self, final_mirror: bool | None) -> dict[str, Any]:
+    def _metadata_payload(
+        self,
+        final_mirror: bool | None,
+        *,
+        write_status: str = "complete",
+        recovery_error: str | None = None,
+        recovered_files: list[str] | None = None,
+    ) -> dict[str, Any]:
         assert self.config is not None
         total = len(self.pose_frames)
         detected = sum(1 for frame in self.pose_frames if frame.pose_detected)
         hands_detected = sum(1 for frame in self.pose_frames if frame.hands_detected)
         fps_values = [frame.fps for frame in self.pose_frames if isfinite(frame.fps) and frame.fps > 0]
         return {
-            "schema_version": self.config.schema_version,
+            **artifact_metadata(
+                "pose_session",
+                schema_version=self.config.schema_version,
+            ),
             "program_version": self.config.program_version,
             "session_id": self.session_id,
             "started_at": self.started_at,
@@ -150,10 +228,32 @@ class SessionWriter:
             "pose_detected_frame_count": detected,
             "pose_lost_frame_count": total - detected,
             "hands_detected_frame_count": hands_detected,
+            "write_status": write_status,
+            "recovery_error": recovery_error,
+            "recovered_files": list(recovered_files or []),
         }
 
-    def _write_metadata(self, path: Path, final_mirror: bool | None) -> None:
-        path.write_text(json.dumps(self._metadata_payload(final_mirror), indent=2, ensure_ascii=False), encoding="utf-8")
+    def _write_metadata(
+        self,
+        path: Path,
+        final_mirror: bool | None,
+        *,
+        write_status: str = "complete",
+        recovery_error: str | None = None,
+        recovered_files: list[str] | None = None,
+    ) -> None:
+        payload = self._metadata_payload(
+            final_mirror,
+            write_status=write_status,
+            recovery_error=recovery_error,
+            recovered_files=recovered_files,
+        )
+        temporary_path = path.with_suffix(path.suffix + ".tmp")
+        temporary_path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        temporary_path.replace(path)
 
     def _pose_landmark_items(self) -> list[tuple[int, str]]:
         assert self.config is not None
@@ -161,7 +261,7 @@ class SessionWriter:
         return [(index, LANDMARK_NAMES[index]) for index in sorted(indices)]
 
     def _write_landmarks_csv(self, path: Path) -> None:
-        columns = [
+        columns = versioned_csv_columns([
             "frame_index",
             "timestamp_ms",
             "landmark_name",
@@ -176,7 +276,7 @@ class SessionWriter:
             "smoothed_z",
             "visibility",
             "presence",
-        ]
+        ])
         with path.open("w", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(file, fieldnames=columns)
             writer.writeheader()
@@ -187,7 +287,7 @@ class SessionWriter:
                     world = _landmark_at(frame.world_landmarks, index)
                     smoothed = _landmark_at(frame.smoothed_landmarks, index)
                     writer.writerow(
-                        {
+                        versioned_csv_row({
                             "frame_index": frame.frame_index,
                             "timestamp_ms": frame.timestamp_ms,
                             "landmark_name": name,
@@ -202,7 +302,7 @@ class SessionWriter:
                             "smoothed_z": _number(smoothed.z),
                             "visibility": _number(image.visibility),
                             "presence": _number(image.presence),
-                        }
+                        })
                     )
                 for side, image_points in _ordered_hand_items(frame.hand_landmarks):
                     world_points = frame.hand_world_landmarks.get(side, [])
@@ -212,7 +312,7 @@ class SessionWriter:
                         world = _hand_landmark_at(world_points, index)
                         smoothed = _hand_landmark_at(smoothed_points, index)
                         writer.writerow(
-                            {
+                            versioned_csv_row({
                                 "frame_index": frame.frame_index,
                                 "timestamp_ms": frame.timestamp_ms,
                                 "landmark_name": hand_landmark_name(side, index),
@@ -227,11 +327,11 @@ class SessionWriter:
                                 "smoothed_z": _number(smoothed.z),
                                 "visibility": _number(image.visibility),
                                 "presence": _number(image.presence),
-                            }
+                            })
                         )
 
     def _write_kinematics_csv(self, path: Path) -> None:
-        columns = [
+        columns = versioned_csv_columns([
             "frame_index",
             "timestamp_ms",
             "left_elbow_angle",
@@ -259,7 +359,7 @@ class SessionWriter:
             "pose_detected",
             "visibility_mean",
             "missing_ratio",
-        ]
+        ])
         with path.open("w", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(file, fieldnames=columns)
             writer.writeheader()
@@ -274,4 +374,4 @@ class SessionWriter:
                 for column in columns:
                     if column not in row and hasattr(frame, column):
                         row[column] = _number(getattr(frame, column))
-                writer.writerow(row)
+                writer.writerow(versioned_csv_row(row))

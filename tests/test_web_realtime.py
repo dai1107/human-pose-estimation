@@ -92,6 +92,13 @@ def test_validate_settings_accepts_rtmw_wholebody() -> None:
     )
 
 
+def test_validate_settings_accepts_explicit_yolo_mediapipe() -> None:
+    assert (
+        validate_settings({"backend": "yolo-mediapipe"})["backend"]
+        == "yolo-mediapipe"
+    )
+
+
 def test_validate_manual_floor_points_accepts_two_normalized_points() -> None:
     points = validate_manual_floor_points([[0.1, 0.82], [0.9, 0.91]])
 

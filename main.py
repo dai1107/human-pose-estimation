@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 import time
 from datetime import datetime
@@ -18,12 +19,13 @@ from src.backends.base import PoseBackend, PoseResult
 from src.backends.factory import create_backend
 from src.biomechanics.landmarks import LANDMARK_NAMES
 from src.biomechanics.normalization import normalize_landmarks
-from src.biomechanics.session_writer import SessionConfig, SessionWriter
+from src.biomechanics.session_writer import SessionConfig, SessionWriteError, SessionWriter
 from src.biomechanics.types import KinematicFrame, LandmarkPoint, PoseFrame
 from src.biomechanics.velocity import KinematicsProcessor
 from src.detectors.yolo_person_detector import YoloPersonDetector
 from src.fusion.yolo_roi_mediapipe import FusionFrameStats, YoloRoiMediaPipeFusion
 from src.pose.adapters import format_normalized_pose_debug, normalize_backend_pose_result
+from src.paths import resolve_asset
 from src.realtime.feedback_engine import FeedbackEngine
 from src.runtime_hand import DEFAULT_HAND_DETECT_WIDTH, DEFAULT_MAX_HAND_DETECT_FPS, HandDetection, MediaPipeHandTracker
 from src.utils.angle_utils import body_angles
@@ -33,10 +35,22 @@ from src.utils.device import resolve_torch_device
 from src.utils.metrics import RealtimeMetrics
 from src.utils.smoothing import KeypointSmoother
 from src.ui.metrics_overlay import draw_metrics_overlay
+from src.configuration import ConfigValidationError
+from src.runtime_logging import (
+    AppError,
+    BackendInitializationError,
+    ExitCode,
+    InputSourceError,
+    OutputWriteError,
+    configure_logging,
+    report_error,
+    safe_cleanup,
+)
 from src.version import __version__
 
 
 RUNTIME_BACKENDS = ("mediapipe", "yolo-pose")
+LOGGER = logging.getLogger("pose.desktop")
 POSE_NAME_TO_INDEX = {name: index for index, name in enumerate(LANDMARK_NAMES)}
 FACE_KEYPOINT_NAMES = frozenset(LANDMARK_NAMES[:11])
 NO_FACE_KEYPOINT_NAMES = frozenset(LANDMARK_NAMES[11:])
@@ -83,6 +97,8 @@ DRAW_MODE_KEYPOINT_NAMES: dict[str, frozenset[str] | None] = {
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Realtime-first human keypoint detection baseline.")
     parser.add_argument("--version", action="version", version=__version__)
+    parser.add_argument("--log-dir", default="outputs/logs", help="Directory for rolling application logs. Default: outputs/logs.")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logs and tracebacks.")
     parser.add_argument("--backend", default="auto", choices=("auto", "mediapipe", "yolo-pose"), help="Pose backend. Default: auto.")
     parser.add_argument("--action-type", default="auto", help="Action type for --backend auto, e.g. rowing, ski_erg, or HYROX video stem.")
     parser.add_argument("--model", default="models/pose_landmarker_full.task", help="MediaPipe pose model path.")
@@ -147,7 +163,11 @@ def open_capture(args: argparse.Namespace) -> tuple[cv2.VideoCapture, str, float
     if args.input_video:
         capture = cv2.VideoCapture(args.input_video)
         if not capture.isOpened():
-            raise RuntimeError(f"could not open input video: {args.input_video}")
+            capture.release()
+            raise InputSourceError(
+                f"无法打开输入视频：{args.input_video}",
+                hint="确认路径、文件权限和视频编码，或先运行 doctor",
+            )
         fps = capture.get(cv2.CAP_PROP_FPS)
         return capture, "video", fps if fps > 0 else 30.0
 
@@ -159,37 +179,84 @@ def open_capture(args: argparse.Namespace) -> tuple[cv2.VideoCapture, str, float
     if args.camera_fourcc.strip():
         fourcc = args.camera_fourcc.strip().upper()
         if len(fourcc) != 4:
-            raise RuntimeError("--camera-fourcc must be exactly 4 characters, or empty")
+            capture.release()
+            raise AppError(
+                "CFG002",
+                "--camera-fourcc 必须是 4 个字符或空字符串",
+                exit_code=ExitCode.CONFIG_ERROR,
+            )
         capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc))
     capture.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
     capture.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
     if args.camera_fps > 0:
         capture.set(cv2.CAP_PROP_FPS, args.camera_fps)
     if not capture.isOpened():
-        raise RuntimeError(f"camera {args.camera} could not be opened")
+        capture.release()
+        raise InputSourceError(
+            f"无法打开摄像头 {args.camera}",
+            hint="检查设备占用、权限和摄像头编号，可用 doctor --camera 复查",
+        )
     fps = capture.get(cv2.CAP_PROP_FPS)
-    print(
+    LOGGER.info(
         f"Camera {args.camera} opened "
         f"(requested FPS: {args.camera_fps:g}, reported FPS: {fps if fps > 0 else 0:.1f}, FourCC: {args.camera_fourcc or 'unchanged'})"
     )
     return capture, "camera", fps if fps > 0 else 30.0
 
 
+def read_capture_frame(
+    capture: cv2.VideoCapture,
+    *,
+    input_mode: str,
+    processed_frames: int,
+) -> tuple[bool, object | None]:
+    ok, frame = capture.read()
+    if ok and frame is not None:
+        return True, frame
+    if input_mode == "camera":
+        raise InputSourceError(
+            "摄像头已断开或停止返回画面",
+            hint="重新连接摄像头后再启动程序",
+        )
+    if processed_frames == 0:
+        raise InputSourceError(
+            "视频为空、损坏或没有可解码画面",
+            hint="用播放器确认文件完整，并检查 OpenCV 是否支持该编码",
+        )
+    return False, None
+
+
 def create_writer(path: str, fps: float, frame_shape: tuple[int, int, int]) -> cv2.VideoWriter:
     output = Path(path)
-    output.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise OutputWriteError(
+            f"无法创建输出目录：{output.parent}",
+            hint="检查磁盘空间和目录权限",
+        ) from exc
     height, width = frame_shape[:2]
     suffix = output.suffix.lower()
     fourcc_name = "mp4v" if suffix == ".mp4" else "XVID"
     writer = cv2.VideoWriter(str(output), cv2.VideoWriter_fourcc(*fourcc_name), max(1.0, min(60.0, fps)), (width, height))
     if not writer.isOpened():
-        raise RuntimeError(f"could not create video writer: {output}")
+        writer.release()
+        raise OutputWriteError(
+            f"无法创建视频输出：{output}",
+            hint="检查磁盘空间、扩展名和编码支持",
+        )
     return writer
 
 
 def make_output_path(directory_name: str, suffix: str, root: str | Path = "outputs") -> Path:
     output_dir = Path(root) / directory_name
-    output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise OutputWriteError(
+            f"无法创建输出目录：{output_dir}",
+            hint="检查磁盘空间和目录权限",
+        ) from exc
     stem = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     candidate = output_dir / f"{stem}{suffix}"
     index = 1
@@ -202,7 +269,10 @@ def make_output_path(directory_name: str, suffix: str, root: str | Path = "outpu
 def save_screenshot(frame, root: str | Path = "outputs") -> Path:
     path = make_output_path("screenshots", ".png", root=root)
     if not cv2.imwrite(str(path), frame):
-        raise RuntimeError(f"could not save screenshot: {path}")
+        raise OutputWriteError(
+            f"无法保存截图：{path}",
+            hint="检查磁盘空间和目录权限",
+        )
     return path
 
 
@@ -290,11 +360,23 @@ def timestamp_for_frame(input_mode: str, started_ns: int, frame_index: int, fps:
 
 def validate_runtime_args(args: argparse.Namespace, resolved_backend: str) -> None:
     if args.fusion == "yolo-roi-mediapipe" and resolved_backend != "mediapipe":
-        raise RuntimeError("--fusion yolo-roi-mediapipe only supports --backend mediapipe")
+        raise AppError(
+            "CFG003",
+            "--fusion yolo-roi-mediapipe 只支持 --backend mediapipe",
+            exit_code=ExitCode.CONFIG_ERROR,
+        )
     if args.fusion == "yolo-roi-mediapipe" and args.person_detector != "yolo":
-        raise RuntimeError("--fusion yolo-roi-mediapipe requires --person-detector yolo")
+        raise AppError(
+            "CFG003",
+            "--fusion yolo-roi-mediapipe 需要 --person-detector yolo",
+            exit_code=ExitCode.CONFIG_ERROR,
+        )
     if resolved_backend != "mediapipe" and args.person_detector != "none":
-        raise RuntimeError("--person-detector yolo is only for MediaPipe ROI; use --person-detector none with this backend")
+        raise AppError(
+            "CFG003",
+            "--person-detector yolo 仅用于 MediaPipe ROI；当前后端应使用 none",
+            exit_code=ExitCode.CONFIG_ERROR,
+        )
 
 
 def backend_device_for(args: argparse.Namespace, backend_name: str) -> str:
@@ -343,6 +425,33 @@ def runtime_hyrox_config_path(
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
+    try:
+        configure_logging(
+            app_name="desktop",
+            log_dir=args.log_dir,
+            debug=bool(args.debug),
+        )
+    except OSError as exc:
+        print(
+            f"ERROR: [OUT003] 无法初始化日志目录 {args.log_dir}: {exc}",
+            file=sys.stderr,
+        )
+        return int(ExitCode.OUTPUT_ERROR)
+    LOGGER.info(
+        "Pose Estimation %s starting backend=%s input=%s",
+        __version__,
+        args.backend,
+        args.input_video or f"camera:{args.camera}",
+    )
+    for attribute in (
+        "model",
+        "hand_model",
+        "yolo_pose_model",
+        "detector_model",
+    ):
+        setattr(args, attribute, str(resolve_asset(getattr(args, attribute))))
+    if args.hyrox_config:
+        args.hyrox_config = str(resolve_asset(args.hyrox_config))
     backend = None
     fusion_runner = None
     capture = None
@@ -390,9 +499,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             if hyrox_action_enabled
             else None
         )
-    except (FileNotFoundError, ValueError) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 2
+    except (FileNotFoundError, ConfigValidationError, ValueError) as exc:
+        error = AppError(
+            getattr(exc, "error_code", "CFG001"),
+            str(exc),
+            exit_code=ExitCode.CONFIG_ERROR,
+            hint="修正配置后运行 python -m src.doctor 复查",
+        )
+        report_error(LOGGER, error, debug=bool(args.debug))
+        return int(error.exit_code)
     metrics = RealtimeMetrics(
         backend=resolved_backend,
         smoothing=args.smoothing,
@@ -403,10 +518,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         backend_device=runtime_backend_device,
         detector_device=runtime_detector_device,
     )
+    exit_code = ExitCode.SUCCESS
     try:
         validate_runtime_args(args, resolved_backend)
-        print(f"Resolved backend: {resolved_backend} (requested: {args.backend}, action_type: {args.action_type})")
-        backend, runtime_backend_device = create_runtime_backend(args, resolved_backend)
+        LOGGER.info(
+            "Resolved backend: %s (requested: %s, action_type: %s)",
+            resolved_backend,
+            args.backend,
+            args.action_type,
+        )
+        try:
+            backend, runtime_backend_device = create_runtime_backend(
+                args,
+                resolved_backend,
+            )
+        except Exception as exc:
+            raise BackendInitializationError(
+                f"姿态后端 {resolved_backend} 初始化失败：{exc}",
+                hint="检查模型文件和后端依赖，可先运行 python -m src.doctor",
+            ) from exc
         yolo_detector = None
         if args.fusion == "yolo-roi-mediapipe":
             yolo_detector = YoloPersonDetector(
@@ -459,14 +589,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             except (FileNotFoundError, ValueError) as exc:
                 set_status(f"action switch failed: {action_name}", seconds=3.0)
-                print(f"Action switch failed: {exc}", file=sys.stderr)
+                LOGGER.error("[CFG001] Action switch failed: %s", exc)
                 return False
             hyrox_analyzer = new_analyzer
             args.hyrox_action = action_name
             hyrox_action_enabled = action_name != "none"
             hyrox_action_error_printed = False
             set_status(f"action {action_name}", seconds=3.0)
-            print(f"HYROX action: {action_name}")
+            LOGGER.info("HYROX action: %s", action_name)
             return True
 
         def ensure_hand_tracker(*, required: bool) -> MediaPipeHandTracker | None:
@@ -511,23 +641,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             session_id = session_writer.start(config)
             set_status(f"session {session_id}", seconds=3.0)
-            print(f"Session started: {session_id}")
+            LOGGER.info("Session started: %s", session_id)
 
         def stop_session() -> None:
             path = session_writer.stop(final_mirror=mirror_enabled)
             if path is not None:
                 set_status("session saved", seconds=3.0)
-                print(f"Session saved: {path}")
+                LOGGER.info("Session saved: %s", path)
 
         if not args.headless:
             cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        print("Controls: Q/ESC quit, A action menu, N next action, B backend, V camera view, S screenshot, R record, T raw record, M mirror, 1 full, 3 metrics, F face, 6 no-face, 7 upper, 8 lower, H hands, C session")
+        LOGGER.info("Controls: Q/ESC quit, A action menu, N next action, B backend, V camera view, S screenshot, R record, T raw record, M mirror, 1 full, 3 metrics, F face, 6 no-face, 7 upper, 8 lower, H hands, C session")
         if args.show_hands:
             ensure_hand_tracker(required=True)
             hand_overlay_enabled = True
 
         while True:
-            ok, raw_frame = capture.read()
+            ok, raw_frame = read_capture_frame(
+                capture,
+                input_mode=input_mode,
+                processed_frames=frame_index,
+            )
             if not ok or raw_frame is None:
                 break
             frame_started = time.perf_counter()
@@ -538,7 +672,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     start_session(display_frame.shape)
                 except Exception as exc:
                     set_status("session start failed", seconds=3.0)
-                    print(f"Session start failed: {exc}", file=sys.stderr)
+                    LOGGER.error("[OUT002] Session start failed: %s", exc)
                 session_autostart_pending = False
 
             if raw_recording_enabled:
@@ -546,7 +680,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if not raw_record_output_path:
                         raw_record_output_path = str(make_output_path("recordings", "_raw.mp4", root=save_dir))
                     raw_writer = create_writer(raw_record_output_path, source_fps, raw_frame.shape)
-                    print(f"Raw recording started: {raw_record_output_path}")
+                    LOGGER.info("Raw recording started: %s", raw_record_output_path)
                 raw_writer.write(raw_frame)
 
             timestamp_ms = timestamp_for_frame(input_mode, started_ns, frame_index, source_fps)
@@ -568,10 +702,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             except Exception as exc:
                 if not normalized_pose_error_printed:
-                    print(f"WARN: normalized pose conversion failed: {exc}", file=sys.stderr)
+                    LOGGER.warning("normalized pose conversion failed: %s", exc)
                     normalized_pose_error_printed = True
             if args.normalized_pose_debug and (frame_index == 1 or frame_index % 30 == 0):
-                print(format_normalized_pose_debug(normalized_pose))
+                LOGGER.debug("%s", format_normalized_pose_debug(normalized_pose))
             result = smoother.smooth_result(result)
             if hand_overlay_enabled:
                 tracker = ensure_hand_tracker(required=False)
@@ -590,7 +724,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         last_hand_detection_timestamp_ms = -1
                         set_status("hand detection failed", seconds=3.0)
                         if not hand_detection_error_printed:
-                            print(f"WARN: hand detection failed: {exc}", file=sys.stderr)
+                            LOGGER.warning("hand detection failed: %s", exc)
                             hand_detection_error_printed = True
             angles = body_angles(result)
             feedback = feedback_engine.update(result, angles)
@@ -634,7 +768,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 except Exception as exc:
                     hyrox_features = None
                     if not hyrox_debug_error_printed:
-                        print(f"WARN: HYROX debug extraction failed: {exc}", file=sys.stderr)
+                        LOGGER.warning("HYROX debug extraction failed: %s", exc)
                         hyrox_debug_error_printed = True
             if hyrox_analyzer is not None:
                 try:
@@ -644,7 +778,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 except Exception as exc:
                     hyrox_action_state = None
                     if not hyrox_action_error_printed:
-                        print(f"WARN: HYROX action analysis failed: {exc}", file=sys.stderr)
+                        LOGGER.warning("HYROX action analysis failed: %s", exc)
                         hyrox_action_error_printed = True
 
             annotated = display_frame.copy()
@@ -705,7 +839,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 except Exception as exc:
                     if not hyrox_debug_error_printed:
-                        print(f"WARN: HYROX debug overlay failed: {exc}", file=sys.stderr)
+                        LOGGER.warning("HYROX debug overlay failed: %s", exc)
                         hyrox_debug_error_printed = True
             if hyrox_action_enabled and not args.hyrox_debug:
                 try:
@@ -716,7 +850,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     )
                 except Exception as exc:
                     if not hyrox_action_error_printed:
-                        print(f"WARN: HYROX action overlay failed: {exc}", file=sys.stderr)
+                        LOGGER.warning("HYROX action overlay failed: %s", exc)
                         hyrox_action_error_printed = True
             if hyrox_action_selector_open:
                 draw_hyrox_action_selector(annotated, args.hyrox_action)
@@ -726,7 +860,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if not record_output_path:
                         record_output_path = str(make_output_path("recordings", ".mp4", root=save_dir))
                     record_writer = create_writer(record_output_path, source_fps, annotated.shape)
-                    print(f"Recording started: {record_output_path}")
+                    LOGGER.info("Recording started: %s", record_output_path)
                 record_writer.write(annotated)
 
             if not args.headless:
@@ -758,23 +892,27 @@ def main(argv: Sequence[str] | None = None) -> int:
                     allowed, reason = runtime_backend_switch_allowed(args)
                     if not allowed:
                         set_status(f"switch disabled: {reason}")
-                        print(f"Backend switch ignored: {reason}")
+                        LOGGER.info("Backend switch ignored: %s", reason)
                         continue
 
                     target_backend = next_runtime_backend(resolved_backend)
-                    print(f"Switching backend: {resolved_backend} -> {target_backend}")
+                    LOGGER.info(
+                        "Switching backend: %s -> %s",
+                        resolved_backend,
+                        target_backend,
+                    )
                     try:
                         new_backend, new_backend_device = create_runtime_backend(args, target_backend)
                     except Exception as exc:
                         set_status(f"switch failed: {target_backend}")
-                        print(f"Backend switch failed: {exc}", file=sys.stderr)
+                        LOGGER.error("[BCK001] Backend switch failed: %s", exc)
                         continue
 
                     if backend is not None:
                         try:
                             backend.close()
                         except Exception as exc:
-                            print(f"WARN: failed to close old backend: {exc}", file=sys.stderr)
+                            LOGGER.warning("[REC001] failed to close old backend: %s", exc)
                     backend = new_backend
                     resolved_backend = target_backend
                     runtime_backend_device = new_backend_device
@@ -782,7 +920,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     smoother = create_runtime_smoother(args)
                     kinematics_processor.reset()
                     set_status(f"backend switched to {resolved_backend}")
-                    print(f"Backend switched: {resolved_backend} (device: {runtime_backend_device})")
+                    LOGGER.info(
+                        "Backend switched: %s (device: %s)",
+                        resolved_backend,
+                        runtime_backend_device,
+                    )
                 elif key in (ord("m"), ord("M")):
                     mirror_enabled = not mirror_enabled
                     smoother.reset()
@@ -790,18 +932,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                     hand_detections = {}
                     last_hand_detection_timestamp_ms = -1
                     set_status(f"mirror {'on' if mirror_enabled else 'off'}")
-                    print(f"Mirror: {'ON' if mirror_enabled else 'OFF'}")
+                    LOGGER.info("Mirror: %s", "ON" if mirror_enabled else "OFF")
                 elif key in (ord("v"), ord("V")):
                     if session_writer.is_active:
                         set_status("stop session before changing view", seconds=3.0)
-                        print("Camera view switch ignored while a session is active.")
+                        LOGGER.info("Camera view switch ignored while a session is active.")
                         continue
                     args.camera_view = next_camera_view(args.camera_view)
                     if hyrox_analyzer is not None:
                         hyrox_analyzer.set_camera_view(args.camera_view)
                         hyrox_analyzer.reset()
                     set_status(f"camera view {args.camera_view}", seconds=3.0)
-                    print(f"Camera view: {args.camera_view}")
+                    LOGGER.info("Camera view: %s", args.camera_view)
                 elif key in (ord("r"), ord("R")):
                     if recording_enabled:
                         recording_enabled = False
@@ -811,7 +953,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                             record_writer = None
                         set_status("record off")
                         if saved_path:
-                            print(f"Recording saved: {saved_path}")
+                            LOGGER.info("Recording saved: %s", saved_path)
                         if not args.record:
                             record_output_path = ""
                     else:
@@ -819,7 +961,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                             record_output_path = str(make_output_path("recordings", ".mp4", root=save_dir))
                         recording_enabled = True
                         set_status("record on")
-                        print(f"Recording armed: {record_output_path}")
+                        LOGGER.info("Recording armed: %s", record_output_path)
                 elif key in (ord("t"), ord("T")):
                     if raw_recording_enabled:
                         raw_recording_enabled = False
@@ -829,22 +971,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                             raw_writer = None
                         set_status("raw record off")
                         if saved_path:
-                            print(f"Raw recording saved: {saved_path}")
+                            LOGGER.info("Raw recording saved: %s", saved_path)
                         raw_record_output_path = ""
                     else:
                         if not raw_record_output_path:
                             raw_record_output_path = str(make_output_path("recordings", "_raw.mp4", root=save_dir))
                         raw_recording_enabled = True
                         set_status("raw record on")
-                        print(f"Raw recording armed: {raw_record_output_path}")
+                        LOGGER.info("Raw recording armed: %s", raw_record_output_path)
                 elif key in (ord("s"), ord("S")):
                     try:
                         screenshot_path = save_screenshot(annotated, root=save_dir)
                         set_status("screenshot saved")
-                        print(f"Screenshot saved: {screenshot_path}")
+                        LOGGER.info("Screenshot saved: %s", screenshot_path)
                     except Exception as exc:
                         set_status("screenshot failed")
-                        print(f"Screenshot failed: {exc}", file=sys.stderr)
+                        LOGGER.error("[OUT001] Screenshot failed: %s", exc)
                 elif key == ord("1"):
                     display_mode = "full"
                     set_status("mode full skeleton")
@@ -886,35 +1028,129 @@ def main(argv: Sequence[str] | None = None) -> int:
                             start_session(display_frame.shape)
                     except Exception as exc:
                         set_status("session failed", seconds=3.0)
-                        print(f"Session operation failed: {exc}", file=sys.stderr)
+                        LOGGER.error("[OUT002] Session operation failed: %s", exc)
 
         if args.save_metrics:
-            metrics.write_csv(args.save_metrics)
-        print("Metrics summary:")
+            try:
+                metrics.write_csv(args.save_metrics)
+            except Exception as exc:
+                raise OutputWriteError(
+                    f"无法保存指标 CSV：{args.save_metrics}",
+                    hint="检查磁盘空间和输出目录权限",
+                ) from exc
+        LOGGER.info("Metrics summary:")
         for line in metrics.summary_lines():
-            print(f"  {line}")
-        return 0
+            LOGGER.info("  %s", line)
+        exit_code = ExitCode.SUCCESS
+    except KeyboardInterrupt:
+        LOGGER.warning("[RUN130] 用户中断，正在保存可恢复输出并关闭资源")
+        exit_code = ExitCode.INTERRUPTED
+    except ConfigValidationError as exc:
+        error = AppError(
+            exc.error_code,
+            str(exc),
+            exit_code=ExitCode.CONFIG_ERROR,
+            hint="修正配置后运行 python -m src.doctor 复查",
+        )
+        report_error(LOGGER, error, debug=bool(args.debug))
+        exit_code = error.exit_code
+    except AppError as exc:
+        report_error(LOGGER, exc, debug=bool(args.debug))
+        exit_code = exc.exit_code
     except Exception as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
+        error = AppError(
+            "RUN001",
+            f"运行时发生未预期错误：{exc}",
+            exit_code=ExitCode.RUNTIME_ERROR,
+            hint="使用 --debug 重现并查看日志中的 traceback",
+        )
+        report_error(LOGGER, error, debug=bool(args.debug))
+        exit_code = error.exit_code
     finally:
+        cleanup_errors: list[Exception] = []
         if session_writer.is_active:
-            path = session_writer.stop(final_mirror=mirror_enabled)
-            if path is not None:
-                print(f"Session saved: {path}")
+            def save_active_session() -> None:
+                path = session_writer.stop(final_mirror=mirror_enabled)
+                if path is not None:
+                    LOGGER.info("Session saved: %s", path)
+
+            error = safe_cleanup(
+                LOGGER,
+                "active session",
+                save_active_session,
+                debug=bool(args.debug),
+            )
+            if error is not None:
+                cleanup_errors.append(error)
         if record_writer is not None:
-            record_writer.release()
+            error = safe_cleanup(
+                LOGGER,
+                "annotated video writer",
+                record_writer.release,
+                debug=bool(args.debug),
+            )
+            if error is not None:
+                cleanup_errors.append(error)
         if raw_writer is not None:
-            raw_writer.release()
+            error = safe_cleanup(
+                LOGGER,
+                "raw video writer",
+                raw_writer.release,
+                debug=bool(args.debug),
+            )
+            if error is not None:
+                cleanup_errors.append(error)
         if fusion_runner is not None and hasattr(fusion_runner, "close"):
-            fusion_runner.close()
+            error = safe_cleanup(
+                LOGGER,
+                "fusion runner",
+                fusion_runner.close,
+                debug=bool(args.debug),
+            )
+            if error is not None:
+                cleanup_errors.append(error)
         if hand_tracker is not None:
-            hand_tracker.close()
+            error = safe_cleanup(
+                LOGGER,
+                "hand tracker",
+                hand_tracker.close,
+                debug=bool(args.debug),
+            )
+            if error is not None:
+                cleanup_errors.append(error)
         if backend is not None:
-            backend.close()
+            error = safe_cleanup(
+                LOGGER,
+                "pose backend",
+                backend.close,
+                debug=bool(args.debug),
+            )
+            if error is not None:
+                cleanup_errors.append(error)
         if capture is not None:
-            capture.release()
-        cv2.destroyAllWindows()
+            error = safe_cleanup(
+                LOGGER,
+                "capture",
+                capture.release,
+                debug=bool(args.debug),
+            )
+            if error is not None:
+                cleanup_errors.append(error)
+        error = safe_cleanup(
+            LOGGER,
+            "OpenCV windows",
+            cv2.destroyAllWindows,
+            debug=bool(args.debug),
+        )
+        if error is not None:
+            cleanup_errors.append(error)
+        if cleanup_errors and exit_code == ExitCode.SUCCESS:
+            exit_code = (
+                ExitCode.OUTPUT_ERROR
+                if any(isinstance(error, SessionWriteError) for error in cleanup_errors)
+                else ExitCode.RUNTIME_ERROR
+            )
+    return int(exit_code)
 
 
 if __name__ == "__main__":

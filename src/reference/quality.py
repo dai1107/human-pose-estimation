@@ -6,6 +6,9 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
+from src.configuration import ConfigValidationError, load_simple_yaml, reject_unknown_fields
+from src.paths import resolve_asset
+
 from .session_loader import parse_number
 
 
@@ -29,18 +32,32 @@ class QualityReport:
 
 def load_quality_rules(path: str | Path | None = None) -> dict[str, float]:
     rules = dict(DEFAULT_RULES)
-    config_path = Path(path) if path is not None else Path("configs/reference_quality.yaml")
+    config_path = Path(path) if path is not None else resolve_asset("configs/reference_quality.yaml")
     if not config_path.exists():
         return rules
-    for line in config_path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or ":" not in stripped:
-            continue
-        key, value = stripped.split(":", 1)
-        try:
-            rules[key.strip()] = float(value.strip())
-        except ValueError:
-            continue
+    parsed = load_simple_yaml(config_path)
+    reject_unknown_fields(parsed, set(DEFAULT_RULES), path=config_path)
+    for key, value in parsed.items():
+        if type(value) not in {int, float} or not isfinite(float(value)):
+            raise ConfigValidationError(
+                "expected a finite number",
+                path=config_path,
+                key=key,
+            )
+        resolved = float(value)
+        if key.endswith("_ratio") and not 0 <= resolved <= 1:
+            raise ConfigValidationError(
+                "ratio must be between 0 and 1",
+                path=config_path,
+                key=key,
+            )
+        if key.endswith("_ms") and resolved < 0:
+            raise ConfigValidationError(
+                "duration must be non-negative",
+                path=config_path,
+                key=key,
+            )
+        rules[key] = resolved
     return rules
 
 
@@ -132,4 +149,3 @@ def evaluate_quality(
         warnings.append("mirror state is unknown")
 
     return QualityReport(status="WARNING" if warnings else "PASS", metrics=metrics, warnings=warnings)
-

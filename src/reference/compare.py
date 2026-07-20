@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from src.utils.time_utils import make_session_id, now_iso
+from src.output_schema import versioned_payload
 
 from .canonicalize import canonicalize_feature_matrix
 from .clipper import clip_session
@@ -190,8 +191,22 @@ def compare_reference_to_session(
         "target_length": target_length,
         "window_ratio": window_ratio,
     }
-    (output_path / "metadata.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False), encoding="utf-8")
-    (output_path / "comparison_summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+    (output_path / "metadata.json").write_text(
+        json.dumps(
+            versioned_payload("reference_comparison", metadata),
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (output_path / "comparison_summary.json").write_text(
+        json.dumps(
+            versioned_payload("reference_comparison_summary", summary),
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     _write_aligned_features(output_path / "aligned_features.csv", result, ref_features.feature_names)
     write_csv_rows(output_path / "feature_errors.csv", _feature_error_rows(result))
     _write_dtw_path(output_path / "dtw_path.csv", result)
@@ -199,4 +214,3 @@ def compare_reference_to_session(
         write_comparison_plots(output_path, result.aligned_reference, result.aligned_candidate, ref_features.feature_names)
     write_markdown_report(output_path / "report.md", summary)
     return output_path
-

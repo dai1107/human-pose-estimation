@@ -88,8 +88,9 @@ const backendLabels = {
   "yolo-rtmw-wholebody": "YOLO + RTMW WholeBody",
   "yolo-guided-mediapipe-fallback": "YOLO + MediaPipe（RTMW 降级）",
   "yolo-guided-mediapipe": "YOLO + MediaPipe",
+  "yolo-mediapipe": "YOLO + MediaPipe",
   "yolo-pose": "YOLO Pose",
-  mediapipe: "MediaPipe",
+  mediapipe: "纯 MediaPipe",
 };
 
 function toast(message, error = false) {

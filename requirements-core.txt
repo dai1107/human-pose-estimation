@@ -1,0 +1,12 @@
+# Verified on CPython 3.12.7; install this file for the MediaPipe/web core.
+mediapipe==0.10.35
+opencv-python==5.0.0.93
+numpy==2.2.6
+matplotlib==3.10.6
+Pillow==10.4.0
+Flask==3.0.3
+Flask-Sock==0.7.0
+simple-websocket==1.1.0
+# Keep the WebSocket stack compatible with httpcore installations using h11<0.15.
+wsproto==1.2.0
+h11==0.14.0

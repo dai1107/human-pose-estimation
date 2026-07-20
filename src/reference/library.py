@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from src.utils.time_utils import make_session_id, now_iso
+from src.output_schema import ensure_supported_schema, versioned_payload
 
 from .aggregate import build_reference_template, write_template_csv
 from .clipper import clip_session, write_clip
@@ -38,7 +39,11 @@ def _unique_reference_dir(root: Path, reference_id: str) -> Path:
 def save_reference_action(reference_dir: Path, action: ReferenceAction) -> None:
     reference_dir.mkdir(parents=True, exist_ok=True)
     (reference_dir / "reference.json").write_text(
-        json.dumps(action.to_dict(), indent=2, ensure_ascii=False),
+        json.dumps(
+            versioned_payload("reference_action", action.to_dict()),
+            indent=2,
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
 
@@ -46,6 +51,7 @@ def save_reference_action(reference_dir: Path, action: ReferenceAction) -> None:
 def load_reference(reference_dir: str | Path) -> ReferenceAction:
     path = Path(reference_dir)
     payload = json.loads((path / "reference.json").read_text(encoding="utf-8"))
+    ensure_supported_schema(payload, artifact_type="reference_action")
     return ReferenceAction.from_dict(payload)
 
 
@@ -120,7 +126,11 @@ def create_reference_from_session(
         encoding="utf-8",
     )
     (reference_dir / "feature_processing.json").write_text(
-        json.dumps(extracted.processing, indent=2, ensure_ascii=False),
+        json.dumps(
+            versioned_payload("reference_feature_processing", extracted.processing),
+            indent=2,
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
     feature_rows: list[dict[str, Any]] = []
@@ -174,7 +184,14 @@ def create_reference_from_reference_clips(
         clip_count=int(template["clip_count"]),
     )
     save_reference_action(reference_dir, action)
-    (reference_dir / "template_summary.json").write_text(json.dumps(template, indent=2, ensure_ascii=False), encoding="utf-8")
+    (reference_dir / "template_summary.json").write_text(
+        json.dumps(
+            versioned_payload("reference_template_summary", template),
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     return reference_dir
 
 
@@ -189,4 +206,3 @@ def export_reference(reference_dir: str | Path, output_path: str | Path | None =
         target.unlink()
     shutil.make_archive(str(target.with_suffix("")), "zip", path)
     return target
-

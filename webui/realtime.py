@@ -30,6 +30,7 @@ from src.backends.yolo_rtmw_backend import YoloRtmwWholeBodyBackend
 from src.utils.backend_policy import resolve_backend_choice
 from src.utils.device import resolve_torch_device
 from src.utils.smoothing import KeypointSmoother
+from src.output_schema import artifact_metadata, versioned_csv_columns, versioned_csv_row
 from webui.analysis import RepVoiceFeedbackTracker, assess_action, enrich_report, visible_feedback
 from webui.hands import (
     WebHandOverlay,
@@ -150,7 +151,13 @@ def validate_settings(values: Mapping[str, Any]) -> dict[str, Any]:
         raise RealtimeProtocolError("invalid_view", "无效的拍摄视角")
     if sensitivity not in {"low", "medium", "high"}:
         raise RealtimeProtocolError("invalid_sensitivity", "无效的灵敏度")
-    if backend not in {"auto", "mediapipe", "yolo-pose", "rtmw-wholebody"}:
+    if backend not in {
+        "auto",
+        "mediapipe",
+        "yolo-mediapipe",
+        "yolo-pose",
+        "rtmw-wholebody",
+    }:
         raise RealtimeProtocolError("invalid_backend", "无效的识别模型")
     if profile not in {"full", "no-face", "upper-body", "lower-body"}:
         raise RealtimeProtocolError("invalid_profile", "无效的骨架显示模式")
@@ -198,17 +205,9 @@ def validate_manual_floor_points(value: object) -> list[list[float]]:
 
 def default_backend_factory(requested: str, action: str) -> tuple[Any, str]:
     resolved = resolve_backend_choice(requested, action_type=action, input_video="")
+    if requested == "auto" and action == "lunge":
+        resolved = "yolo-mediapipe"
     if resolved == "mediapipe":
-        if action == "lunge":
-            return (
-                YoloGuidedMediaPipeBackend(
-                    PROJECT_ROOT / "yolo11n-pose.pt",
-                    PROJECT_ROOT / "models" / "pose_landmarker_full.task",
-                    target_select="tracking",
-                    device=resolve_torch_device("auto"),
-                ),
-                "yolo-guided-mediapipe",
-            )
         # Avoid a native MediaPipe crash seen on Windows when mask generation
         # receives certain camera/video dimensions. Pose landmarks are enough
         # for the web analyzer and remain enabled.
@@ -219,17 +218,17 @@ def default_backend_factory(requested: str, action: str) -> tuple[Any, str]:
             ),
             resolved,
         )
+    if resolved == "yolo-mediapipe":
+        return (
+            YoloGuidedMediaPipeBackend(
+                PROJECT_ROOT / "yolo11n-pose.pt",
+                PROJECT_ROOT / "models" / "pose_landmarker_full.task",
+                target_select="tracking",
+                device=resolve_torch_device("auto"),
+            ),
+            "yolo-guided-mediapipe",
+        )
     if resolved == "yolo-pose":
-        if action == "lunge":
-            return (
-                YoloGuidedMediaPipeBackend(
-                    PROJECT_ROOT / "yolo11n-pose.pt",
-                    PROJECT_ROOT / "models" / "pose_landmarker_full.task",
-                    target_select="tracking",
-                    device=resolve_torch_device("auto"),
-                ),
-                "yolo-guided-mediapipe",
-            )
         return (
             YoloPoseBackend(
                 str(PROJECT_ROOT / "yolo11n-pose.pt"),
@@ -524,7 +523,7 @@ class RealtimePoseSession:
             frames = list(self._history)
             state = dict(self._state)
         return enrich_report({
-            "schema_version": 1,
+            **artifact_metadata("web_realtime_pose_report"),
             "generated_at_unix_ms": int(time.time() * 1000),
             "retention_minutes": self._retention_seconds // 60,
             "privacy": "报告不包含原始或标注视频帧",
@@ -547,16 +546,16 @@ class RealtimePoseSession:
     def report_csv(self) -> str:
         report = self.report()
         output = io.StringIO(newline="")
-        fieldnames = [
+        fieldnames = versioned_csv_columns([
             "sequence", "timestamp_unix_ms", "action", "phase", "reps", "pose_detected",
             "inference_ms", "server_ms", "width", "height", "feedback", "keypoints_json",
-        ]
+        ])
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         for frame in report["frames"]:
             metrics = frame.get("metrics", {})
             writer.writerow(
-                {
+                versioned_csv_row({
                     "sequence": frame.get("sequence"),
                     "timestamp_unix_ms": frame.get("timestamp_unix_ms"),
                     "action": frame.get("action"),
@@ -569,7 +568,7 @@ class RealtimePoseSession:
                     "height": metrics.get("height"),
                     "feedback": json.dumps(frame.get("feedback", []), ensure_ascii=False),
                     "keypoints_json": json.dumps(frame.get("keypoints", []), ensure_ascii=False),
-                }
+                })
             )
         return output.getvalue()
 

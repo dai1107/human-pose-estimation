@@ -58,16 +58,68 @@ def test_sled_pull_custom_config_uses_file_stem(tmp_path: Path) -> None:
     assert analyzer.confirmation_frames == 2
 
 
-def test_sled_pull_counts_reach_pull_recover_cycle() -> None:
+def test_sled_pull_counts_only_after_pull_and_forward_recovery() -> None:
     analyzer = _analyzer()
     assert analyzer.update(_features(), 0)["phase"] == "ready"
     assert analyzer.update(_reach(), 100)["phase"] == "reach"
     assert analyzer.update(_features(left_elbow_angle=125, right_elbow_angle=127), 200)["phase"] == "pull"
     recovered = analyzer.update(_features(left_elbow_angle=145, right_elbow_angle=147), 400)
     assert recovered["phase"] == "recover"
-    assert recovered["rep_count"] == 1
-    assert recovered["debug"]["rep_completed"] is True
-    assert recovered["debug"]["pull_count"] == 1
+    assert recovered["rep_count"] == 0
+    assert recovered["debug"]["rep_completed"] is False
+
+    recovering = analyzer.update(
+        _features(left_elbow_angle=150, right_elbow_angle=152),
+        500,
+    )
+    assert recovering["phase"] == "recover"
+    assert recovering["rep_count"] == 0
+
+    returning = analyzer.update(_reach(), 600)
+    assert returning["phase"] == "recover"
+    assert returning["rep_count"] == 0
+
+    completed = analyzer.update(_reach(), 700)
+    assert completed["phase"] == "reach"
+    assert completed["rep_count"] == 1
+    assert completed["debug"]["rep_completed"] is True
+    assert completed["debug"]["pull_count"] == 1
+    assert completed["debug"]["required_phase_sequence"] == [
+        "reach",
+        "pull",
+        "recover",
+        "reach",
+    ]
+
+
+def test_sled_pull_does_not_split_forward_recovery_into_another_cycle() -> None:
+    analyzer = _analyzer()
+    analyzer.update(_reach(), 0)
+    analyzer.update(
+        _features(left_elbow_angle=125, right_elbow_angle=127),
+        100,
+    )
+    analyzer.update(
+        _features(left_elbow_angle=145, right_elbow_angle=147),
+        200,
+    )
+    analyzer.update(_reach(), 300)
+    first = analyzer.update(_reach(), 400)
+    assert first["rep_count"] == 1
+
+    # Staying in, or re-entering, the forward/reach endpoint cannot create a
+    # second cycle. Another pull and recovery must both occur first.
+    assert analyzer.update(_reach(), 500)["rep_count"] == 1
+    analyzer.update(
+        _features(left_elbow_angle=125, right_elbow_angle=127),
+        600,
+    )
+    assert analyzer.update(
+        _features(left_elbow_angle=145, right_elbow_angle=147),
+        700,
+    )["rep_count"] == 1
+    assert analyzer.update(_reach(), 800)["rep_count"] == 1
+    assert analyzer.update(_reach(), 900)["rep_count"] == 2
 
 
 def test_sled_pull_low_visibility_standing_lean_and_asymmetry_feedback() -> None:
@@ -99,12 +151,16 @@ def test_sled_pull_reports_arms_only_and_no_clear_pull() -> None:
     analyzer.update(_reach(), 0)
     analyzer.update(_features(left_elbow_angle=125, right_elbow_angle=127), 100)
     arms_only = analyzer.update(_features(left_elbow_angle=145, right_elbow_angle=147), 200)
-    assert arms_only["rep_count"] == 1
+    assert arms_only["rep_count"] == 0
     assert "ARMS_ONLY_PULL" in {message.code for message in arms_only["feedback_messages"]}
+    analyzer.update(_reach(), 300)
+    assert analyzer.update(_reach(), 400)["rep_count"] == 1
 
     analyzer = _analyzer()
     analyzer.update(_reach(), 0)
     analyzer.update(_features(left_elbow_angle=150, right_elbow_angle=152), 100)
     unclear = analyzer.update(_features(left_elbow_angle=156, right_elbow_angle=158), 200)
-    assert unclear["rep_count"] == 1
+    assert unclear["rep_count"] == 0
     assert "NO_CLEAR_PULL" in {message.code for message in unclear["feedback_messages"]}
+    analyzer.update(_reach(), 300)
+    assert analyzer.update(_reach(), 400)["rep_count"] == 1

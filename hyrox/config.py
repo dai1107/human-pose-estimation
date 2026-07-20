@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+from math import isfinite
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from src.configuration import (
+    ConfigValidationError,
+    load_simple_yaml,
+    reject_unknown_fields,
+)
+from src.paths import installation_root, resolve_asset
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+PROJECT_ROOT = installation_root()
 
 
 DEFAULT_OBSERVABILITY_CONFIG: dict[str, Any] = {
@@ -183,61 +192,391 @@ DEFAULT_HYROX_CONFIG_PATHS: dict[str, str] = {
     "sled_pull": "configs/hyrox/sled_pull.yaml",
 }
 
+ACTION_CONFIG_DEFAULTS: dict[str, dict[str, Any]] = {
+    "lunge": DEFAULT_LUNGE_CONFIG,
+    "wall_ball": DEFAULT_WALL_BALL_CONFIG,
+    "farmers_carry": DEFAULT_FARMERS_CARRY_CONFIG,
+    "rowing": DEFAULT_ROWING_CONFIG,
+    "skierg": DEFAULT_SKIERG_CONFIG,
+    "burpee_broad_jump": DEFAULT_BURPEE_BROAD_JUMP_CONFIG,
+    "sled_push": DEFAULT_SLED_PUSH_CONFIG,
+    "sled_pull": DEFAULT_SLED_PULL_CONFIG,
+}
 
-def _parse_scalar(raw: str) -> Any:
-    value = raw.strip()
-    if value == "null":
-        return None
-    if value.lower() in {"true", "false"}:
-        return value.lower() == "true"
+_FEEDBACK_LIMIT_FIELDS = {"max_messages", "low_visibility_exclusive"}
+_AUXILIARY_SCHEMAS: dict[str, dict[str, dict[str, type]]] = {
+    "contact": {
+        "knee_contact": {
+            "surface_radius_shank_ratio": float,
+            "enter_height_body_ratio": float,
+            "exit_height_body_ratio": float,
+            "max_vertical_speed_body_per_second": float,
+            "min_landmark_confidence": float,
+            "confirm_confidence": float,
+            "min_hold_frames_high": int,
+            "min_hold_frames_medium": int,
+            "min_hold_frames_low": int,
+        },
+        "chest_contact": {
+            "shoulder_weight": float,
+            "hip_weight": float,
+            "surface_offset_torso_ratio": float,
+            "enter_height_body_ratio": float,
+            "exit_height_body_ratio": float,
+            "shoulder_height_body_ratio_max": float,
+            "hip_height_body_ratio_max": float,
+            "torso_to_floor_angle_deg_max": float,
+            "min_hold_frames_high": int,
+            "min_hold_frames_medium": int,
+            "min_hold_frames_low": int,
+        },
+        "segmentation_contact": {
+            "enabled": bool,
+            "floor_band_body_ratio": float,
+            "minimum_overlap_ratio": float,
+        },
+    },
+    "foot_events": {
+        "foot_support": {
+            "grounded_height_body_ratio": float,
+            "airborne_height_body_ratio": float,
+            "min_vertical_speed_body_per_second": float,
+            "min_landmark_confidence": float,
+            "transition_frames_high": int,
+            "transition_frames_medium": int,
+            "transition_frames_low": int,
+        },
+        "foot_sync": {
+            "pass_ms": int,
+            "unsure_ms": int,
+        },
+        "foot_stagger": {
+            "pass_foot_length_ratio": float,
+            "unsure_foot_length_ratio": float,
+        },
+        "step_event": {
+            "min_horizontal_displacement_leg_ratio": float,
+            "min_airborne_ms": int,
+            "min_grounded_ms": int,
+        },
+    },
+}
+
+
+def _validated_scalar(
+    key: str,
+    value: Any,
+    expected: Any,
+    *,
+    path: str | Path | None,
+) -> Any:
+    if isinstance(expected, bool):
+        if type(value) is not bool:
+            raise ConfigValidationError(
+                "expected boolean true/false",
+                path=path,
+                key=key,
+            )
+        return value
+    if isinstance(expected, int):
+        if type(value) is not int:
+            raise ConfigValidationError(
+                "expected integer",
+                path=path,
+                key=key,
+            )
+        resolved: Any = value
+    elif isinstance(expected, float):
+        if type(value) not in {int, float}:
+            raise ConfigValidationError(
+                "expected number",
+                path=path,
+                key=key,
+            )
+        resolved = float(value)
+    elif isinstance(expected, str):
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigValidationError(
+                "expected non-empty text",
+                path=path,
+                key=key,
+            )
+        return value.strip()
+    else:
+        resolved = value
+
+    if isinstance(resolved, (int, float)):
+        if not isfinite(float(resolved)):
+            raise ConfigValidationError(
+                "number must be finite",
+                path=path,
+                key=key,
+            )
+        if (
+            key.endswith("_ms")
+            or "frames" in key
+            or "ratio" in key
+            or "confidence" in key
+            or "visibility" in key
+            or "margin" in key
+            or "tolerance" in key
+            or "delta" in key
+        ) and resolved < 0:
+            raise ConfigValidationError(
+                "value must be non-negative",
+                path=path,
+                key=key,
+            )
+        if ("visibility" in key or "confidence" in key) and resolved > 1:
+            raise ConfigValidationError(
+                "confidence/visibility must be between 0 and 1",
+                path=path,
+                key=key,
+            )
+        if "frames" in key and resolved < 1:
+            raise ConfigValidationError(
+                "frame count must be at least 1",
+                path=path,
+                key=key,
+            )
+        if (
+            "angle" in key
+            or key.endswith("_deg")
+            or "torso_lean" in key
+            or "back_lean" in key
+            or "over_lean" in key
+        ) and not 0 <= resolved <= 180:
+            raise ConfigValidationError(
+                "angle must be between 0 and 180 degrees",
+                path=path,
+                key=key,
+            )
+    return resolved
+
+
+def _validate_feedback_limits(
+    value: Any,
+    *,
+    path: str | Path | None,
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ConfigValidationError(
+            "expected a nested mapping",
+            path=path,
+            key="feedback_limits",
+        )
+    reject_unknown_fields(
+        value,
+        _FEEDBACK_LIMIT_FIELDS,
+        path=path,
+        prefix="feedback_limits.",
+    )
+    validated: dict[str, Any] = {}
+    if "max_messages" in value:
+        maximum = _validated_scalar(
+            "feedback_limits.max_messages",
+            value["max_messages"],
+            2,
+            path=path,
+        )
+        if maximum > 10:
+            raise ConfigValidationError(
+                "must be between 1 and 10",
+                path=path,
+                key="feedback_limits.max_messages",
+            )
+        validated["max_messages"] = maximum
+    if "low_visibility_exclusive" in value:
+        validated["low_visibility_exclusive"] = _validated_scalar(
+            "feedback_limits.low_visibility_exclusive",
+            value["low_visibility_exclusive"],
+            True,
+            path=path,
+        )
+    return validated
+
+
+def validate_action_config(
+    action_name: str,
+    values: Mapping[str, Any],
+    *,
+    path: str | Path | None = None,
+) -> dict[str, Any]:
     try:
-        if "." in value:
-            return float(value)
-        return int(value)
-    except ValueError:
-        return value.strip('"').strip("'")
+        defaults = ACTION_CONFIG_DEFAULTS[action_name]
+    except KeyError as exc:
+        raise ConfigValidationError(
+            f"unknown HYROX action {action_name!r}",
+            path=path,
+            key="action_name",
+        ) from exc
+    allowed = set(defaults) | {"feedback_limits"}
+    reject_unknown_fields(values, allowed, path=path)
+    validated: dict[str, Any] = {}
+    for key, value in values.items():
+        if key == "feedback_limits":
+            validated[key] = _validate_feedback_limits(value, path=path)
+        else:
+            validated[key] = _validated_scalar(
+                key,
+                value,
+                defaults[key],
+                path=path,
+            )
+    configured_action = validated.get("action_name")
+    if configured_action is not None and configured_action != action_name:
+        raise ConfigValidationError(
+            f"expected {action_name!r}, got {configured_action!r}",
+            path=path,
+            key="action_name",
+        )
+    merged = dict(defaults)
+    merged.update(validated)
+    _validate_relations(action_name, merged, path=path)
+    return merged
+
+
+def _validate_relations(
+    action_name: str,
+    values: Mapping[str, Any],
+    *,
+    path: str | Path | None,
+) -> None:
+    relation_groups = (
+        (
+            "full_extension_hold_frames_high",
+            "full_extension_hold_frames_medium",
+            "full_extension_hold_frames_low",
+        ),
+        ("wrist_peak_time_diff_ms_pass", "wrist_peak_time_diff_ms_unsure"),
+        ("drive_torso_angle_min", "drive_torso_angle_max"),
+        (
+            "hand_placement_pass_foot_length_ratio",
+            "hand_placement_unsure_foot_length_ratio",
+        ),
+    )
+    for fields in relation_groups:
+        if all(field in values for field in fields):
+            numbers = [float(values[field]) for field in fields]
+            if any(left > right for left, right in zip(numbers, numbers[1:])):
+                raise ConfigValidationError(
+                    f"expected {' <= '.join(fields)}",
+                    path=path,
+                    key=fields[-1],
+                )
+    if action_name == "lunge":
+        enter = float(values["knee_contact_enter_height_body_ratio"])
+        exit_value = float(values["knee_contact_exit_height_body_ratio"])
+        if enter >= exit_value:
+            raise ConfigValidationError(
+                "contact enter threshold must be smaller than exit threshold",
+                path=path,
+                key="knee_contact_exit_height_body_ratio",
+            )
+
+
+def validate_observability_config(
+    values: Mapping[str, Any],
+    *,
+    path: str | Path | None = None,
+) -> dict[str, Any]:
+    reject_unknown_fields(values, set(DEFAULT_OBSERVABILITY_CONFIG), path=path)
+    validated = {
+        key: _validated_scalar(
+            key,
+            value,
+            DEFAULT_OBSERVABILITY_CONFIG[key],
+            path=path,
+        )
+        for key, value in values.items()
+    }
+    merged = dict(DEFAULT_OBSERVABILITY_CONFIG)
+    merged.update(validated)
+    return merged
+
+
+def validate_auxiliary_config(
+    name: str,
+    path: str | Path,
+) -> dict[str, Any]:
+    try:
+        schema = _AUXILIARY_SCHEMAS[name]
+    except KeyError as exc:
+        raise ConfigValidationError(
+            f"unknown auxiliary configuration {name!r}",
+            path=path,
+        ) from exc
+    parsed = load_simple_yaml(path)
+    reject_unknown_fields(parsed, set(schema), path=path)
+    for section, fields in schema.items():
+        if section not in parsed:
+            raise ConfigValidationError(
+                "required section is missing",
+                path=path,
+                key=section,
+            )
+        section_values = parsed[section]
+        if not isinstance(section_values, Mapping):
+            raise ConfigValidationError(
+                "expected a nested mapping",
+                path=path,
+                key=section,
+            )
+        reject_unknown_fields(
+            section_values,
+            set(fields),
+            path=path,
+            prefix=f"{section}.",
+        )
+        for key, expected_type in fields.items():
+            if key not in section_values:
+                raise ConfigValidationError(
+                    "required field is missing",
+                    path=path,
+                    key=f"{section}.{key}",
+                )
+            expected = (
+                False
+                if expected_type is bool
+                else 1
+                if expected_type is int
+                else 1.0
+            )
+            _validated_scalar(
+                f"{section}.{key}",
+                section_values[key],
+                expected,
+                path=path,
+            )
+    return parsed
 
 
 def _load_flat_config(
     defaults: dict[str, Any],
     path: str | Path | None,
     default_path: str,
+    *,
+    action_name: str | None = None,
 ) -> dict[str, Any]:
-    config = dict(defaults)
-    config_path = Path(path) if path is not None else PROJECT_ROOT / default_path
+    config_path = Path(path) if path is not None else resolve_asset(default_path)
     if not config_path.exists():
-        return config
+        return dict(defaults)
 
-    parsed: dict[str, Any] = {}
-    try:
-        lines = config_path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError):
-        return config
-    parent_key: str | None = None
-    for raw_line in lines:
-        line = raw_line.split("#", 1)[0].rstrip()
-        if not line.strip() or ":" not in line:
-            continue
-        indent = len(line) - len(line.lstrip())
-        key, value = line.split(":", 1)
-        key = key.strip()
-        value = value.strip()
-        if indent == 0:
-            parent_key = key if not value else None
-        if indent > 0 and parent_key:
-            nested = parsed.setdefault(parent_key, {})
-            if isinstance(nested, dict) and value:
-                nested[key] = _parse_scalar(value)
-        elif value:
-            parsed[key] = _parse_scalar(value)
+    parsed = load_simple_yaml(config_path)
     if "config_name" not in parsed:
         parsed["config_name"] = config_path.stem
-    config.update(parsed)
-    return config
+    if action_name is None:
+        return validate_observability_config(parsed, path=config_path)
+    return validate_action_config(action_name, parsed, path=config_path)
 
 
 def load_lunge_config(path: str | Path | None = None) -> dict[str, Any]:
-    return _load_flat_config(DEFAULT_LUNGE_CONFIG, path, "configs/hyrox/lunge.yaml")
+    return _load_flat_config(
+        DEFAULT_LUNGE_CONFIG,
+        path,
+        "configs/hyrox/lunge.yaml",
+        action_name="lunge",
+    )
 
 
 def load_observability_config(path: str | Path | None = None) -> dict[str, Any]:
@@ -249,7 +588,12 @@ def load_observability_config(path: str | Path | None = None) -> dict[str, Any]:
 
 
 def load_wall_ball_config(path: str | Path | None = None) -> dict[str, Any]:
-    return _load_flat_config(DEFAULT_WALL_BALL_CONFIG, path, "configs/hyrox/wall_ball.yaml")
+    return _load_flat_config(
+        DEFAULT_WALL_BALL_CONFIG,
+        path,
+        "configs/hyrox/wall_ball.yaml",
+        action_name="wall_ball",
+    )
 
 
 def load_farmers_carry_config(path: str | Path | None = None) -> dict[str, Any]:
@@ -257,15 +601,26 @@ def load_farmers_carry_config(path: str | Path | None = None) -> dict[str, Any]:
         DEFAULT_FARMERS_CARRY_CONFIG,
         path,
         "configs/hyrox/farmers_carry.yaml",
+        action_name="farmers_carry",
     )
 
 
 def load_rowing_config(path: str | Path | None = None) -> dict[str, Any]:
-    return _load_flat_config(DEFAULT_ROWING_CONFIG, path, "configs/hyrox/rowing.yaml")
+    return _load_flat_config(
+        DEFAULT_ROWING_CONFIG,
+        path,
+        "configs/hyrox/rowing.yaml",
+        action_name="rowing",
+    )
 
 
 def load_skierg_config(path: str | Path | None = None) -> dict[str, Any]:
-    return _load_flat_config(DEFAULT_SKIERG_CONFIG, path, "configs/hyrox/skierg.yaml")
+    return _load_flat_config(
+        DEFAULT_SKIERG_CONFIG,
+        path,
+        "configs/hyrox/skierg.yaml",
+        action_name="skierg",
+    )
 
 
 def load_burpee_broad_jump_config(path: str | Path | None = None) -> dict[str, Any]:
@@ -273,15 +628,26 @@ def load_burpee_broad_jump_config(path: str | Path | None = None) -> dict[str, A
         DEFAULT_BURPEE_BROAD_JUMP_CONFIG,
         path,
         "configs/hyrox/burpee_broad_jump.yaml",
+        action_name="burpee_broad_jump",
     )
 
 
 def load_sled_push_config(path: str | Path | None = None) -> dict[str, Any]:
-    return _load_flat_config(DEFAULT_SLED_PUSH_CONFIG, path, "configs/hyrox/sled_push.yaml")
+    return _load_flat_config(
+        DEFAULT_SLED_PUSH_CONFIG,
+        path,
+        "configs/hyrox/sled_push.yaml",
+        action_name="sled_push",
+    )
 
 
 def load_sled_pull_config(path: str | Path | None = None) -> dict[str, Any]:
-    return _load_flat_config(DEFAULT_SLED_PULL_CONFIG, path, "configs/hyrox/sled_pull.yaml")
+    return _load_flat_config(
+        DEFAULT_SLED_PULL_CONFIG,
+        path,
+        "configs/hyrox/sled_pull.yaml",
+        action_name="sled_pull",
+    )
 
 
 def resolve_hyrox_config_path(action: str, configured_path: str | None = None) -> str | None:
@@ -301,6 +667,8 @@ __all__ = [
     "DEFAULT_SLED_PUSH_CONFIG",
     "DEFAULT_SLED_PULL_CONFIG",
     "DEFAULT_HYROX_CONFIG_PATHS",
+    "ACTION_CONFIG_DEFAULTS",
+    "ConfigValidationError",
     "load_observability_config",
     "load_lunge_config",
     "load_wall_ball_config",
@@ -311,4 +679,7 @@ __all__ = [
     "load_sled_push_config",
     "load_sled_pull_config",
     "resolve_hyrox_config_path",
+    "validate_action_config",
+    "validate_auxiliary_config",
+    "validate_observability_config",
 ]

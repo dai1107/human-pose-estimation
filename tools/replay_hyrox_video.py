@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import logging
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
@@ -18,10 +19,24 @@ from hyrox.features import extract_basic_pose_features
 from hyrox.registry import create_action_analyzer
 from hyrox.view_policy import CAMERA_VIEWS
 from src.backends.mediapipe_backend import MediaPipeBackend
+from src.configuration import ConfigValidationError
+from src.paths import resolve_asset
+from src.output_schema import versioned_csv_row
+from src.runtime_logging import (
+    AppError,
+    BackendInitializationError,
+    ExitCode,
+    InputSourceError,
+    OutputWriteError,
+    configure_logging,
+    report_error,
+    safe_cleanup,
+)
 from src.utils.draw_utils import draw_hyrox_action_overlay, draw_pose_result_filtered
 from src.utils.smoothing import KeypointSmoother
 from src.version import __version__
 
+LOGGER = logging.getLogger("pose.replay")
 
 FEATURE_CSV_COLUMNS = (
     "visible_score",
@@ -111,12 +126,16 @@ DEBUG_CSV_COLUMNS = (
     "feedback_codes",
     "feedback_texts",
     *ANALYZER_DEBUG_CSV_COLUMNS,
+    "schema_version",
+    "program_version",
 )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Replay a local HYROX video through MediaPipe pose and the shared HYROX analyzer.")
     parser.add_argument("--version", action="version", version=__version__)
+    parser.add_argument("--log-dir", default="outputs/logs", help="Directory for rolling application logs.")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logs and tracebacks.")
     parser.add_argument("--video", required=True, help="Path to a local video file.")
     parser.add_argument("--hyrox-action", required=True, choices=HYROX_ACTION_NAMES, help="HYROX action analyzer to run during replay.")
     parser.add_argument("--hyrox-sensitivity", default="medium", choices=("low", "medium", "high"), help="HYROX action sensitivity. Default: medium.")
@@ -200,7 +219,7 @@ def build_debug_row(
         debug = {}
     for field in ANALYZER_DEBUG_CSV_COLUMNS:
         row[field] = debug.get(field)
-    return row
+    return versioned_csv_row(row)
 
 
 def write_debug_csv(path: Path, rows: Sequence[dict[str, object]]) -> None:
@@ -213,23 +232,58 @@ def write_debug_csv(path: Path, rows: Sequence[dict[str, object]]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    try:
+        configure_logging(
+            app_name="replay",
+            log_dir=args.log_dir,
+            debug=bool(args.debug),
+        )
+    except OSError as exc:
+        print(f"ERROR: [OUT003] cannot initialize log directory: {exc}", file=sys.stderr)
+        return int(ExitCode.OUTPUT_ERROR)
     if args.speed <= 0:
-        raise SystemExit("--speed must be > 0")
+        error = AppError(
+            "CFG004",
+            "--speed must be > 0",
+            exit_code=ExitCode.CONFIG_ERROR,
+        )
+        report_error(LOGGER, error, debug=bool(args.debug))
+        return int(error.exit_code)
+    args.model = str(resolve_asset(args.model))
+    if args.hyrox_config:
+        args.hyrox_config = str(resolve_asset(args.hyrox_config))
 
     video_path = Path(args.video)
     if not video_path.exists():
-        raise SystemExit(f"video not found: {video_path}")
+        error = InputSourceError(f"video not found: {video_path}")
+        report_error(LOGGER, error, debug=bool(args.debug))
+        return int(error.exit_code)
 
     try:
         analyzer = create_analyzer(args.hyrox_action, args.hyrox_sensitivity, args.hyrox_config or None, args.camera_view)
-    except (FileNotFoundError, ValueError) as exc:
-        raise SystemExit(str(exc)) from exc
+    except (FileNotFoundError, ConfigValidationError, ValueError) as exc:
+        error = AppError(
+            getattr(exc, "error_code", "CFG001"),
+            str(exc),
+            exit_code=ExitCode.CONFIG_ERROR,
+        )
+        report_error(LOGGER, error, debug=bool(args.debug))
+        return int(error.exit_code)
     smoother = KeypointSmoother(mode=args.smoothing, max_missing_frames=max(0, args.pose_hold_frames))
-    backend = MediaPipeBackend(args.model)
+    try:
+        backend = MediaPipeBackend(args.model)
+    except Exception as exc:
+        error = BackendInitializationError(
+            f"MediaPipe backend initialization failed: {exc}",
+        )
+        report_error(LOGGER, error, debug=bool(args.debug))
+        return int(error.exit_code)
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
         backend.close()
-        raise SystemExit(f"could not open video: {video_path}")
+        error = InputSourceError(f"could not open video: {video_path}")
+        report_error(LOGGER, error, debug=bool(args.debug))
+        return int(error.exit_code)
 
     source_fps = capture.get(cv2.CAP_PROP_FPS)
     if source_fps <= 0:
@@ -240,12 +294,17 @@ def main(argv: list[str] | None = None) -> int:
     frame_index = 0
     final_state: Mapping[str, object] | None = None
 
+    exit_code = ExitCode.SUCCESS
     try:
         if not args.headless:
             cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         while True:
             ok, frame = capture.read()
             if not ok or frame is None:
+                if frame_index == 0:
+                    raise InputSourceError(
+                        "video is empty, damaged, or has no decodable frames",
+                    )
                 break
             frame_index += 1
             timestamp_ms = frame_timestamp_ms(frame_index, source_fps)
@@ -292,22 +351,53 @@ def main(argv: list[str] | None = None) -> int:
                 key = cv2.waitKey(delay_ms) & 0xFF
                 if key in (27, ord("q"), ord("Q")):
                     break
+    except KeyboardInterrupt:
+        LOGGER.warning("[RUN130] replay interrupted by user")
+        exit_code = ExitCode.INTERRUPTED
+    except AppError as exc:
+        report_error(LOGGER, exc, debug=bool(args.debug))
+        exit_code = exc.exit_code
+    except Exception as exc:
+        error = AppError(
+            "RUN001",
+            f"replay failed: {exc}",
+            exit_code=ExitCode.RUNTIME_ERROR,
+            hint="rerun with --debug for a traceback",
+        )
+        report_error(LOGGER, error, debug=bool(args.debug))
+        exit_code = error.exit_code
     finally:
-        capture.release()
-        backend.close()
-        cv2.destroyAllWindows()
+        cleanup_errors = [
+            safe_cleanup(LOGGER, "capture", capture.release, debug=bool(args.debug)),
+            safe_cleanup(LOGGER, "backend", backend.close, debug=bool(args.debug)),
+            safe_cleanup(LOGGER, "OpenCV windows", cv2.destroyAllWindows, debug=bool(args.debug)),
+        ]
+        if any(error is not None for error in cleanup_errors) and exit_code == ExitCode.SUCCESS:
+            exit_code = ExitCode.RUNTIME_ERROR
 
+    if exit_code not in {ExitCode.SUCCESS, ExitCode.INTERRUPTED}:
+        return int(exit_code)
     if args.save_debug_csv:
         output_path = Path(args.save_debug_csv)
-        write_debug_csv(output_path, csv_rows or [])
-        print(f"Debug CSV saved: {output_path}")
+        try:
+            write_debug_csv(output_path, csv_rows or [])
+        except Exception as exc:
+            error = OutputWriteError(
+                f"could not save debug CSV: {output_path}",
+            )
+            report_error(LOGGER, error, debug=bool(args.debug))
+            return int(error.exit_code)
+        LOGGER.info("Debug CSV saved: %s", output_path)
     final_phase = "unknown" if final_state is None else str(final_state.get("phase", "unknown"))
     final_rep_count = 0 if final_state is None else int(final_state.get("rep_count", 0))
-    print(
-        f"Replay finished. Processed {frame_index} frames from {video_path.name}. "
-        f"Final phase: {final_phase}; reps: {final_rep_count}."
+    LOGGER.info(
+        "Replay finished. Processed %s frames from %s. Final phase: %s; reps: %s.",
+        frame_index,
+        video_path.name,
+        final_phase,
+        final_rep_count,
     )
-    return 0
+    return int(exit_code)
 
 
 if __name__ == "__main__":

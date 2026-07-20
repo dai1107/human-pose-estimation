@@ -1,6 +1,10 @@
 # 模型文件
 
-该目录存放不随源码分发的姿态和手部模型。网页版提供三种可手动选择的姿态方案：MediaPipe、YOLO Pose、YOLO + RTMW WholeBody；“自动选择”只是在标准后端之间按动作选择，不是第四种模型。
+该目录存放 MediaPipe、手部和可选 RTMW 模型；YOLO 权重位于项目根目录。发布包会
+包含 MediaPipe、手部和 YOLO 小型权重，但约 229 MB 的 RTMW-X/L ONNX 文件需要
+单独下载。网页版提供三种可手动选择的姿态方案：纯 MediaPipe、
+YOLO + MediaPipe、YOLO + RTMW WholeBody；“自动选择”只是按动作选择标准后端，
+不是第四种模型。
 
 ## MediaPipe
 
@@ -16,7 +20,10 @@ Pose Landmarker 官方下载地址：
 https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task
 ```
 
-Hand Landmarker 是可选模型。使用 MediaPipe 或 YOLO Pose 并开启“显示手指节点”时，它负责补充五指覆盖层；页面显示每只手的 20 个非手腕关节点。选择 RTMW WholeBody 时会优先使用 RTMW 自带的双手各 21 点，不需要额外运行 Hand Landmarker。
+Hand Landmarker 是可选模型。使用纯 MediaPipe 或 YOLO + MediaPipe 并开启
+“显示手指节点”时，它负责补充五指覆盖层；页面显示每只手的 20 个非手腕关节点。
+选择 RTMW WholeBody 时会优先使用 RTMW 自带的双手各 21 点，不需要额外运行
+Hand Landmarker。
 
 Hand Landmarker 推荐文件名：
 
@@ -29,6 +36,26 @@ Hand Landmarker 官方下载地址：
 ```text
 https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task
 ```
+
+## YOLO
+
+项目根目录包含：
+
+```text
+yolo11n-pose.pt
+yolo11n.pt
+```
+
+`yolo11n-pose.pt` 用于 YOLO Pose、网页 YOLO + MediaPipe 身份锁定，以及 RTMW
+前置目标锁定；`yolo11n.pt` 用于桌面版可选的人体检测 ROI。先安装 YOLO 依赖：
+
+```powershell
+.venv\Scripts\python.exe -m pip install -r requirements-yolo.txt
+```
+
+网页手动选择 `纯 MediaPipe` 时不会加载任何 YOLO 权重；手动选择
+`YOLO + MediaPipe` 时，所有动作都会固定运行 YOLO 锁定与 MediaPipe 同人补点，
+不再只对特定动作隐式融合。自动模式仍可按动作选择标准后端。
 
 ## RTMW WholeBody
 

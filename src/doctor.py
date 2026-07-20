@@ -12,10 +12,25 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Sequence
 
+from hyrox.config import (
+    ConfigValidationError,
+    load_burpee_broad_jump_config,
+    load_farmers_carry_config,
+    load_lunge_config,
+    load_observability_config,
+    load_rowing_config,
+    load_skierg_config,
+    load_sled_pull_config,
+    load_sled_push_config,
+    load_wall_ball_config,
+    validate_auxiliary_config,
+)
 from src.version import __version__
+from src.paths import installation_root, runtime_output_root
+from src.output_schema import artifact_metadata
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = installation_root()
 MINIMUM_PYTHON = (3, 10)
 
 
@@ -56,8 +71,7 @@ def _file_check(name: str, path: Path, *, required: bool, minimum_bytes: int = 1
     return CheckResult(name, "pass", required, f"{path.name} ({size / 1024 / 1024:.1f} MiB)")
 
 
-def _output_check(root: Path) -> CheckResult:
-    output_dir = root / "outputs"
+def _output_check(output_dir: Path) -> CheckResult:
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(prefix="doctor_", suffix=".tmp", dir=output_dir, delete=True):
@@ -69,21 +83,57 @@ def _output_check(root: Path) -> CheckResult:
 
 def _hyrox_config_check(root: Path) -> CheckResult:
     config_dir = root / "configs" / "hyrox"
-    expected = {
-        "lunge.yaml",
-        "wall_ball.yaml",
-        "farmers_carry.yaml",
-        "rowing.yaml",
-        "skierg.yaml",
-        "burpee_broad_jump.yaml",
-        "sled_push.yaml",
-        "sled_pull.yaml",
+    loaders = {
+        "lunge.yaml": load_lunge_config,
+        "wall_ball.yaml": load_wall_ball_config,
+        "farmers_carry.yaml": load_farmers_carry_config,
+        "rowing.yaml": load_rowing_config,
+        "skierg.yaml": load_skierg_config,
+        "burpee_broad_jump.yaml": load_burpee_broad_jump_config,
+        "sled_push.yaml": load_sled_push_config,
+        "sled_pull.yaml": load_sled_pull_config,
+        "observability.yaml": load_observability_config,
     }
+    expected = set(loaders) | {"contact.yaml", "foot_events.yaml"}
     present = {path.name for path in config_dir.glob("*.yaml")} if config_dir.is_dir() else set()
     missing = sorted(expected - present)
     if missing:
         return CheckResult("config:hyrox", "fail", True, f"missing: {', '.join(missing)}")
-    return CheckResult("config:hyrox", "pass", True, "8 action configs found")
+    try:
+        for filename, loader in loaders.items():
+            loader(config_dir / filename)
+        validate_auxiliary_config("contact", config_dir / "contact.yaml")
+        validate_auxiliary_config("foot_events", config_dir / "foot_events.yaml")
+    except ConfigValidationError as exc:
+        return CheckResult("config:hyrox", "fail", True, str(exc))
+    return CheckResult(
+        "config:hyrox",
+        "pass",
+        True,
+        "8 action configs and 3 shared configs are valid",
+    )
+
+
+def _reference_config_check(root: Path) -> CheckResult:
+    feature_path = root / "configs" / "reference_features.yaml"
+    quality_path = root / "configs" / "reference_quality.yaml"
+    missing = [str(path) for path in (feature_path, quality_path) if not path.is_file()]
+    if missing:
+        return CheckResult(
+            "config:reference",
+            "fail",
+            True,
+            f"missing: {', '.join(missing)}",
+        )
+    try:
+        from src.reference.features import load_feature_config
+        from src.reference.quality import load_quality_rules
+
+        load_feature_config(feature_path)
+        load_quality_rules(quality_path)
+    except (ConfigValidationError, ImportError) as exc:
+        return CheckResult("config:reference", "fail", True, str(exc))
+    return CheckResult("config:reference", "pass", True, "reference configs are valid")
 
 
 def _camera_check(camera_index: int) -> CheckResult:
@@ -105,7 +155,12 @@ def _camera_check(camera_index: int) -> CheckResult:
     return CheckResult(f"camera:{camera_index}", "pass", True, f"camera {camera_index}: {frame.shape[1]}x{frame.shape[0]}")
 
 
-def run_checks(*, project_root: Path = PROJECT_ROOT, camera_indices: Sequence[int] | None = None) -> list[CheckResult]:
+def run_checks(
+    *,
+    project_root: Path = PROJECT_ROOT,
+    camera_indices: Sequence[int] | None = None,
+    output_root: Path | None = None,
+) -> list[CheckResult]:
     python_ok = sys.version_info[:2] >= MINIMUM_PYTHON
     checks = [
         CheckResult(
@@ -119,12 +174,24 @@ def run_checks(*, project_root: Path = PROJECT_ROOT, camera_indices: Sequence[in
         _dependency_check("mediapipe", "mediapipe", required=True),
         _dependency_check("PIL", "Pillow", required=True),
         _dependency_check("matplotlib", "matplotlib", required=True),
+        _dependency_check("flask", "Flask", required=True),
+        _dependency_check("flask_sock", "Flask-Sock", required=True),
+        _dependency_check("simple_websocket", "simple-websocket", required=True),
         _dependency_check("ultralytics", "ultralytics", required=False),
         _file_check("model:pose", project_root / "models" / "pose_landmarker_full.task", required=True, minimum_bytes=1024),
         _file_check("model:hand", project_root / "models" / "hand_landmarker.task", required=False, minimum_bytes=1024),
         _file_check("model:yolo-pose", project_root / "yolo11n-pose.pt", required=False, minimum_bytes=1024),
         _hyrox_config_check(project_root),
-        _output_check(project_root),
+        _reference_config_check(project_root),
+        _output_check(
+            output_root
+            if output_root is not None
+            else (
+                runtime_output_root()
+                if project_root == PROJECT_ROOT
+                else project_root / "outputs"
+            )
+        ),
     ]
     for camera_index in camera_indices or ():
         checks.append(_camera_check(camera_index))
@@ -146,7 +213,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     failed = [check for check in checks if not check.passed and (check.required or args.strict)]
     if args.json:
         payload = {
-            "program_version": __version__,
+            **artifact_metadata("doctor_report"),
             "ready": not failed,
             "platform": platform.platform(),
             "checks": [asdict(check) for check in checks],

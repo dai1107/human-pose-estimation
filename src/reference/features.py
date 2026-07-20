@@ -7,6 +7,9 @@ from typing import Any
 
 import numpy as np
 
+from src.configuration import ConfigValidationError, load_simple_yaml, reject_unknown_fields
+from src.paths import resolve_asset
+
 from .session_loader import parse_number
 
 
@@ -68,32 +71,44 @@ class ExtractedFeatures:
 
 
 def load_feature_config(path: str | Path | None = None) -> FeatureConfig:
-    config_path = Path(path) if path is not None else Path("configs/reference_features.yaml")
+    config_path = Path(path) if path is not None else resolve_asset("configs/reference_features.yaml")
     if not config_path.exists():
         return FeatureConfig("default_kinematics_v1", dict(DEFAULT_FEATURE_GROUPS))
 
-    name = "default_kinematics_v1"
+    parsed = load_simple_yaml(config_path)
+    allowed = {"name", *DEFAULT_FEATURE_GROUPS}
+    reject_unknown_fields(parsed, allowed, path=config_path)
+    name = parsed.get("name", "default_kinematics_v1")
+    if not isinstance(name, str) or not name.strip():
+        raise ConfigValidationError(
+            "expected non-empty text",
+            path=config_path,
+            key="name",
+        )
     groups: dict[str, list[str]] = {}
-    current_group: str | None = None
-    for raw_line in config_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.split("#", 1)[0].rstrip()
-        if not line.strip():
-            continue
-        if not line.startswith(" ") and ":" in line:
-            key, value = line.split(":", 1)
-            key = key.strip()
-            value = value.strip()
-            if key == "name":
-                name = value
-                current_group = None
-            else:
-                current_group = key
-                groups.setdefault(current_group, [])
-            continue
-        if current_group and line.strip().startswith("-"):
-            groups[current_group].append(line.strip()[1:].strip())
-
-    return FeatureConfig(name=name, groups=groups or dict(DEFAULT_FEATURE_GROUPS))
+    for group_name, defaults in DEFAULT_FEATURE_GROUPS.items():
+        values = parsed.get(group_name, defaults)
+        if not isinstance(values, list) or not values:
+            raise ConfigValidationError(
+                "expected a non-empty list",
+                path=config_path,
+                key=group_name,
+            )
+        if any(not isinstance(value, str) or not value.strip() for value in values):
+            raise ConfigValidationError(
+                "feature names must be non-empty text",
+                path=config_path,
+                key=group_name,
+            )
+        normalized = [str(value).strip() for value in values]
+        if len(normalized) != len(set(normalized)):
+            raise ConfigValidationError(
+                "duplicate feature name",
+                path=config_path,
+                key=group_name,
+            )
+        groups[group_name] = normalized
+    return FeatureConfig(name=name.strip(), groups=groups)
 
 
 def _interpolate_series(values: np.ndarray) -> tuple[np.ndarray, str]:
@@ -153,4 +168,3 @@ def extract_feature_matrix(
         "handling": handling,
     }
     return ExtractedFeatures(matrix=matrix, timestamps=timestamps, feature_names=feature_names, valid_mask=valid_mask, processing=processing)
-

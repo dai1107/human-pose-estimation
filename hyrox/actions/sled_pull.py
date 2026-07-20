@@ -150,7 +150,12 @@ class SledPullAnalyzer(BaseActionAnalyzer):
         self.possible_seated_result = (
             self.possible_seated_tracker.last_result
         )
-        self.rep_sequence = PhaseSequenceTracker(("reach", "pull", "recover"))
+        # A full rope-pull cycle includes the athlete's forward recovery.
+        # Ending at ``recover`` splits that recovery into the next report
+        # segment, so require a return to ``reach`` before counting.
+        self.rep_sequence = PhaseSequenceTracker(
+            ("reach", "pull", "recover", "reach")
+        )
 
     def _visible_score(self, features: dict[str, object]) -> float:
         score = _safe_float(features.get("visible_score"))
@@ -201,6 +206,12 @@ class SledPullAnalyzer(BaseActionAnalyzer):
             if self.stable_phase != previous_phase
             else False
         )
+        if sequence_completed:
+            self.register_completed_sequence(
+                confidence=visible_score,
+                events={"terminal_phase": "reach"},
+            )
+            self.last_rep_time_ms = timestamp_ms
         if self.stable_phase == "reach":
             if previous_phase != "reach":
                 self.reach_elbow_angle = elbow_angle
@@ -232,12 +243,6 @@ class SledPullAnalyzer(BaseActionAnalyzer):
             clear_pull = pull_amplitude >= self.pull_elbow_delta_min
             self.no_clear_pull = not clear_pull
             self.arms_only_pull = clear_pull and self.max_lower_body_delta < self.hip_knee_drive_delta_min
-            if sequence_completed:
-                self.register_completed_sequence(
-                    confidence=visible_score,
-                    events={"terminal_phase": "recover"},
-                )
-                self.last_rep_time_ms = timestamp_ms
 
     def _feedback(
         self,

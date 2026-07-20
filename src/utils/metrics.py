@@ -10,6 +10,7 @@ from statistics import mean
 import numpy as np
 
 from src.backends.base import PoseResult
+from src.output_schema import versioned_csv_row
 
 
 @dataclass(frozen=True)
@@ -181,7 +182,7 @@ class RealtimeMetrics:
     def write_csv(self, path: str | Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        row = {
+        row = versioned_csv_row({
             "input": self.input_name,
             "backend": self.backend,
             "fusion": self.fusion,
@@ -216,7 +217,7 @@ class RealtimeMetrics:
             "source_model_distribution": self.snapshot().source_model_distribution,
             "stabilized_hold_count": self.stabilized_hold_count,
             "occlusion_guard_count": self.occlusion_guard_count,
-        }
+        })
         exists = path.exists()
         with path.open("a", newline="", encoding="utf-8") as file:
             writer = csv.DictWriter(file, fieldnames=list(row))

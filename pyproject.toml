@@ -1,0 +1,88 @@
+[build-system]
+requires = ["setuptools>=75,<82", "wheel>=0.44,<1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pose-estimation-hyrox"
+dynamic = ["version"]
+description = "Realtime pose estimation and HYROX movement analysis"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+authors = [{ name = "Pose Estimation Contributors" }]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+  "mediapipe>=0.10.35,<0.11",
+  "opencv-python>=4.10,<5.1",
+  "numpy>=2.2,<2.3",
+  "matplotlib>=3.10,<3.11",
+  "Pillow>=10.4,<12",
+  "Flask>=3.0,<3.2",
+  "Flask-Sock>=0.7,<0.8",
+  "simple-websocket>=1.0,<1.2",
+  "wsproto>=1.2,<1.3",
+  "h11>=0.14,<0.15",
+]
+
+[project.optional-dependencies]
+yolo = ["ultralytics>=8.4,<8.5"]
+rtmw-cpu = ["onnxruntime>=1.27,<1.28"]
+rtmw-gpu = [
+  "onnxruntime-gpu>=1.27,<1.28",
+  "nvidia-cudnn-cu13>=9.24,<9.25",
+]
+dev = ["pytest>=7.4,<9", "build>=1.3,<2"]
+
+[project.scripts]
+pose-estimation = "main:main"
+pose-doctor = "src.doctor:main"
+pose-web = "start_web:main"
+pose-replay = "tools.replay_hyrox_video:main"
+pose-clean = "src.output_management:main"
+pose-reference-create = "src.tools.create_reference:main"
+pose-reference-list = "src.tools.list_references:main"
+pose-reference-inspect = "src.tools.inspect_session:main"
+pose-reference-compare = "src.tools.compare_session:main"
+pose-reference-export = "src.tools.export_reference:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "src.version.__version__" }
+
+[tool.setuptools]
+include-package-data = true
+py-modules = ["main", "start_web", "start_public_web"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hyrox*", "src*", "tools*", "webui*"]
+
+[tool.setuptools.package-data]
+webui = ["templates/*.html", "static/*.js", "static/*.css"]
+
+[tool.setuptools.data-files]
+"configs" = ["configs/reference_features.yaml", "configs/reference_quality.yaml"]
+"configs/hyrox" = [
+  "configs/hyrox/burpee_broad_jump.yaml",
+  "configs/hyrox/contact.yaml",
+  "configs/hyrox/farmers_carry.yaml",
+  "configs/hyrox/foot_events.yaml",
+  "configs/hyrox/lunge.yaml",
+  "configs/hyrox/observability.yaml",
+  "configs/hyrox/rowing.yaml",
+  "configs/hyrox/skierg.yaml",
+  "configs/hyrox/sled_pull.yaml",
+  "configs/hyrox/sled_push.yaml",
+  "configs/hyrox/wall_ball.yaml",
+]
+"models" = [
+  "models/pose_landmarker_full.task",
+  "models/hand_landmarker.task",
+  "models/README.md",
+]
+"." = ["yolo11n.pt", "yolo11n-pose.pt"]

@@ -9,6 +9,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.output_schema import versioned_csv_row, versioned_payload
 
 SCHEMES: dict[str, list[str]] = {
     "mediapipe": [
@@ -164,13 +169,13 @@ def main() -> int:
         raise RuntimeError(f"no mp4 videos found in {video_dir}")
 
     rows = read_existing_summary(output_root / "summary.csv")
-    manifest: dict[str, Any] = {
+    manifest: dict[str, Any] = versioned_payload("hyrox_comparison_manifest", {
         "created_at": timestamp,
         "video_dir": str(video_dir),
         "output_root": str(output_root),
         "schemes": schemes,
         "videos": [str(path) for path in videos],
-    }
+    })
     (output_root / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     for video in videos:
@@ -249,10 +254,14 @@ def read_existing_summary(path: Path) -> list[dict[str, str]]:
 
 def write_summary(path: Path, rows: list[dict[str, str]]) -> None:
     with path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=SUMMARY_FIELDS, extrasaction="ignore")
+        writer = csv.DictWriter(
+            file,
+            fieldnames=[*SUMMARY_FIELDS, "schema_version", "program_version"],
+            extrasaction="ignore",
+        )
         writer.writeheader()
         for row in rows:
-            writer.writerow(row)
+            writer.writerow(versioned_csv_row(row))
 
 
 def tail(text: str, max_chars: int) -> str:

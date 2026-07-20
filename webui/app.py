@@ -37,6 +37,8 @@ from src.utils.backend_policy import resolve_backend_choice
 from src.utils.device import resolve_torch_device
 from src.utils.draw_utils import draw_hyrox_action_overlay, draw_pose_result_filtered, to_pixel
 from src.utils.smoothing import KeypointSmoother
+from src.paths import installation_root, runtime_output_root
+from src.output_schema import artifact_metadata, versioned_csv_columns, versioned_csv_row
 from webui.analysis import RepVoiceFeedbackTracker, assess_action, enrich_report, official_rules_for, render_text_report, standards_for, visible_feedback
 from webui.hands import (
     WebHandOverlay,
@@ -55,9 +57,10 @@ from webui.realtime import (
 )
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-UPLOAD_DIR = PROJECT_ROOT / "outputs" / "web_uploads"
-WEB_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "web"
+PROJECT_ROOT = installation_root()
+OUTPUT_ROOT = runtime_output_root()
+UPLOAD_DIR = OUTPUT_ROOT / "web_uploads"
+WEB_OUTPUT_DIR = OUTPUT_ROOT / "web"
 ALLOWED_VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".m4v"}
 MAX_UPLOAD_BYTES = 250 * 1024 * 1024
 SESSION_COOKIE = "pose_session"
@@ -222,7 +225,7 @@ def _backend_plan(config: Mapping[str, Any]) -> tuple[str, str]:
     requested = str(config.get("backend", "auto"))
     if config.get("source_mode") == "sample" and config.get("action") == "lunge":
         if requested == "auto":
-            return "yolo-pose", "tracking"
+            return "yolo-mediapipe", "tracking"
     return requested, "tracking"
 
 
@@ -425,7 +428,7 @@ class PoseStreamEngine:
             frames = list(self._history)
             state = dict(self._state)
         return enrich_report({
-            "schema_version": 1,
+            **artifact_metadata("web_pose_report"),
             "generated_at_unix_ms": int(time.time() * 1000),
             "retention_minutes": 10,
             "privacy": "报告不包含原始或标注视频帧",
@@ -448,16 +451,16 @@ class PoseStreamEngine:
 
     def report_csv(self) -> str:
         output = io.StringIO(newline="")
-        fieldnames = [
+        fieldnames = versioned_csv_columns([
             "sequence", "timestamp_unix_ms", "action", "phase", "reps", "pose_detected",
             "inference_ms", "server_ms", "width", "height", "feedback", "keypoints_json",
-        ]
+        ])
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         for frame in self.report()["frames"]:
             metrics = frame.get("metrics", {})
             writer.writerow(
-                {
+                versioned_csv_row({
                     "sequence": frame.get("sequence"),
                     "timestamp_unix_ms": frame.get("timestamp_unix_ms"),
                     "action": frame.get("action"),
@@ -470,7 +473,7 @@ class PoseStreamEngine:
                     "height": metrics.get("height"),
                     "feedback": json.dumps(frame.get("feedback", []), ensure_ascii=False),
                     "keypoints_json": json.dumps(frame.get("keypoints", []), ensure_ascii=False),
-                }
+                })
             )
         return output.getvalue()
 
@@ -499,17 +502,9 @@ class PoseStreamEngine:
         target_select: str = "tracking",
     ) -> tuple[Any, str]:
         resolved = resolve_backend_choice(requested, action_type=action, input_video=source_path)
+        if requested == "auto" and action == "lunge":
+            resolved = "yolo-mediapipe"
         if resolved == "mediapipe":
-            if action == "lunge":
-                return (
-                    YoloGuidedMediaPipeBackend(
-                        PROJECT_ROOT / "yolo11n-pose.pt",
-                        PROJECT_ROOT / "models" / "pose_landmarker_full.task",
-                        target_select=target_select,
-                        device=resolve_torch_device("auto"),
-                    ),
-                    "yolo-guided-mediapipe",
-                )
             # MediaPipe 0.10.35 on Windows can abort the entire process while
             # producing segmentation masks for some non-standard video sizes.
             # Keypoint detection remains fully available without the mask.
@@ -520,17 +515,17 @@ class PoseStreamEngine:
                 ),
                 resolved,
             )
+        if resolved == "yolo-mediapipe":
+            return (
+                YoloGuidedMediaPipeBackend(
+                    PROJECT_ROOT / "yolo11n-pose.pt",
+                    PROJECT_ROOT / "models" / "pose_landmarker_full.task",
+                    target_select=target_select,
+                    device=resolve_torch_device("auto"),
+                ),
+                "yolo-guided-mediapipe",
+            )
         if resolved == "yolo-pose":
-            if action == "lunge":
-                return (
-                    YoloGuidedMediaPipeBackend(
-                        PROJECT_ROOT / "yolo11n-pose.pt",
-                        PROJECT_ROOT / "models" / "pose_landmarker_full.task",
-                        target_select=target_select,
-                        device=resolve_torch_device("auto"),
-                    ),
-                    "yolo-guided-mediapipe",
-                )
             return YoloPoseBackend(str(PROJECT_ROOT / "yolo11n-pose.pt"), target_select=target_select, device=resolve_torch_device("auto")), resolved
         if resolved == "rtmw-wholebody":
             try:
@@ -916,7 +911,7 @@ def create_app(
     )
     samples = _discover_sample_videos()
     sample_lookup = {item["id"]: item for item in samples}
-    storage_root = PROJECT_ROOT / "outputs" / "web_sessions"
+    storage_root = OUTPUT_ROOT / "web_sessions"
 
     def make_engine(session_id: str) -> Any:
         if engine_factory is not None:
@@ -1166,6 +1161,7 @@ def create_app(
             if backend not in {
                 "auto",
                 "mediapipe",
+                "yolo-mediapipe",
                 "yolo-pose",
                 "rtmw-wholebody",
             }:

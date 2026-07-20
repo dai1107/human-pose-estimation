@@ -7,6 +7,11 @@ from math import isfinite, nan
 from pathlib import Path
 from typing import Any, Iterable
 
+from src.output_schema import (
+    ensure_supported_schema,
+    versioned_csv_columns,
+    versioned_csv_row,
+)
 
 @dataclass(frozen=True)
 class SessionData:
@@ -54,10 +59,12 @@ def write_csv_rows(path: Path, rows: list[dict[str, Any]], fieldnames: Iterable[
                 if key not in seen:
                     seen.append(key)
         columns = seen
+    columns = versioned_csv_columns(columns)
+    versioned_rows = [versioned_csv_row(row) for row in rows]
     with path.open("w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(file, fieldnames=columns, extrasaction="ignore")
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(versioned_rows)
 
 
 def load_session(session_dir: str | Path) -> SessionData:
@@ -66,6 +73,7 @@ def load_session(session_dir: str | Path) -> SessionData:
         raise FileNotFoundError(f"session directory not found: {path}")
     metadata_path = path / "metadata.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
+    ensure_supported_schema(metadata, artifact_type="pose_session")
     session_id = str(metadata.get("session_id") or path.name)
     return SessionData(
         path=path,
@@ -137,4 +145,3 @@ def numeric_summary(rows: list[dict[str, Any]], fields: Iterable[str]) -> dict[s
             "max": float(max(finite)),
         }
     return result
-

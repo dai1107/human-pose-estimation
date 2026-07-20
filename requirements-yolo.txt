@@ -1,0 +1,2 @@
+# Optional YOLO Pose/person-detection backend.
+ultralytics==8.4.90

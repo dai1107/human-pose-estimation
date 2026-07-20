@@ -7,6 +7,8 @@ from pathlib import Path
 from statistics import mean, pstdev
 from typing import Iterable
 
+from src.output_schema import versioned_payload
+
 os.environ.setdefault("MPLCONFIGDIR", str(Path(__file__).resolve().parents[2] / ".cache" / "matplotlib"))
 
 from .sequencing import compare_peak_order, find_local_peaks
@@ -135,12 +137,17 @@ def write_report_outputs(
     session_dir.mkdir(parents=True, exist_ok=True)
     summary = build_summary(pose_frames, kinematic_frames)
     sequence_summary = build_sequence_summary(kinematic_frames)
-    save_json(session_dir / "summary.json", summary)
-    save_json(session_dir / "sequence_summary.json", sequence_summary)
+    save_json(
+        session_dir / "summary.json",
+        versioned_payload("pose_session_summary", summary),
+    )
+    save_json(
+        session_dir / "sequence_summary.json",
+        versioned_payload("pose_session_sequence_summary", sequence_summary),
+    )
 
     if plot_on_save and kinematic_frames:
         _plot_fields(session_dir / "angle_curves.png", kinematic_frames, ANGLE_FIELDS, "Joint angle curves", "angle (deg)")
         _plot_fields(session_dir / "velocity_curves.png", kinematic_frames, VELOCITY_FIELDS, "Velocity proxy curves", "normalized units / s")
 
     return summary, sequence_summary
-

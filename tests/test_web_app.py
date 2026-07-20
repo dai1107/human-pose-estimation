@@ -99,6 +99,27 @@ def test_camera_analysis_can_be_started_and_stopped_from_api() -> None:
     assert engine.stopped is True
 
 
+def test_camera_analysis_accepts_explicit_yolo_mediapipe() -> None:
+    engine = FakeEngine()
+    client = create_app(engine).test_client()
+    headers = csrf_headers(client)
+
+    response = client.post(
+        "/api/start",
+        headers=headers,
+        json={
+            "source_mode": "camera",
+            "camera_index": 0,
+            "action": "lunge",
+            "backend": "yolo-mediapipe",
+        },
+    )
+
+    assert response.status_code == 200
+    assert engine.started_with is not None
+    assert engine.started_with["backend"] == "yolo-mediapipe"
+
+
 def test_start_rejects_unknown_action() -> None:
     client = create_app(FakeEngine()).test_client()
     headers = csrf_headers(client)
@@ -140,7 +161,7 @@ def test_sample_action_and_video_are_linked_by_the_api() -> None:
 
 def test_crowded_lunge_sample_locks_the_foreground_person() -> None:
     assert _backend_plan({"source_mode": "sample", "action": "lunge", "backend": "auto"}) == (
-        "yolo-pose",
+        "yolo-mediapipe",
         "tracking",
     )
     assert _backend_plan({"source_mode": "camera", "action": "lunge", "backend": "auto"}) == (
@@ -160,6 +181,9 @@ def test_web_page_offers_rtmw_wholebody_model() -> None:
     response = create_app(FakeEngine()).test_client().get("/")
 
     assert response.status_code == 200
+    assert b'value="mediapipe"' in response.data
+    assert b'value="yolo-mediapipe"' in response.data
+    assert b'value="yolo-pose"' not in response.data
     assert b'value="rtmw-wholebody"' in response.data
 
 

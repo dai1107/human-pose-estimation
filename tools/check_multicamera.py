@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.camera.multiview import MultiCameraCapture, MultiCameraPlan, parse_camera_source
+from src.output_schema import artifact_metadata
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,6 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     payload = {
+        **artifact_metadata("multicamera_check"),
         "camera_count": len(plan.sources),
         "primary_camera_index": plan.primary_camera_index,
         "views": [source.camera_view for source in plan.sources],

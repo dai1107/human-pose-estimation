@@ -1,0 +1,12 @@
+include README.md
+include CHANGELOG.md
+include RELEASING.md
+include requirements*.txt
+include yolo11n.pt
+include yolo11n-pose.pt
+recursive-include configs *.yaml *.md
+recursive-include models *.task *.md
+recursive-include webui/templates *.html
+recursive-include webui/static *.js *.css
+prune outputs
+prune .cache

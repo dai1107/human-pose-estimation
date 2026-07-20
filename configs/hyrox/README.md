@@ -3,7 +3,9 @@
 本目录为 8 个 HYROX 动作分别保存独立阈值。实时入口 `main.py` 与离线回放工具
 `tools/replay_hyrox_video.py` 共用同一配置和同一分析器；不指定 `--hyrox-config`
 时，会按 `--hyrox-action` 自动加载对应文件。自定义文件只需写需要覆盖的字段，缺失
-字段会使用代码内安全默认值。
+字段会使用代码内安全默认值。配置采用严格校验：未知或重复字段、错误类型、越界值、
+不匹配的 `action_name`、超过一层的嵌套及其他未支持 YAML 结构都会以 `CFG001`
+拒绝启动，不再静默忽略。修改后可运行 `python -m src.doctor` 验证全部配置。
 
 ## 文件与建议视角
 
@@ -60,7 +62,7 @@
 | SkiErg | `top → bottom → top` | `top`：双手腕均高于肩 ≥0.03 且躯干绝对角 <15；`bottom`：手腕低于胸部 ≥0.05，并且躯干绝对角 ≥15 或膝角 <155；返回 `top` 时增加一个分析周期。`pull_down/return` 可选，不产生官方有效次数。 |
 | Burpee Broad Jump | `chest contact confirmed → simultaneous takeoff → simultaneous landing → next hands-down validation` | 胸部必须由通用接触器确认；双脚起落同步及起落错位代理均需通过。身体中心位移/腿长需 ≥0.20，左右脚位移/腿长均需 ≥0.15 且方向一致。落地后进入 `AWAITING_NEXT_HANDS`，继续排查补步或碎步，到下一次 hands-down/chest-down 才完成八项规则验证并决定是否加 1。 |
 | Sled Push | `drive → step` | `drive`：躯干明显前倾且身体中心变化 ≥0.003 或膝伸展变化 ≥3；`step`：脚踝位置或脚间距变化 ≥0.04；`step` 时增加一个推动步分析周期，不产生官方有效次数。 |
-| Sled Pull | `reach → pull → recover` | `reach`：双肘平均 ≥145；肘角减小形成 `pull`，随后肘角增大形成 `recover`；`recover` 时增加一个分析周期。清晰拉幅建议 ≥25，不足主要触发质量提示，不产生官方有效次数。 |
+| Sled Pull | `reach → pull → recover → reach` | `reach`：双肘平均 ≥145；肘角减小形成 `pull`，随后肘角增大形成 `recover`；身体向前回正并再次到达 `reach` 时增加一个分析周期，使后拉和随后的回正属于同一周期。清晰拉幅建议 ≥25，不足主要触发质量提示，不产生官方有效次数。 |
 | Farmers Carry | 连续状态，无重复端点 | 双手在髋部附近或以下、身体站立且检测到水平位移、步态或膝角变化时进入 `carrying`；`cycle_count` 与兼容 `rep_count` 均保持 0。静止约 1200 ms 后进入 `rest`。 |
 
 计数门槛与质量门槛分离：多数技术质量问题只作为反馈保留；动作专属的必需规则仍会决定是否计数，例如 Burpee Broad Jump 的胸部触地与最低前向位移，以及 Wall Ball 的站直起始、髋低于膝、完全伸展和双手投掷代理均必须通过。

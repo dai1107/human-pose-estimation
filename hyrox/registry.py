@@ -23,6 +23,7 @@ from hyrox.config import (
     load_sled_pull_config,
     load_sled_push_config,
     load_wall_ball_config,
+    validate_action_config,
 )
 
 
@@ -73,7 +74,15 @@ def create_action_analyzer(
     configured_path = None if config is None or isinstance(config, Mapping) else str(config)
     if configured_path and not Path(configured_path).is_file():
         raise FileNotFoundError(f"HYROX config not found: {configured_path}")
-    config_data = dict(config) if isinstance(config, Mapping) else _ACTION_CONFIG_LOADERS[normalized_name](configured_path)
+    config_data = (
+        validate_action_config(
+            normalized_name,
+            config,
+            path="<in-memory HYROX config>",
+        )
+        if isinstance(config, Mapping)
+        else _ACTION_CONFIG_LOADERS[normalized_name](configured_path)
+    )
     if live_mode and sensitivity != "low":
         # The realtime queue intentionally keeps only the newest frame. During
         # inference pressure a short terminal pose may therefore be observed
