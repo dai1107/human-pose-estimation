@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import re
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,6 +45,11 @@ def test_verified_requirement_files_use_exact_direct_versions() -> None:
         ]
         assert requirements
         assert all(re.fullmatch(r"[A-Za-z0-9_.-]+==[^=<>!~]+", item) for item in requirements)
+
+    development_requirements = (ROOT / "requirements-dev.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "tomli==" in development_requirements
 
 
 def test_ci_covers_windows_linux_static_tests_smoke_and_build() -> None:
