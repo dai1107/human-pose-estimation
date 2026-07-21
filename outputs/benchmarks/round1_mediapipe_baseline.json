@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "baseline_type": "round1_synchronous_sequential",
+  "input_video": "HYROX视频\\划船机.mp4",
+  "environment": {
+    "platform": "Windows-11-10.0.22631-SP0",
+    "python": "3.12.7",
+    "opencv": "5.0.0",
+    "mediapipe": "0.10.35"
+  },
+  "source_fps": 30.0,
+  "source_width": 846,
+  "source_height": 570,
+  "backend": "mediapipe",
+  "running_mode": "VIDEO",
+  "decoded_frames": 120,
+  "warmup_frames": 10,
+  "measured_frames": 110,
+  "successful_pose_frames": 120,
+  "camera_or_decode_read_ms": {
+    "p50": 1.0442499915370718,
+    "p95": 1.5213599923299626,
+    "mean": 1.0949427269885994
+  },
+  "pose_inference_ms": {
+    "p50": 14.606000011553988,
+    "p95": 16.954865008301567,
+    "mean": 14.903565455196341
+  },
+  "pose_pipeline_ms": {
+    "p50": 15.474450003239326,
+    "p95": 17.957135001779534,
+    "mean": 15.784597271704115
+  },
+  "raw_world_landmark_frames": 120,
+  "forwarded_world_landmark_frames": 0,
+  "world_landmarks_currently_discarded": true,
+  "scheduling": "read -> infer -> smooth -> angles/feedback -> next read"
+}

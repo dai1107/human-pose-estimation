@@ -48,6 +48,8 @@ pose-estimation = "main:main"
 pose-doctor = "src.doctor:main"
 pose-web = "start_web:main"
 pose-replay = "tools.replay_hyrox_video:main"
+pose-golden = "tools.validate_golden_videos:main"
+pose-endurance = "tools.run_endurance_test:main"
 pose-clean = "src.output_management:main"
 pose-reference-create = "src.tools.create_reference:main"
 pose-reference-list = "src.tools.list_references:main"
@@ -70,7 +72,15 @@ include = ["hyrox*", "src*", "tools*", "webui*"]
 webui = ["templates/*.html", "static/*.js", "static/*.css"]
 
 [tool.setuptools.data-files]
-"configs" = ["configs/reference_features.yaml", "configs/reference_quality.yaml"]
+"configs" = [
+  "configs/product_pose.yaml",
+  "configs/reference_features.yaml",
+  "configs/reference_quality.yaml",
+  "configs/hyrox_golden_videos.json",
+]
+"configs/sample_pose_cache" = [
+  "configs/sample_pose_cache/*.json.gz",
+]
 "configs/hyrox" = [
   "configs/hyrox/burpee_broad_jump.yaml",
   "configs/hyrox/contact.yaml",

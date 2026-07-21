@@ -94,4 +94,4 @@ https://download.openmmlab.com/mmpose/v1/projects/rtmw/onnx_sdk/rtmw-dw-x-l_simc
 .venv\Scripts\python.exe -c "import onnxruntime as ort; print(ort.get_device()); print(ort.get_available_providers())"
 ```
 
-GPU 环境应至少包含 `CUDAExecutionProvider`；只有 `CPUExecutionProvider` 时仍可运行，但 RTMW-X/L 的实时帧率会明显降低。手机浏览器不直接加载该模型，YOLO 和 RTMW 都在服务器执行；手机摄像头、编码性能与网络质量仍会影响端到端体验。
+GPU 环境应至少包含 `CUDAExecutionProvider`；只有 `CPUExecutionProvider` 时仍可运行，但 RTMW-X/L 的处理速度会明显降低。自 2026-07-21 起，正式网页摄像头、上传视频和默认桌面链路只使用 MediaPipe Pose，YOLO/RTMW 仅供显式实验、离线比较、缓存生成和研究消融；安装 RTMW 不会让产品网页出现模型切换项。实验运行时模型仍在服务器执行，手机摄像头、编码性能与网络质量会影响端到端体验。

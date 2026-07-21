@@ -19,8 +19,12 @@ class RealtimeMetricsSnapshot:
     avg_fps: float
     inference_time_ms: float
     avg_inference_time_ms: float
+    p50_inference_time_ms: float
     p95_inference_time_ms: float
     end_to_end_latency_ms: float
+    avg_end_to_end_latency_ms: float
+    p50_end_to_end_latency_ms: float
+    p95_end_to_end_latency_ms: float
     num_keypoints: int
     success_rate: float
     avg_keypoint_confidence: float
@@ -40,6 +44,15 @@ class RealtimeMetricsSnapshot:
     source_model_distribution: str = ""
     stabilized_hold_count: int = 0
     occlusion_guard_count: int = 0
+    pose_busy_drop_count: int = 0
+    pose_stale_drop_count: int = 0
+    camera_overwrite_drop_count: int = 0
+    world_landmarks_availability_ratio: float = 0.0
+    three_d_reliable_ratio: float = 0.0
+    three_d_conflict_ratio: float = 0.0
+    three_d_assist_support_frame_ratio: float = 0.0
+    three_d_assist_conflict_frame_ratio: float = 0.0
+    mean_2d_3d_angle_difference_deg: float = 0.0
 
 
 class RealtimeMetrics:
@@ -75,6 +88,15 @@ class RealtimeMetrics:
         self.fallback_to_full_frame_count = 0
         self.stabilized_hold_count = 0
         self.occlusion_guard_count = 0
+        self.pose_busy_drop_count = 0
+        self.pose_stale_drop_count = 0
+        self.camera_overwrite_drop_count = 0
+        self.world_landmarks_available_count = 0
+        self.three_d_assist_support_frame_count = 0
+        self.three_d_assist_conflict_frame_count = 0
+        self._three_d_reliable_ratios: list[float] = []
+        self._three_d_conflict_ratios: list[float] = []
+        self._two_d_three_d_differences: list[float] = []
         self._source_model_counts: Counter[str] = Counter()
         self._last_num_keypoints = 0
         self._last_frame_time: float | None = None
@@ -97,6 +119,17 @@ class RealtimeMetrics:
             self._backend_device_history.append(device)
         self.backend = "->".join(self._backend_history)
         self.backend_device = "->".join(self._backend_device_history)
+
+    def set_realtime_drop_counts(
+        self,
+        *,
+        busy: int,
+        stale: int,
+        camera_overwrite: int = 0,
+    ) -> None:
+        self.pose_busy_drop_count = max(0, int(busy))
+        self.pose_stale_drop_count = max(0, int(stale))
+        self.camera_overwrite_drop_count = max(0, int(camera_overwrite))
 
     def update(
         self,
@@ -143,6 +176,7 @@ class RealtimeMetrics:
         guarded_keypoints = result.extra.get("occlusion_guarded_keypoints") or ()
         self.occlusion_guard_count += len(guarded_keypoints)
         self._record_source_models(result, source_model_distribution)
+        self._record_three_d_kinematics(result)
         self._latencies.append((frame_finished - frame_started) * 1000.0)
         self._last_num_keypoints = result.num_keypoints
         self._record_keypoint_confidence_and_missing(result)
@@ -156,8 +190,12 @@ class RealtimeMetrics:
             avg_fps=mean(self._fps_values) if self._fps_values else 0.0,
             inference_time_ms=self._inference_times[-1] if self._inference_times else 0.0,
             avg_inference_time_ms=mean(self._inference_times) if self._inference_times else 0.0,
+            p50_inference_time_ms=self._percentile(self._inference_times, 50),
             p95_inference_time_ms=float(np.percentile(self._inference_times, 95)) if self._inference_times else 0.0,
             end_to_end_latency_ms=self._latencies[-1] if self._latencies else 0.0,
+            avg_end_to_end_latency_ms=mean(self._latencies) if self._latencies else 0.0,
+            p50_end_to_end_latency_ms=self._percentile(self._latencies, 50),
+            p95_end_to_end_latency_ms=self._percentile(self._latencies, 95),
             num_keypoints=self._last_num_keypoints,
             success_rate=self.success_count / self.frame_count if self.frame_count else 0.0,
             avg_keypoint_confidence=mean(self._keypoint_confidences) if self._keypoint_confidences else 0.0,
@@ -177,6 +215,39 @@ class RealtimeMetrics:
             source_model_distribution=self._source_model_distribution_text(),
             stabilized_hold_count=self.stabilized_hold_count,
             occlusion_guard_count=self.occlusion_guard_count,
+            pose_busy_drop_count=self.pose_busy_drop_count,
+            pose_stale_drop_count=self.pose_stale_drop_count,
+            camera_overwrite_drop_count=self.camera_overwrite_drop_count,
+            world_landmarks_availability_ratio=(
+                self.world_landmarks_available_count / self.frame_count
+                if self.frame_count
+                else 0.0
+            ),
+            three_d_reliable_ratio=(
+                mean(self._three_d_reliable_ratios)
+                if self._three_d_reliable_ratios
+                else 0.0
+            ),
+            three_d_conflict_ratio=(
+                mean(self._three_d_conflict_ratios)
+                if self._three_d_conflict_ratios
+                else 0.0
+            ),
+            three_d_assist_support_frame_ratio=(
+                self.three_d_assist_support_frame_count / self.frame_count
+                if self.frame_count
+                else 0.0
+            ),
+            three_d_assist_conflict_frame_ratio=(
+                self.three_d_assist_conflict_frame_count / self.frame_count
+                if self.frame_count
+                else 0.0
+            ),
+            mean_2d_3d_angle_difference_deg=(
+                mean(self._two_d_three_d_differences)
+                if self._two_d_three_d_differences
+                else 0.0
+            ),
         )
 
     def write_csv(self, path: str | Path) -> None:
@@ -197,8 +268,11 @@ class RealtimeMetrics:
             "num_keypoints": self.snapshot().num_keypoints,
             "avg_fps": self.snapshot().avg_fps,
             "avg_inference_time_ms": self.snapshot().avg_inference_time_ms,
+            "p50_inference_time_ms": self.snapshot().p50_inference_time_ms,
             "p95_inference_time_ms": self.snapshot().p95_inference_time_ms,
-            "avg_end_to_end_latency_ms": mean(self._latencies) if self._latencies else 0.0,
+            "avg_end_to_end_latency_ms": self.snapshot().avg_end_to_end_latency_ms,
+            "p50_end_to_end_latency_ms": self.snapshot().p50_end_to_end_latency_ms,
+            "p95_end_to_end_latency_ms": self.snapshot().p95_end_to_end_latency_ms,
             "avg_keypoint_confidence": self.snapshot().avg_keypoint_confidence,
             "missing_rate_shoulder": self.snapshot().missing_rate_shoulder,
             "missing_rate_hip": self.snapshot().missing_rate_hip,
@@ -217,6 +291,15 @@ class RealtimeMetrics:
             "source_model_distribution": self.snapshot().source_model_distribution,
             "stabilized_hold_count": self.stabilized_hold_count,
             "occlusion_guard_count": self.occlusion_guard_count,
+            "pose_busy_drop_count": self.pose_busy_drop_count,
+            "pose_stale_drop_count": self.pose_stale_drop_count,
+            "camera_overwrite_drop_count": self.camera_overwrite_drop_count,
+            "world_landmarks_availability_ratio": self.snapshot().world_landmarks_availability_ratio,
+            "three_d_reliable_ratio": self.snapshot().three_d_reliable_ratio,
+            "three_d_conflict_ratio": self.snapshot().three_d_conflict_ratio,
+            "three_d_assist_support_frame_ratio": self.snapshot().three_d_assist_support_frame_ratio,
+            "three_d_assist_conflict_frame_ratio": self.snapshot().three_d_assist_conflict_frame_ratio,
+            "mean_2d_3d_angle_difference_deg": self.snapshot().mean_2d_3d_angle_difference_deg,
         })
         exists = path.exists()
         with path.open("a", newline="", encoding="utf-8") as file:
@@ -244,11 +327,29 @@ class RealtimeMetrics:
             f"source_model_distribution={snapshot.source_model_distribution or 'none'}",
             f"stabilized_hold_count={snapshot.stabilized_hold_count}",
             f"occlusion_guard_count={snapshot.occlusion_guard_count}",
+            f"pose_busy_drop_count={snapshot.pose_busy_drop_count}",
+            f"pose_stale_drop_count={snapshot.pose_stale_drop_count}",
+            f"camera_overwrite_drop_count={snapshot.camera_overwrite_drop_count}",
+            f"world_landmarks_availability_ratio={snapshot.world_landmarks_availability_ratio:.3f}",
+            f"three_d_reliable_ratio={snapshot.three_d_reliable_ratio:.3f}",
+            f"three_d_conflict_ratio={snapshot.three_d_conflict_ratio:.3f}",
+            f"three_d_assist_support_frame_ratio={snapshot.three_d_assist_support_frame_ratio:.3f}",
+            f"three_d_assist_conflict_frame_ratio={snapshot.three_d_assist_conflict_frame_ratio:.3f}",
+            f"mean_2d_3d_angle_difference_deg={snapshot.mean_2d_3d_angle_difference_deg:.2f}",
+            f"p50_inference_ms={snapshot.p50_inference_time_ms:.1f}",
             f"p95_inference_ms={snapshot.p95_inference_time_ms:.1f}",
+            f"p50_end_to_end_ms={snapshot.p50_end_to_end_latency_ms:.1f}",
+            f"p95_end_to_end_ms={snapshot.p95_end_to_end_latency_ms:.1f}",
             f"person_lost_count={snapshot.person_lost_count}",
             f"keypoint_jitter={snapshot.keypoint_jitter:.5f}",
             f"angle_jitter={snapshot.angle_jitter:.3f}",
         ]
+
+    @staticmethod
+    def _percentile(values: list[float], percentile: float) -> float:
+        if not values:
+            return 0.0
+        return float(np.percentile(values, percentile))
 
     def _record_source_models(self, result: PoseResult, distribution: dict[str, int] | None) -> None:
         if distribution:
@@ -258,6 +359,31 @@ class RealtimeMetrics:
             return
         for point in result.keypoints:
             self._source_model_counts[point.source_model or result.model_name or "unknown"] += 1
+
+    def _record_three_d_kinematics(self, result: PoseResult) -> None:
+        kinematics = result.extra.get("three_d_kinematics")
+        if not isinstance(kinematics, dict):
+            return
+        if kinematics.get("three_d_available"):
+            self.world_landmarks_available_count += 1
+        assist_status = str(kinematics.get("assist_status", ""))
+        if assist_status == "supporting":
+            self.three_d_assist_support_frame_count += 1
+        elif assist_status == "conflict":
+            self.three_d_assist_conflict_frame_count += 1
+        reliable_ratio = kinematics.get("three_d_reliable_ratio")
+        if isinstance(reliable_ratio, (int, float)) and np.isfinite(reliable_ratio):
+            self._three_d_reliable_ratios.append(float(reliable_ratio))
+        conflict_ratio = kinematics.get("three_d_conflict_ratio")
+        if isinstance(conflict_ratio, (int, float)) and np.isfinite(conflict_ratio):
+            self._three_d_conflict_ratios.append(float(conflict_ratio))
+        differences = kinematics.get("angle_differences_deg")
+        if isinstance(differences, dict):
+            self._two_d_three_d_differences.extend(
+                float(value)
+                for value in differences.values()
+                if isinstance(value, (int, float)) and np.isfinite(value)
+            )
 
     def _source_model_distribution_text(self) -> str:
         if not self._source_model_counts:

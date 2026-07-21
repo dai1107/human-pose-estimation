@@ -77,6 +77,7 @@ def test_simulated_session_writes_metadata_and_csv(tmp_path) -> None:
     assert (session_dir / "metadata.json").exists()
     assert (session_dir / "landmarks.csv").exists()
     assert (session_dir / "kinematics.csv").exists()
+    assert (session_dir / "kinematics_3d.csv").exists()
     assert (session_dir / "summary.json").exists()
     assert (session_dir / "sequence_summary.json").exists()
     assert (session_dir / "angle_curves.png").exists()

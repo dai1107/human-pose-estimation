@@ -30,6 +30,7 @@ from hyrox.features import extract_basic_pose_features
 from hyrox.registry import create_action_analyzer
 from hyrox.view_policy import CAMERA_VIEWS
 from src.backends.mediapipe_backend import MediaPipeBackend
+from src.backends.catalog import is_experimental_backend
 from src.backends.yolo_guided_mediapipe_backend import YoloGuidedMediaPipeBackend
 from src.backends.yolo_pose_backend import YoloPoseBackend
 from src.backends.yolo_rtmw_backend import YoloRtmwWholeBodyBackend
@@ -38,6 +39,7 @@ from src.utils.device import resolve_torch_device
 from src.utils.draw_utils import draw_hyrox_action_overlay, draw_pose_result_filtered, to_pixel
 from src.utils.smoothing import KeypointSmoother
 from src.paths import installation_root, runtime_output_root
+from src.product_pose import load_product_pose_config
 from src.output_schema import artifact_metadata, versioned_csv_columns, versioned_csv_row
 from webui.analysis import RepVoiceFeedbackTracker, assess_action, enrich_report, official_rules_for, render_text_report, standards_for, visible_feedback
 from webui.hands import (
@@ -55,6 +57,7 @@ from webui.realtime import (
     SessionManager,
     validate_manual_floor_points,
 )
+from webui.sample_cache import load_sample_pose_backend
 
 
 PROJECT_ROOT = installation_root()
@@ -221,18 +224,28 @@ def _draw_angle_overlay(frame: Any, result: Any, assessment: Mapping[str, Any]) 
 
 
 def _backend_plan(config: Mapping[str, Any]) -> tuple[str, str]:
-    """Lock the foreground athlete throughout the crowded lunge sample."""
-    requested = str(config.get("backend", "auto"))
-    if config.get("source_mode") == "sample" and config.get("action") == "lunge":
-        if requested == "auto":
-            return "yolo-mediapipe", "tracking"
+    """Select a backend, with one trusted bundled-sample tracking exception."""
+    requested = str(config.get("backend", "mediapipe"))
+    if (
+        bool(config.get("bundled_sample_tracking"))
+        and config.get("source_mode") == "sample"
+        and config.get("action") == "lunge"
+        and requested in {"auto", "mediapipe"}
+    ):
+        return "yolo-mediapipe", "tracking"
     return requested, "tracking"
 
 
 class PoseStreamEngine:
     """Owns one local capture and publishes its latest annotated frame."""
 
-    def __init__(self, output_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        output_dir: Path | None = None,
+        *,
+        allow_experimental_backends: bool = False,
+    ) -> None:
+        self._allow_experimental_backends = bool(allow_experimental_backends)
         self._lock = threading.RLock()
         self._frame_ready = threading.Condition(self._lock)
         self._thread: threading.Thread | None = None
@@ -261,6 +274,7 @@ class PoseStreamEngine:
             "source_mode": "camera",
             "source_name": "摄像头 0",
             "backend": "-",
+            "cached_source_backend": "",
             "action": "lunge",
             "action_label": ACTION_LABELS["lunge"],
             "camera_view": "side",
@@ -322,6 +336,7 @@ class PoseStreamEngine:
                     "source_mode": config["source_mode"],
                     "source_name": config["source_name"],
                     "backend": config["backend"],
+                    "cached_source_backend": "",
                     "action": config["action"],
                     "action_label": ACTION_LABELS[config["action"]],
                     "camera_view": config["camera_view"],
@@ -445,6 +460,7 @@ class PoseStreamEngine:
                 "processed_frames": len(frames),
                 "dropped_frames": 0,
                 "backend": state["backend"],
+                "cached_source_backend": state.get("cached_source_backend", ""),
             },
             "frames": frames,
         })
@@ -500,10 +516,25 @@ class PoseStreamEngine:
         source_path: str,
         *,
         target_select: str = "tracking",
+        allow_internal_tracking_backend: bool = False,
     ) -> tuple[Any, str]:
-        resolved = resolve_backend_choice(requested, action_type=action, input_video=source_path)
-        if requested == "auto" and action == "lunge":
-            resolved = "yolo-mediapipe"
+        resolved = resolve_backend_choice(
+            requested,
+            action_type=action,
+            input_video=source_path,
+            product_mode=not self._allow_experimental_backends,
+        )
+        internal_tracking_backend = bool(
+            allow_internal_tracking_backend and resolved == "yolo-mediapipe"
+        )
+        if (
+            is_experimental_backend(resolved)
+            and not self._allow_experimental_backends
+            and not internal_tracking_backend
+        ):
+            raise ValueError(
+                f"backend {resolved!r} is experimental and unavailable in product sessions"
+            )
         if resolved == "mediapipe":
             # MediaPipe 0.10.35 on Windows can abort the entire process while
             # producing segmentation masks for some non-standard video sizes.
@@ -567,19 +598,36 @@ class PoseStreamEngine:
         try:
             source_path = str(config.get("video_path", ""))
             capture, source_fps, total_frames = self._open_capture(config)
-            backend_request, target_select = _backend_plan(config)
-            backend, resolved_backend = self._create_backend(
-                backend_request,
-                config["action"],
-                source_path,
-                target_select=target_select,
-            )
+            cached_source_backend = ""
+            if config["source_mode"] == "sample":
+                backend = load_sample_pose_backend(
+                    action=str(config["action"]),
+                    video_path=source_path,
+                    total_frames=total_frames,
+                )
+            if backend is not None:
+                resolved_backend = "sample-cache"
+                cached_source_backend = str(backend.source_backend)
+            else:
+                backend_request, target_select = _backend_plan(config)
+                backend, resolved_backend = self._create_backend(
+                    backend_request,
+                    config["action"],
+                    source_path,
+                    target_select=target_select,
+                    allow_internal_tracking_backend=bool(
+                        config.get("bundled_sample_tracking")
+                    ),
+                )
             smoother = KeypointSmoother(
-                mode="none" if config["source_mode"] == "sample" else "one-euro",
+                # Example videos are also validation inputs.  Dropping frames or
+                # disabling temporal smoothing here changes phase confirmation,
+                # floor/contact evidence and repetition validity compared with
+                # uploaded videos and the golden-video runner.
+                mode="one-euro",
                 max_missing_frames=5,
                 occlusion_guard=True,
             )
-            sample_frame_step = max(1, int(math.ceil(source_fps / 10.0))) if config["source_mode"] == "sample" else 1
             analyzer = None
             analyzer_key: tuple[str, str, str] | None = None
             started = time.perf_counter()
@@ -587,7 +635,16 @@ class PoseStreamEngine:
             smooth_fps = 0.0
             frame_index = 0
             with self._lock:
-                self._state.update({"backend": resolved_backend, "status": "running", "status_text": "分析中"})
+                self._state.update(
+                    {
+                        "backend": resolved_backend,
+                        "cached_source_backend": cached_source_backend,
+                        "status": "running",
+                        "status_text": (
+                            "播放预计算示例" if resolved_backend == "sample-cache" else "分析中"
+                        ),
+                    }
+                )
 
             while not self._stop_event.is_set():
                 with self._lock:
@@ -611,16 +668,25 @@ class PoseStreamEngine:
                     str(settings["landmark_profile"]),
                     bool(settings["show_fingers"]),
                 )
-                hand_detections = (
-                    rtmw_hand_detections(result.extra)
-                    if show_hand_overlay
-                    else {}
-                )
-                hand_detections = hand_detections or hand_overlay.update(
-                    frame,
-                    timestamp_ms=timestamp_ms,
-                    enabled=show_hand_overlay,
-                )
+                if resolved_backend == "sample-cache":
+                    cached_hands = result.extra.get("cached_hand_detections")
+                    hand_detections = (
+                        dict(cached_hands)
+                        if show_hand_overlay and isinstance(cached_hands, Mapping)
+                        else {}
+                    )
+                    hand_overlay.update(frame, timestamp_ms=timestamp_ms, enabled=False)
+                else:
+                    hand_detections = (
+                        rtmw_hand_detections(result.extra)
+                        if show_hand_overlay
+                        else {}
+                    )
+                    hand_detections = hand_detections or hand_overlay.update(
+                        frame,
+                        timestamp_ms=timestamp_ms,
+                        enabled=show_hand_overlay,
+                    )
                 if hand_detections and result.extra.get("rtmw_hand_keypoints"):
                     hand_overlay.update(
                         frame,
@@ -804,6 +870,7 @@ class PoseStreamEngine:
                                 "keypoints": keypoints,
                                 "metrics": {
                                     "backend": resolved_backend,
+                                    "cached_source_backend": cached_source_backend,
                                     "inference_ms": round(float(result.inference_time_ms), 1),
                                     "server_ms": round((time.perf_counter() - frame_started) * 1000.0, 1),
                                     "width": int(annotated.shape[1]),
@@ -819,7 +886,14 @@ class PoseStreamEngine:
                             {
                                 "running": True,
                                 "status": "running",
-                                "status_text": "录制中" if writer is not None else "分析中",
+                                "status_text": (
+                                    "录制中"
+                                    if writer is not None
+                                    else "播放预计算示例"
+                                    if resolved_backend == "sample-cache"
+                                    else "分析中"
+                                ),
+                                "cached_source_backend": cached_source_backend,
                                 "pose_detected": has_pose,
                                 "fps": round(smooth_fps, 1),
                                 "inference_ms": round(float(result.inference_time_ms), 1),
@@ -843,15 +917,6 @@ class PoseStreamEngine:
                         )
                         self._frame_ready.notify_all()
 
-                if config["source_mode"] == "sample" and sample_frame_step > 1:
-                    for _ in range(sample_frame_step - 1):
-                        if not capture.grab():
-                            finished_normally = True
-                            break
-                        frame_index += 1
-                if config["source_mode"] != "camera":
-                    elapsed = time.perf_counter() - frame_started
-                    time.sleep(max(0.0, (sample_frame_step / source_fps) - elapsed))
         except Exception as exc:
             with self._frame_ready:
                 self._state.update({"running": False, "status": "error", "status_text": "运行出错", "error": str(exc), "recording": False})
@@ -912,6 +977,9 @@ def create_app(
     samples = _discover_sample_videos()
     sample_lookup = {item["id"]: item for item in samples}
     storage_root = OUTPUT_ROOT / "web_sessions"
+    product_pose_config = load_product_pose_config()
+    web_realtime_config = product_pose_config.web_realtime
+    realtime_latency_config = product_pose_config.realtime_latency
 
     def make_engine(session_id: str) -> Any:
         if engine_factory is not None:
@@ -922,6 +990,10 @@ def create_app(
         engine_factory=make_engine,
         realtime_factory=realtime_factory,
         storage_root=storage_root,
+        realtime_smoothing_config=product_pose_config.realtime_smoothing,
+        three_d_kinematics_config=product_pose_config.three_d_kinematics,
+        three_d_quality_config=product_pose_config.three_d_quality,
+        max_pose_age_ms=realtime_latency_config.max_pose_age_ms,
     )
     sock = Sock(app)
     app.extensions["pose_sessions"] = manager
@@ -1093,9 +1165,16 @@ def create_app(
                 "realtime": {
                     "frame_width": 640,
                     "frame_height": 480,
+                    "inference_long_edge": web_realtime_config.inference_long_edge,
+                    "jpeg_quality": web_realtime_config.jpeg_quality,
+                    "max_requests_in_flight": web_realtime_config.max_requests_in_flight,
                     "target_fps": 30,
                     "camera_fps": 60,
                     "max_frame_bytes": 512 * 1024,
+                    "request_timeout_ms": 3000,
+                    "warning_pose_age_ms": realtime_latency_config.warning_pose_age_ms,
+                    "max_pose_age_ms": realtime_latency_config.max_pose_age_ms,
+                    "hide_pose_after_ms": realtime_latency_config.hide_pose_after_ms,
                     "report_retention_seconds": 600,
                 },
                 "privacy": {
@@ -1150,7 +1229,7 @@ def create_app(
             action = str(data.get("action", "lunge"))
             view = str(data.get("camera_view", "side"))
             sensitivity = str(data.get("sensitivity", "medium"))
-            backend = str(data.get("backend", "auto"))
+            backend = str(data.get("backend", "mediapipe"))
             profile = str(data.get("landmark_profile", "full"))
             if action not in {"none", *HYROX_ACTION_NAMES}:
                 raise ValueError("无效的动作")
@@ -1158,13 +1237,7 @@ def create_app(
                 raise ValueError("无效的拍摄视角")
             if sensitivity not in {"low", "medium", "high"}:
                 raise ValueError("无效的灵敏度")
-            if backend not in {
-                "auto",
-                "mediapipe",
-                "yolo-mediapipe",
-                "yolo-pose",
-                "rtmw-wholebody",
-            }:
+            if backend not in {"auto", "mediapipe"}:
                 raise ValueError("无效的识别后端")
             if profile not in {"full", "no-face", "upper-body", "lower-body"}:
                 raise ValueError("无效的骨架显示模式")
@@ -1193,7 +1266,16 @@ def create_app(
                 sample = sample_lookup[sample_id]
                 if action != sample["action"]:
                     raise ValueError("所选动作与示例视频不一致")
-                config.update({"video_path": sample["path"], "source_name": Path(sample["path"]).stem})
+                config.update(
+                    {
+                        "video_path": sample["path"],
+                        "source_name": Path(sample["path"]).stem,
+                        # This flag is generated only from the server-owned sample
+                        # catalog.  Clients cannot enable the internal tracker for
+                        # camera or uploaded content.
+                        "bundled_sample_tracking": sample["action"] == "lunge",
+                    }
+                )
             else:
                 upload_id = str(data.get("video_id", ""))
                 upload = item.uploads.pop(upload_id, None)
@@ -1328,7 +1410,8 @@ def create_app(
             json.dumps(
                 {
                     "type": "connected",
-                    "protocol_version": 1,
+                    "protocol_version": 2,
+                    "session_id": item.session_id,
                     "max_frame_bytes": 512 * 1024,
                     "max_receive_fps": 30,
                     "state": realtime.snapshot(),
@@ -1336,11 +1419,40 @@ def create_app(
                 ensure_ascii=False,
             )
         )
+        send_lock = threading.Lock()
+        result_sender_stop = threading.Event()
+
+        def send_json(payload: Mapping[str, Any], *, compact: bool = False) -> None:
+            rendered = json.dumps(
+                payload,
+                ensure_ascii=False,
+                separators=(",", ":") if compact else None,
+            )
+            with send_lock:
+                ws.send(rendered)
+
+        def send_realtime_results() -> None:
+            while not result_sender_stop.is_set():
+                result = realtime.next_result(timeout=0.1)
+                if result is None:
+                    continue
+                try:
+                    send_json(result, compact=True)
+                except (ConnectionClosed, ConnectionError, OSError):
+                    result_sender_stop.set()
+                    break
+
+        result_sender = threading.Thread(
+            target=send_realtime_results,
+            daemon=True,
+            name=f"pose-ws-sender-{item.session_id[:8]}",
+        )
+        result_sender.start()
         try:
             while True:
                 message: str | bytes | None | object
                 try:
-                    message = ws.receive(timeout=0.05)
+                    message = ws.receive(timeout=0.25)
                 except TimeoutError:
                     message = Ellipsis
                 if message is None:
@@ -1358,32 +1470,33 @@ def create_app(
                             if not manager.can_activate(item.session_id):
                                 raise RealtimeProtocolError("server_busy", "实时分析人数已满，请稍后重试")
                             state_value = realtime.start(payload.get("settings") or {})
-                            ws.send(json.dumps({"type": "started", "state": state_value}, ensure_ascii=False))
+                            send_json({"type": "started", "state": state_value})
                         elif message_type == "settings":
                             state_value = realtime.update_settings(payload.get("settings") or {})
-                            ws.send(json.dumps({"type": "state", "state": state_value}, ensure_ascii=False))
+                            send_json({"type": "state", "state": state_value})
                         elif message_type == "stop":
                             state_value = realtime.stop()
-                            ws.send(json.dumps({"type": "stopped", "state": state_value}, ensure_ascii=False))
+                            send_json({"type": "stopped", "state": state_value})
                         elif message_type == "ping":
-                            ws.send(json.dumps({"type": "pong", "client_time": payload.get("client_time")}, ensure_ascii=False))
+                            send_json({"type": "pong", "client_time": payload.get("client_time")})
                         else:
                             raise RealtimeProtocolError("unknown_message", "无法识别的 WebSocket 消息")
                     except json.JSONDecodeError:
                         raise RealtimeProtocolError("invalid_json", "WebSocket JSON 消息格式错误")
                 elif isinstance(message, bytes):
-                    accepted = realtime.submit(message)
-                    if not accepted:
-                        ws.send(json.dumps({"type": "frame_dropped", "reason": "rate_limited"}, ensure_ascii=False))
-
-                result = realtime.next_result()
-                if result is not None:
-                    ws.send(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+                    try:
+                        accepted = realtime.submit(message)
+                        if not accepted:
+                            send_json({"type": "frame_dropped", "reason": "rate_limited"})
+                    except RealtimeProtocolError as exc:
+                        send_json(exc.as_message())
         except RealtimeProtocolError as exc:
-            ws.send(json.dumps(exc.as_message(), ensure_ascii=False))
+            send_json(exc.as_message())
         except (ConnectionClosed, ConnectionError, OSError):
             pass
         finally:
+            result_sender_stop.set()
+            result_sender.join(timeout=0.5)
             realtime.mark_disconnected()
 
     return app

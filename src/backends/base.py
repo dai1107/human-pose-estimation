@@ -12,6 +12,8 @@ class Keypoint:
     z: float = 0.0
     confidence: float = 0.0
     source_model: str = ""
+    visibility: float | None = None
+    presence: float | None = None
 
 
 @dataclass(frozen=True)

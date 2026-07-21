@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "program_version": "0.1.0.dev0",
+  "artifact_type": "pose_endurance_report",
+  "status": "passed",
+  "failures": [],
+  "thresholds": {
+    "min_fps": 1.0,
+    "max_p95_latency_ms": 1000.0,
+    "max_memory_growth_mb": 512.0,
+    "max_read_failure_rate": 0.01
+  },
+  "observation": {
+    "target_duration_seconds": 10.0,
+    "elapsed_seconds": 10.003403700015042,
+    "total_frames": 454,
+    "pose_detected_frames": 453,
+    "pose_detected_rate": 0.9977973568281938,
+    "average_fps": 45.38455245981098,
+    "average_latency_ms": 21.451785021957978,
+    "p95_latency_ms": 45.58855501090875,
+    "memory_start_mb": 185.8203125,
+    "memory_end_mb": 213.69140625,
+    "memory_peak_mb": 213.69140625,
+    "memory_growth_mb": 27.87109375,
+    "source_reopen_count": 1,
+    "read_failure_count": 0,
+    "read_failure_rate": 0.0,
+    "completed": true,
+    "output_integrity": true,
+    "final_phase": "not_enabled"
+  }
+}

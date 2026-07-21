@@ -28,6 +28,7 @@ from hyrox.config import (
 from src.version import __version__
 from src.paths import installation_root, runtime_output_root
 from src.output_schema import artifact_metadata
+from src.product_pose import load_product_pose_config
 
 
 PROJECT_ROOT = installation_root()
@@ -136,6 +137,28 @@ def _reference_config_check(root: Path) -> CheckResult:
     return CheckResult("config:reference", "pass", True, "reference configs are valid")
 
 
+def _product_pose_config_check(root: Path) -> CheckResult:
+    path = root / "configs" / "product_pose.yaml"
+    if not path.is_file():
+        return CheckResult(
+            "config:product-pose",
+            "fail",
+            True,
+            f"missing: {path}",
+        )
+    try:
+        config = load_product_pose_config(path)
+    except ConfigValidationError as exc:
+        return CheckResult("config:product-pose", "fail", True, str(exc))
+    state = "enabled" if config.allow_experimental_backends else "disabled"
+    return CheckResult(
+        "config:product-pose",
+        "pass",
+        True,
+        f"backend={config.backend}; experimental_backends={state}",
+    )
+
+
 def _camera_check(camera_index: int) -> CheckResult:
     try:
         import cv2
@@ -181,6 +204,7 @@ def run_checks(
         _file_check("model:pose", project_root / "models" / "pose_landmarker_full.task", required=True, minimum_bytes=1024),
         _file_check("model:hand", project_root / "models" / "hand_landmarker.task", required=False, minimum_bytes=1024),
         _file_check("model:yolo-pose", project_root / "yolo11n-pose.pt", required=False, minimum_bytes=1024),
+        _product_pose_config_check(project_root),
         _hyrox_config_check(project_root),
         _reference_config_check(project_root),
         _output_check(
@@ -199,10 +223,12 @@ def run_checks(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Check whether this pose-estimation project is ready to run.")
+    parser = argparse.ArgumentParser(
+        description="Check whether the MediaPipe product runtime is ready to run."
+    )
     parser.add_argument("--camera", type=int, action="append", default=[], help="Open and read one frame from this camera index. Repeat to check multiple cameras.")
     parser.add_argument("--json", action="store_true", help="Print a machine-readable JSON report.")
-    parser.add_argument("--strict", action="store_true", help="Treat missing optional YOLO/hand components as failures.")
+    parser.add_argument("--strict", action="store_true", help="Also require optional experimental YOLO and hand components.")
     parser.add_argument("--version", action="version", version=__version__)
     return parser
 

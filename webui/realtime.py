@@ -23,6 +23,10 @@ from hyrox.action_names import HYROX_ACTION_NAMES
 from hyrox.features import extract_basic_pose_features
 from hyrox.registry import create_action_analyzer
 from hyrox.view_policy import CAMERA_VIEWS
+from src.biomechanics.kinematics_3d import (
+    ThreeDKinematicsTracker,
+    summarize_three_d_records,
+)
 from src.backends.mediapipe_backend import MediaPipeBackend
 from src.backends.yolo_guided_mediapipe_backend import YoloGuidedMediaPipeBackend
 from src.backends.yolo_pose_backend import YoloPoseBackend
@@ -31,6 +35,11 @@ from src.utils.backend_policy import resolve_backend_choice
 from src.utils.device import resolve_torch_device
 from src.utils.smoothing import KeypointSmoother
 from src.output_schema import artifact_metadata, versioned_csv_columns, versioned_csv_row
+from src.product_pose import (
+    RealtimeSmoothingConfig,
+    ThreeDKinematicsConfig,
+    ThreeDQualityConfig,
+)
 from webui.analysis import RepVoiceFeedbackTracker, assess_action, enrich_report, visible_feedback
 from webui.hands import (
     WebHandOverlay,
@@ -42,6 +51,9 @@ from webui.hands import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 FRAME_HEADER = struct.Struct(">I")
+FRAME_V2_PREFIX = struct.Struct(">4sI")
+FRAME_V2_MAGIC = b"PSV2"
+MAX_FRAME_METADATA_BYTES = 4096
 MAX_FRAME_BYTES = 512 * 1024
 MAX_FRAME_WIDTH = 1280
 MAX_FRAME_HEIGHT = 720
@@ -87,11 +99,28 @@ class RealtimeProtocolError(ValueError):
         return {"type": "error", "code": self.code, "message": self.message}
 
 
+class StaleFrameContext(RuntimeError):
+    """Internal control flow for an observation whose browser context changed."""
+
+
 @dataclass(frozen=True, slots=True)
 class FramePacket:
     sequence: int
     jpeg: bytes
     received_at: float
+    client_capture_ms: float | None = None
+    connection_generation: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class FrameRequest:
+    frame_id: int
+    client_capture_ms: float | None
+    session_id: str
+    run_id: str
+    action: str
+    backend: str
+    jpeg: bytes
 
 
 class LatestFrameQueue:
@@ -125,25 +154,98 @@ class LatestFrameQueue:
                 return
 
 
-def unpack_frame(message: bytes) -> tuple[int, bytes]:
-    if len(message) <= FRAME_HEADER.size:
-        raise RealtimeProtocolError("frame_too_small", "摄像头帧数据不完整")
-    sequence = FRAME_HEADER.unpack_from(message, 0)[0]
-    jpeg = message[FRAME_HEADER.size :]
+def _validate_frame_media(jpeg: bytes) -> None:
     if len(jpeg) > MAX_FRAME_BYTES:
         raise RealtimeProtocolError("frame_too_large", "单帧不能超过 512 KB")
     is_jpeg = jpeg.startswith(b"\xff\xd8\xff")
     is_webp = len(jpeg) >= 12 and jpeg[:4] == b"RIFF" and jpeg[8:12] == b"WEBP"
     if not (is_jpeg or is_webp):
         raise RealtimeProtocolError("unsupported_frame", "仅接受 JPEG 或 WebP 摄像头帧")
-    return sequence, jpeg
 
 
-def validate_settings(values: Mapping[str, Any]) -> dict[str, Any]:
+def unpack_frame_request(message: bytes) -> FrameRequest:
+    if len(message) <= FRAME_HEADER.size:
+        raise RealtimeProtocolError("frame_too_small", "摄像头帧数据不完整")
+    if message.startswith(FRAME_V2_MAGIC):
+        if len(message) <= FRAME_V2_PREFIX.size:
+            raise RealtimeProtocolError("frame_too_small", "摄像头帧元数据不完整")
+        _, metadata_size = FRAME_V2_PREFIX.unpack_from(message, 0)
+        if metadata_size <= 0 or metadata_size > MAX_FRAME_METADATA_BYTES:
+            raise RealtimeProtocolError("invalid_frame_metadata", "摄像头帧元数据长度无效")
+        metadata_end = FRAME_V2_PREFIX.size + metadata_size
+        if len(message) <= metadata_end:
+            raise RealtimeProtocolError("frame_too_small", "摄像头帧数据不完整")
+        try:
+            metadata = json.loads(
+                message[FRAME_V2_PREFIX.size:metadata_end].decode("utf-8")
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RealtimeProtocolError("invalid_frame_metadata", "摄像头帧元数据无效") from exc
+        if not isinstance(metadata, Mapping):
+            raise RealtimeProtocolError("invalid_frame_metadata", "摄像头帧元数据必须是对象")
+        frame_id = metadata.get("frame_id")
+        if isinstance(frame_id, bool) or not isinstance(frame_id, int) or not 0 < frame_id <= 0xFFFFFFFF:
+            raise RealtimeProtocolError("invalid_frame_id", "frame_id 必须是正整数")
+        client_capture_ms = metadata.get("client_capture_ms")
+        if isinstance(client_capture_ms, bool):
+            raise RealtimeProtocolError("invalid_capture_time", "client_capture_ms 无效")
+        try:
+            client_capture_ms = float(client_capture_ms)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RealtimeProtocolError("invalid_capture_time", "client_capture_ms 无效") from exc
+        if not math.isfinite(client_capture_ms) or client_capture_ms < 0:
+            raise RealtimeProtocolError("invalid_capture_time", "client_capture_ms 无效")
+        identity: dict[str, str] = {}
+        for name in ("session_id", "run_id", "action", "backend"):
+            resolved = str(metadata.get(name, "")).strip()
+            if not resolved or len(resolved) > 128:
+                raise RealtimeProtocolError(
+                    "invalid_frame_metadata",
+                    f"{name} 缺失或过长",
+                )
+            identity[name] = resolved
+        jpeg = message[metadata_end:]
+        _validate_frame_media(jpeg)
+        return FrameRequest(
+            frame_id=frame_id,
+            client_capture_ms=client_capture_ms,
+            session_id=identity["session_id"],
+            run_id=identity["run_id"],
+            action=identity["action"],
+            backend=identity["backend"],
+            jpeg=jpeg,
+        )
+
+    sequence = FRAME_HEADER.unpack_from(message, 0)[0]
+    jpeg = message[FRAME_HEADER.size :]
+    _validate_frame_media(jpeg)
+    return FrameRequest(
+        frame_id=sequence,
+        client_capture_ms=None,
+        session_id="",
+        run_id="",
+        action="",
+        backend="",
+        jpeg=jpeg,
+    )
+
+
+def unpack_frame(message: bytes) -> tuple[int, bytes]:
+    """Compatibility wrapper for protocol-v1 callers and report tooling."""
+
+    request = unpack_frame_request(message)
+    return request.frame_id, request.jpeg
+
+
+def validate_settings(
+    values: Mapping[str, Any],
+    *,
+    allow_experimental_backends: bool = False,
+) -> dict[str, Any]:
     action = str(values.get("action", "lunge"))
     view = str(values.get("camera_view", "side"))
     sensitivity = str(values.get("sensitivity", "medium"))
-    backend = str(values.get("backend", "auto"))
+    backend = str(values.get("backend", "mediapipe"))
     profile = str(values.get("landmark_profile", "full"))
     if action not in {"none", *HYROX_ACTION_NAMES}:
         raise RealtimeProtocolError("invalid_action", "无效的 HYROX 动作")
@@ -151,13 +253,12 @@ def validate_settings(values: Mapping[str, Any]) -> dict[str, Any]:
         raise RealtimeProtocolError("invalid_view", "无效的拍摄视角")
     if sensitivity not in {"low", "medium", "high"}:
         raise RealtimeProtocolError("invalid_sensitivity", "无效的灵敏度")
-    if backend not in {
-        "auto",
-        "mediapipe",
-        "yolo-mediapipe",
-        "yolo-pose",
-        "rtmw-wholebody",
-    }:
+    allowed_backends = {"auto", "mediapipe"}
+    if allow_experimental_backends:
+        allowed_backends.update(
+            {"yolo-mediapipe", "yolo-pose", "rtmw-wholebody"}
+        )
+    if backend not in allowed_backends:
         raise RealtimeProtocolError("invalid_backend", "无效的识别模型")
     if profile not in {"full", "no-face", "upper-body", "lower-body"}:
         raise RealtimeProtocolError("invalid_profile", "无效的骨架显示模式")
@@ -204,9 +305,34 @@ def validate_manual_floor_points(value: object) -> list[list[float]]:
 
 
 def default_backend_factory(requested: str, action: str) -> tuple[Any, str]:
-    resolved = resolve_backend_choice(requested, action_type=action, input_video="")
-    if requested == "auto" and action == "lunge":
-        resolved = "yolo-mediapipe"
+    resolved = resolve_backend_choice(
+        requested,
+        action_type=action,
+        input_video="",
+        product_mode=True,
+    )
+    if resolved != "mediapipe":
+        raise RealtimeProtocolError(
+            "experimental_backend_disabled",
+            "产品实时会话只支持 MediaPipe Pose",
+        )
+    return (
+        MediaPipeBackend(
+            PROJECT_ROOT / "models" / "pose_landmarker_full.task",
+            output_segmentation_masks=False,
+        ),
+        "mediapipe",
+    )
+
+
+def experimental_backend_factory(requested: str, action: str) -> tuple[Any, str]:
+    """Explicit research/benchmark factory; never selected by product auto."""
+    resolved = resolve_backend_choice(
+        requested,
+        action_type=action,
+        input_video="",
+        product_mode=False,
+    )
     if resolved == "mediapipe":
         # Avoid a native MediaPipe crash seen on Windows when mask generation
         # receives certain camera/video dimensions. Pose landmarks are enough
@@ -315,19 +441,51 @@ class RealtimePoseSession:
         inference_gate: threading.BoundedSemaphore | None = None,
         max_receive_fps: float = DEFAULT_RECEIVE_FPS,
         report_retention_seconds: int = REPORT_RETENTION_SECONDS,
+        allow_experimental_backends: bool = False,
+        realtime_smoothing_config: RealtimeSmoothingConfig | None = None,
+        three_d_kinematics_config: ThreeDKinematicsConfig | None = None,
+        three_d_quality_config: ThreeDQualityConfig | None = None,
+        max_pose_age_ms: float = 150.0,
     ) -> None:
         self.session_id = session_id
-        self._backend_factory = backend_factory
+        self._allow_experimental_backends = bool(allow_experimental_backends)
+        self._backend_factory = (
+            experimental_backend_factory
+            if backend_factory is default_backend_factory
+            and self._allow_experimental_backends
+            else backend_factory
+        )
         self._inference_gate = inference_gate or threading.BoundedSemaphore(1)
         self._max_receive_fps = max(1.0, float(max_receive_fps))
         self._retention_seconds = max(60, int(report_retention_seconds))
+        self._realtime_smoothing_config = (
+            RealtimeSmoothingConfig()
+            if realtime_smoothing_config is None
+            else realtime_smoothing_config
+        )
+        self._three_d_kinematics_config = (
+            ThreeDKinematicsConfig()
+            if three_d_kinematics_config is None
+            else three_d_kinematics_config
+        )
+        self._three_d_quality_config = (
+            ThreeDQualityConfig()
+            if three_d_quality_config is None
+            else three_d_quality_config
+        )
+        self._max_pose_age_ms = max(0.0, float(max_pose_age_ms))
         self._frames = LatestFrameQueue()
         self._results: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
         self._lock = threading.RLock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
-        self._settings = validate_settings({})
+        self._settings = validate_settings(
+            {},
+            allow_experimental_backends=self._allow_experimental_backends,
+        )
         self._state: dict[str, Any] = {
+            "session_id": session_id,
+            "run_id": "",
             "running": False,
             "status": "idle",
             "status_text": "等待开启本机摄像头",
@@ -353,6 +511,7 @@ class RealtimePoseSession:
             "feedback": [],
             "voice_feedback": None,
             "frame_index": 0,
+            "last_submitted_frame_id": 0,
             "paused": False,
             "error": "",
             "queue_dropped": 0,
@@ -363,6 +522,12 @@ class RealtimePoseSession:
         self._disconnected_at: float | None = None
         self._report_expires_at: float | None = None
         self._voice_feedback = RepVoiceFeedbackTracker()
+        self._run_generation = 0
+        self._run_id = ""
+        self._settings_revision = 0
+        self._last_submitted_sequence = 0
+        self._connection_generation = 0
+        self._client_clock_offsets_ms: dict[int, float] = {}
 
     @property
     def running(self) -> bool:
@@ -380,25 +545,51 @@ class RealtimePoseSession:
 
     def mark_connected(self) -> None:
         with self._lock:
+            self._connection_generation += 1
+            self._client_clock_offsets_ms.clear()
             self._connected = True
             self._disconnected_at = None
+            while True:
+                try:
+                    self._results.get_nowait()
+                except queue.Empty:
+                    break
 
     def mark_disconnected(self) -> None:
         with self._lock:
             self._connected = False
             self._disconnected_at = time.monotonic()
+            self._settings_revision += 1
+            self._frames.clear()
 
     def start(self, values: Mapping[str, Any]) -> dict[str, Any]:
-        settings = validate_settings(values)
+        settings = validate_settings(
+            values,
+            allow_experimental_backends=self._allow_experimental_backends,
+        )
         with self._lock:
             new_run = self._thread is None or not self._thread.is_alive()
             if new_run:
+                self._run_generation += 1
+                self._run_id = f"{self._run_generation:x}-{time.monotonic_ns():x}"
+                self._settings_revision += 1
+                self._last_submitted_sequence = 0
+                self._last_submit_at = 0.0
                 self._history.clear()
                 self._frames = LatestFrameQueue()
+                while True:
+                    try:
+                        self._results.get_nowait()
+                    except queue.Empty:
+                        break
                 self._voice_feedback.reset()
+            elif settings != self._settings:
+                self._settings_revision += 1
             self._settings.update(settings)
             self._state.update(
                 {
+                    "session_id": self.session_id,
+                    "run_id": self._run_id,
                     "running": True,
                     "status": "starting",
                     "status_text": "正在加载识别模型…",
@@ -426,6 +617,7 @@ class RealtimePoseSession:
                             "feedback": [],
                             "voice_feedback": None,
                             "frame_index": 0,
+                            "last_submitted_frame_id": 0,
                             "queue_dropped": 0,
                         }
                         if new_run
@@ -447,8 +639,13 @@ class RealtimePoseSession:
     def update_settings(self, values: Mapping[str, Any]) -> dict[str, Any]:
         merged = dict(self._settings)
         merged.update(values)
-        settings = validate_settings(merged)
+        settings = validate_settings(
+            merged,
+            allow_experimental_backends=self._allow_experimental_backends,
+        )
         with self._lock:
+            if settings != self._settings:
+                self._settings_revision += 1
             self._settings.update(settings)
             self._state.update(
                 {
@@ -463,14 +660,36 @@ class RealtimePoseSession:
             return dict(self._state)
 
     def submit(self, message: bytes) -> bool:
-        if not self.running:
-            raise RealtimeProtocolError("not_started", "请先发送 start 消息")
-        sequence, jpeg = unpack_frame(message)
+        request = unpack_frame_request(message)
         now = time.monotonic()
-        if now - self._last_submit_at < 1.0 / self._max_receive_fps:
-            return False
-        self._last_submit_at = now
-        self._frames.put_latest(FramePacket(sequence=sequence, jpeg=jpeg, received_at=now))
+        with self._lock:
+            if not self._state["running"]:
+                raise RealtimeProtocolError("not_started", "请先发送 start 消息")
+            if request.session_id and request.session_id != self.session_id:
+                raise RealtimeProtocolError("stale_session", "摄像头帧属于其他会话")
+            if request.run_id and request.run_id != self._run_id:
+                raise RealtimeProtocolError("stale_run", "摄像头帧属于已停止的运行")
+            if request.action and request.action != str(self._settings["action"]):
+                raise RealtimeProtocolError("stale_action", "摄像头帧属于旧动作")
+            if request.backend and request.backend != str(self._settings["backend"]):
+                raise RealtimeProtocolError("stale_backend", "摄像头帧属于旧后端")
+            if request.frame_id <= self._last_submitted_sequence:
+                raise RealtimeProtocolError("stale_frame", "frame_id 必须严格递增")
+            if now - self._last_submit_at < 1.0 / self._max_receive_fps:
+                return False
+            self._last_submit_at = now
+            self._last_submitted_sequence = request.frame_id
+            connection_generation = self._connection_generation
+            self._state["last_submitted_frame_id"] = request.frame_id
+        self._frames.put_latest(
+            FramePacket(
+                sequence=request.frame_id,
+                jpeg=request.jpeg,
+                received_at=now,
+                client_capture_ms=request.client_capture_ms,
+                connection_generation=connection_generation,
+            )
+        )
         return True
 
     def next_result(self, timeout: float = 0.0) -> dict[str, Any] | None:
@@ -539,6 +758,7 @@ class RealtimePoseSession:
                 "processed_frames": len(frames),
                 "dropped_frames": state["queue_dropped"],
                 "backend": state["backend"],
+                "three_d_kinematics": summarize_three_d_records(frames),
             },
             "frames": frames,
         })
@@ -547,8 +767,12 @@ class RealtimePoseSession:
         report = self.report()
         output = io.StringIO(newline="")
         fieldnames = versioned_csv_columns([
-            "sequence", "timestamp_unix_ms", "action", "phase", "reps", "pose_detected",
-            "inference_ms", "server_ms", "width", "height", "feedback", "keypoints_json",
+            "sequence", "frame_id", "client_capture_ms", "timestamp_unix_ms", "action", "phase", "reps", "pose_detected",
+            "inference_ms", "server_ms", "pose_age_ms", "width", "height",
+            "three_d_available", "three_d_reliable_ratio", "three_d_conflict_ratio",
+            "three_d_assist_status", "three_d_kinematics_json",
+            "three_d_assist_json",
+            "feedback", "keypoints_json",
         ])
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
@@ -557,6 +781,8 @@ class RealtimePoseSession:
             writer.writerow(
                 versioned_csv_row({
                     "sequence": frame.get("sequence"),
+                    "frame_id": frame.get("frame_id"),
+                    "client_capture_ms": frame.get("client_capture_ms"),
                     "timestamp_unix_ms": frame.get("timestamp_unix_ms"),
                     "action": frame.get("action"),
                     "phase": frame.get("phase"),
@@ -564,8 +790,21 @@ class RealtimePoseSession:
                     "pose_detected": frame.get("pose_detected"),
                     "inference_ms": metrics.get("inference_ms"),
                     "server_ms": metrics.get("server_ms"),
+                    "pose_age_ms": metrics.get("pose_age_ms"),
                     "width": metrics.get("width"),
                     "height": metrics.get("height"),
+                    "three_d_available": metrics.get("three_d_available"),
+                    "three_d_reliable_ratio": metrics.get("three_d_reliable_ratio"),
+                    "three_d_conflict_ratio": metrics.get("three_d_conflict_ratio"),
+                    "three_d_assist_status": metrics.get("three_d_assist_status"),
+                    "three_d_kinematics_json": json.dumps(
+                        frame.get("three_d_kinematics", {}),
+                        ensure_ascii=False,
+                    ),
+                    "three_d_assist_json": json.dumps(
+                        frame.get("last_three_d_assist", {}),
+                        ensure_ascii=False,
+                    ),
                     "feedback": json.dumps(frame.get("feedback", []), ensure_ascii=False),
                     "keypoints_json": json.dumps(frame.get("keypoints", []), ensure_ascii=False),
                 })
@@ -584,11 +823,28 @@ class RealtimePoseSession:
             pass
         self._results.put_nowait(message)
 
+    def _context_is_current(
+        self,
+        *,
+        settings_revision: int,
+        run_id: str,
+        connection_generation: int,
+    ) -> bool:
+        with self._lock:
+            return bool(
+                self._state["running"]
+                and not self._stop_event.is_set()
+                and run_id == self._run_id
+                and settings_revision == self._settings_revision
+                and connection_generation == self._connection_generation
+            )
+
     def _run(self) -> None:
         backend: Any | None = None
         backend_name = "-"
         backend_request: tuple[str, str] | None = None
-        smoother = KeypointSmoother(mode="one-euro", max_missing_frames=5, occlusion_guard=True)
+        smoother = self._new_smoother()
+        three_d_tracker = self._new_three_d_tracker()
         analyzer: Any | None = None
         analyzer_key: tuple[str, str, str] | None = None
         hand_overlay = WebHandOverlay(PROJECT_ROOT / "models" / "hand_landmarker.task")
@@ -604,6 +860,8 @@ class RealtimePoseSession:
                     continue
                 with self._lock:
                     settings = dict(self._settings)
+                    settings_revision = self._settings_revision
+                    run_id = self._run_id
                 if settings["paused"]:
                     continue
                 try:
@@ -613,19 +871,42 @@ class RealtimePoseSession:
                             backend.close()
                         backend, backend_name = self._backend_factory(settings["backend"], settings["action"])
                         backend_request = requested_backend
-                        smoother = KeypointSmoother(mode="one-euro", max_missing_frames=5, occlusion_guard=True)
+                        smoother = self._new_smoother()
+                        three_d_tracker.reset()
                     message = self._process_packet(
                         packet,
                         backend,
                         backend_name,
                         smoother,
+                        three_d_tracker,
                         settings,
+                        settings_revision,
+                        run_id,
                         analyzer,
                         analyzer_key,
                         hand_overlay,
                     )
                     analyzer = message.pop("_analyzer")
                     analyzer_key = message.pop("_analyzer_key")
+                    context_is_current = self._context_is_current(
+                        settings_revision=settings_revision,
+                        run_id=run_id,
+                        connection_generation=packet.connection_generation,
+                    )
+                    if not context_is_current:
+                        smoother.reset()
+                        three_d_tracker.reset()
+                        self._publish(
+                            {
+                                "type": "frame_dropped",
+                                "reason": "stale_context",
+                                "session_id": self.session_id,
+                                "run_id": run_id,
+                                "frame_id": packet.sequence,
+                                "sequence": packet.sequence,
+                            }
+                        )
+                        continue
                     now = time.perf_counter()
                     instant_fps = 1.0 / max(now - last_processed, 1e-6)
                     smooth_fps = instant_fps if smooth_fps <= 0 else smooth_fps * 0.8 + instant_fps * 0.2
@@ -654,19 +935,46 @@ class RealtimePoseSession:
                                 "foot_events": message["foot_events"],
                                 "feedback": message["feedback"],
                                 "voice_feedback": message["voice_feedback"],
-                                "frame_index": len(self._history),
+                                "frame_index": packet.sequence,
                                 "queue_dropped": self._frames.dropped,
                                 "error": "",
                             }
                         )
                     self._publish(message)
+                except StaleFrameContext:
+                    smoother.reset()
+                    three_d_tracker.reset()
+                    self._publish(
+                        {
+                            "type": "frame_dropped",
+                            "reason": "stale_context",
+                            "session_id": self.session_id,
+                            "run_id": run_id,
+                            "frame_id": packet.sequence,
+                            "sequence": packet.sequence,
+                        }
+                    )
                 except RealtimeProtocolError as exc:
-                    self._publish(exc.as_message())
+                    self._publish(
+                        {
+                            **exc.as_message(),
+                            "session_id": self.session_id,
+                            "run_id": run_id,
+                            "frame_id": packet.sequence,
+                        }
+                    )
                 except Exception as exc:
                     error = RealtimeProtocolError("inference_failed", f"姿态识别失败：{exc}")
                     with self._lock:
                         self._state.update({"status": "error", "status_text": "识别出错", "error": str(exc)})
-                    self._publish(error.as_message())
+                    self._publish(
+                        {
+                            **error.as_message(),
+                            "session_id": self.session_id,
+                            "run_id": run_id,
+                            "frame_id": packet.sequence,
+                        }
+                    )
         finally:
             hand_overlay.close()
             if backend is not None:
@@ -677,13 +985,30 @@ class RealtimePoseSession:
                     self._state.update({"status": "idle", "status_text": "连接已释放"})
                 self._report_expires_at = time.monotonic() + self._retention_seconds
 
+    def _new_smoother(self) -> KeypointSmoother:
+        return KeypointSmoother.from_config(
+            self._realtime_smoothing_config,
+            max_missing_frames=5,
+            occlusion_guard=True,
+        )
+
+    def _new_three_d_tracker(self) -> ThreeDKinematicsTracker:
+        return ThreeDKinematicsTracker(
+            self._three_d_kinematics_config,
+            self._three_d_quality_config,
+            max_pose_age_ms=self._max_pose_age_ms,
+        )
+
     def _process_packet(
         self,
         packet: FramePacket,
         backend: Any,
         backend_name: str,
         smoother: KeypointSmoother,
+        three_d_tracker: ThreeDKinematicsTracker,
         settings: Mapping[str, Any],
+        settings_revision: int,
+        run_id: str,
         analyzer: Any | None,
         analyzer_key: tuple[str, str, str] | None,
         hand_overlay: WebHandOverlay,
@@ -697,10 +1022,29 @@ class RealtimePoseSession:
         if width <= 0 or height <= 0 or width > MAX_FRAME_WIDTH or height > MAX_FRAME_HEIGHT or width * height > MAX_FRAME_PIXELS:
             raise RealtimeProtocolError("invalid_dimensions", "摄像头帧最大支持 1280×720")
 
-        inference_timestamp_ms = int(time.monotonic() * 1000)
+        if packet.client_capture_ms is not None:
+            with self._lock:
+                clock_offset_ms = self._client_clock_offsets_ms.get(
+                    packet.connection_generation
+                )
+                if clock_offset_ms is None:
+                    clock_offset_ms = packet.received_at * 1000.0 - packet.client_capture_ms
+                    self._client_clock_offsets_ms[packet.connection_generation] = clock_offset_ms
+            capture_timestamp_ms = packet.client_capture_ms + clock_offset_ms
+            inference_timestamp_ms = int(round(capture_timestamp_ms))
+            capture_timestamp_ns = int(round(capture_timestamp_ms * 1_000_000.0))
+        else:
+            capture_timestamp_ns = int(round(packet.received_at * 1_000_000_000.0))
+            inference_timestamp_ms = int(round(capture_timestamp_ns / 1_000_000.0))
         with self._inference_gate:
             result = smoother.smooth_result(
-                backend.detect(frame, timestamp_ms=inference_timestamp_ms)
+                backend.detect(frame, timestamp_ms=inference_timestamp_ms),
+                capture_timestamp_ns=capture_timestamp_ns,
+            )
+            result, three_d_result = three_d_tracker.attach(
+                result,
+                capture_timestamp_ns=capture_timestamp_ns,
+                pose_age_ms=max(0.0, (time.perf_counter() - packet.received_at) * 1000.0),
             )
             show_hand_overlay = hand_overlay_visible(
                 str(settings["landmark_profile"]),
@@ -722,6 +1066,12 @@ class RealtimePoseSession:
                     timestamp_ms=inference_timestamp_ms,
                     enabled=False,
                 )
+        if not self._context_is_current(
+            settings_revision=settings_revision,
+            run_id=run_id,
+            connection_generation=packet.connection_generation,
+        ):
+            raise StaleFrameContext
         has_pose = bool(result.success and result.keypoints)
         next_analyzer_key = (str(settings["action"]), str(settings["sensitivity"]), str(settings["camera_view"]))
         if next_analyzer_key != analyzer_key:
@@ -754,7 +1104,11 @@ class RealtimePoseSession:
                 if has_pose
                 else None
             )
-            action_state = analyzer.attach_view_context(analyzer.update(features, timestamp_ms=int(time.monotonic() * 1000)))
+            if features is not None:
+                features["three_d_kinematics"] = three_d_result.as_dict()
+            action_state = analyzer.attach_view_context(
+                analyzer.update(features, timestamp_ms=inference_timestamp_ms)
+            )
 
         all_names = {point.name for point in result.keypoints}
         visible_names = _profile_names(
@@ -821,6 +1175,11 @@ class RealtimePoseSession:
             if isinstance(action_state, Mapping)
             else {}
         )
+        last_three_d_assist = (
+            dict(action_state.get("last_three_d_assist") or {})
+            if isinstance(action_state, Mapping)
+            else {}
+        )
         evaluation_phase = str(action_debug.get("raw_phase", phase)) if isinstance(action_debug, Mapping) else phase
         detected_issues = _feedback_items(action_state)
         feedback = visible_feedback(detected_issues, evaluation_phase)
@@ -833,11 +1192,20 @@ class RealtimePoseSession:
             timestamp_ms=int(time.time() * 1000),
         )
         server_ms = (time.perf_counter() - started) * 1000.0
+        pose_age_ms = (time.monotonic() - packet.received_at) * 1000.0
         return {
             "type": "result",
+            "session_id": self.session_id,
+            "run_id": self._run_id,
+            "frame_id": packet.sequence,
             "sequence": packet.sequence,
+            "client_capture_ms": packet.client_capture_ms,
+            "server_inference_ms": round(float(result.inference_time_ms), 1),
+            "pose_age_ms": round(pose_age_ms, 1),
             "timestamp_unix_ms": int(time.time() * 1000),
             "action": settings["action"],
+            "camera_view": settings["camera_view"],
+            "request_backend": settings["backend"],
             "action_label": ACTION_LABELS[str(settings["action"])],
             "phase": phase,
             "reps": reps,
@@ -850,6 +1218,7 @@ class RealtimePoseSession:
             "foot_events": foot_events,
             "last_rep_decision": last_rep_decision,
             "last_rep_observability": last_rep_observability,
+            "last_three_d_assist": last_three_d_assist,
             "pose_detected": has_pose,
             "hands_detected": bool(hand_keypoints),
             "feedback": feedback,
@@ -858,11 +1227,31 @@ class RealtimePoseSession:
             "voice_feedback": voice_feedback,
             "keypoints": keypoints,
             "connections": connections,
+            "world_angles": three_d_result.as_dict()["angles_3d"],
+            "three_d_kinematics": three_d_result.as_dict(),
+            "counts": {
+                "reps": reps,
+                "candidate_count": candidate_count,
+                "pose_valid_rep_count": pose_valid_rep_count,
+                "no_rep_count": no_rep_count,
+                "unsure_count": unsure_count,
+            },
             "metrics": {
                 "backend": backend_name,
                 "inference_ms": round(float(result.inference_time_ms), 1),
                 "server_ms": round(server_ms, 1),
+                "pose_age_ms": round(pose_age_ms, 1),
                 "queue_dropped": self._frames.dropped,
+                "three_d_available": three_d_result.three_d_available,
+                "three_d_reliable_ratio": round(
+                    three_d_result.three_d_reliable_ratio,
+                    4,
+                ),
+                "three_d_conflict_ratio": round(
+                    three_d_result.three_d_conflict_ratio,
+                    4,
+                ),
+                "three_d_assist_status": three_d_result.assist_status,
                 "width": width,
                 "height": height,
                 "fps": 0.0,
@@ -900,6 +1289,10 @@ class SessionManager:
         per_ip_limit: int | None = None,
         session_ttl_seconds: int = REPORT_RETENTION_SECONDS,
         inference_concurrency: int | None = None,
+        realtime_smoothing_config: RealtimeSmoothingConfig | None = None,
+        three_d_kinematics_config: ThreeDKinematicsConfig | None = None,
+        three_d_quality_config: ThreeDQualityConfig | None = None,
+        max_pose_age_ms: float = 150.0,
     ) -> None:
         import secrets
 
@@ -911,6 +1304,10 @@ class SessionManager:
         self.max_active = max_active or int(os.environ.get("POSE_MAX_ACTIVE", "50"))
         self.per_ip_limit = per_ip_limit or int(os.environ.get("POSE_MAX_SESSIONS_PER_IP", "10"))
         self.session_ttl_seconds = max(60, session_ttl_seconds)
+        self._realtime_smoothing_config = realtime_smoothing_config
+        self._three_d_kinematics_config = three_d_kinematics_config
+        self._three_d_quality_config = three_d_quality_config
+        self._max_pose_age_ms = max(0.0, float(max_pose_age_ms))
         concurrency = inference_concurrency or int(os.environ.get("POSE_INFERENCE_CONCURRENCY", "1"))
         self._inference_gate = threading.BoundedSemaphore(max(1, concurrency))
         self._lock = threading.RLock()
@@ -933,7 +1330,14 @@ class SessionManager:
             realtime = (
                 self._realtime_factory(new_id, self._inference_gate)
                 if self._realtime_factory is not None
-                else RealtimePoseSession(new_id, inference_gate=self._inference_gate)
+                else RealtimePoseSession(
+                    new_id,
+                    inference_gate=self._inference_gate,
+                    realtime_smoothing_config=self._realtime_smoothing_config,
+                    three_d_kinematics_config=self._three_d_kinematics_config,
+                    three_d_quality_config=self._three_d_quality_config,
+                    max_pose_age_ms=self._max_pose_age_ms,
+                )
             )
             item = BrowserSession(
                 session_id=new_id,
@@ -1004,6 +1408,7 @@ __all__ = [
     "RealtimeProtocolError",
     "SessionCapacityError",
     "SessionManager",
+    "experimental_backend_factory",
     "unpack_frame",
     "validate_settings",
     "validate_manual_floor_points",

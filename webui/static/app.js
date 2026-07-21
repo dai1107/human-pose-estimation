@@ -9,18 +9,35 @@ const ui = {
   stateTimer: null,
   lastStatus: "idle",
   csrfToken: "",
-  realtimeConfig: { frame_width: 640, frame_height: 480, target_fps: 30, camera_fps: 60 },
+  realtimeConfig: {
+    frame_width: 640,
+    frame_height: 480,
+    inference_long_edge: 640,
+    jpeg_quality: 0.65,
+    target_fps: 30,
+    camera_fps: 60,
+  },
   mediaStream: null,
   socket: null,
   captureTimer: null,
+  requestTimeout: null,
+  drawAnimation: null,
   reconnectTimer: null,
   reconnectAttempts: 0,
   manualStop: false,
   facingMode: "user",
   sequence: 0,
   pendingFrames: new Map(),
+  requestInFlight: false,
+  inFlightFrameId: -1,
+  activeRealtimeSessionId: "",
+  activeRealtimeRunId: "",
+  lastRenderedPoseFrameId: -1,
+  lastDiscardedFrameId: -1,
+  staleResultCount: 0,
   latestResult: null,
   lastResultAt: 0,
+  lastFrameSentAt: 0,
   captureFps: 30,
   samplesByAction: new Map(),
   standards: {},
@@ -85,6 +102,7 @@ const actionCameraTips = {
   },
 };
 const backendLabels = {
+  "sample-cache": "预计算示例结果",
   "yolo-rtmw-wholebody": "YOLO + RTMW WholeBody",
   "yolo-guided-mediapipe-fallback": "YOLO + MediaPipe（RTMW 降级）",
   "yolo-guided-mediapipe": "YOLO + MediaPipe",
@@ -246,6 +264,13 @@ function renderCameraTip(action) {
   node.textContent = `推荐视角：${tip.view}；入镜范围：${tip.framing}。`;
 }
 
+function setConnectionMetricForSource(mode = ui.sourceMode) {
+  const metric = $("#connectionMetric");
+  if (!metric) return;
+  metric.textContent = mode === "camera" ? "未连接" : "本机处理";
+  metric.className = "neutral";
+}
+
 function selectSource(mode) {
   if (ui.running) return;
   if (ui.sourceMode === "camera" && mode !== "camera") closeCamera();
@@ -261,6 +286,7 @@ function selectSource(mode) {
   }
   renderStandards($("#actionSelect").value);
   renderCameraTip($("#actionSelect").value);
+  setConnectionMetricForSource(mode);
 }
 
 function setRunning(running) {
@@ -417,20 +443,32 @@ function connectRealtime() {
       if (message.type === "connected") {
         clearTimeout(timeout);
         ui.reconnectAttempts = 0;
+        ui.activeRealtimeSessionId = message.session_id || "";
+        ui.sequence = Math.max(ui.sequence, Number(message.state?.last_submitted_frame_id || 0));
         sendSocket({ type: "start", settings: settingsPayload() });
         resolve();
       } else if (message.type === "started") {
+        ui.activeRealtimeRunId = message.state?.run_id || "";
         $("#loadingOverlay").hidden = false;
+        startPoseDrawLoop();
         startCaptureLoop();
       } else if (message.type === "result") {
         handleRealtimeResult(message);
       } else if (message.type === "state") {
         updateState(message.state);
       } else if (message.type === "frame_dropped") {
+        if (Number.isFinite(Number(message.frame_id))) {
+          ui.lastDiscardedFrameId = Math.max(ui.lastDiscardedFrameId, Number(message.frame_id));
+        }
+        finishFrameRequest(message.frame_id);
         ui.captureFps = Math.max(15, ui.captureFps - 2);
         $("#connectionMetric").textContent = "正在自适应";
         $("#connectionMetric").className = "neutral";
       } else if (message.type === "error") {
+        if (Number.isFinite(Number(message.frame_id))) {
+          ui.lastDiscardedFrameId = Math.max(ui.lastDiscardedFrameId, Number(message.frame_id));
+        }
+        finishFrameRequest(message.frame_id);
         toast(message.message || "实时分析出错", true);
         if (["server_busy", "csrf_failed", "origin_rejected"].includes(message.code)) stopAnalysis();
       }
@@ -442,9 +480,14 @@ function connectRealtime() {
     socket.onclose = () => {
       clearTimeout(timeout);
       stopCaptureLoop();
-      $("#connectionMetric").textContent = "连接中断";
-      $("#connectionMetric").className = "bad";
-      if (ui.running && !ui.manualStop) scheduleReconnect();
+      const shouldReconnect = ui.sourceMode === "camera" && ui.running && !ui.manualStop;
+      if (shouldReconnect) {
+        $("#connectionMetric").textContent = "连接中断";
+        $("#connectionMetric").className = "bad";
+        scheduleReconnect();
+      } else if (ui.sourceMode !== "camera") {
+        setConnectionMetricForSource(ui.sourceMode);
+      }
     };
   });
 }
@@ -464,61 +507,152 @@ function scheduleReconnect() {
 function startCaptureLoop() {
   stopCaptureLoop();
   ui.captureFps = ui.realtimeConfig.target_fps || 30;
-  const capture = async () => {
-    const interval = Math.max(34, Math.ceil(1000 / ui.captureFps));
-    if (!ui.running || !ui.mediaStream || ui.paused || ui.socket?.readyState !== WebSocket.OPEN) {
-      ui.captureTimer = setTimeout(capture, interval);
-      return;
-    }
-    if (ui.socket.bufferedAmount > 1024 * 1024) {
-      ui.captureTimer = setTimeout(capture, interval);
-      return;
-    }
-    const video = $("#localVideo");
-    if (video.readyState >= 2 && video.videoWidth > 0) {
-      const canvas = $("#captureCanvas");
-      const maxWidth = ui.realtimeConfig.frame_width || 640;
-      const maxHeight = ui.realtimeConfig.frame_height || 480;
-      const scale = Math.min(1, maxWidth / video.videoWidth, maxHeight / video.videoHeight);
-      canvas.width = Math.max(2, Math.round(video.videoWidth * scale));
-      canvas.height = Math.max(2, Math.round(video.videoHeight * scale));
-      canvas.getContext("2d", { alpha: false }).drawImage(video, 0, 0, canvas.width, canvas.height);
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", 0.72));
-      if (blob && blob.size <= (ui.realtimeConfig.max_frame_bytes || 512 * 1024)) {
-        const sequence = ++ui.sequence;
-        const image = new Uint8Array(await blob.arrayBuffer());
-        const packet = new Uint8Array(4 + image.length);
-        new DataView(packet.buffer).setUint32(0, sequence, false);
-        packet.set(image, 4);
-        ui.pendingFrames.set(sequence, performance.now());
-        for (const [key] of ui.pendingFrames) if (key < sequence - 50) ui.pendingFrames.delete(key);
-        ui.socket.send(packet.buffer);
-      }
-    }
-    ui.captureTimer = setTimeout(capture, interval);
-  };
-  capture();
+  scheduleNextCapture(0);
+}
+
+function scheduleNextCapture(delay = 0) {
+  clearTimeout(ui.captureTimer);
+  if (!ui.running || ui.requestInFlight) return;
+  const interval = Math.max(34, Math.ceil(1000 / ui.captureFps));
+  const rateDelay = Math.max(0, interval - (performance.now() - ui.lastFrameSentAt));
+  ui.captureTimer = setTimeout(captureLatestFrame, Math.max(0, delay, rateDelay));
+}
+
+async function captureLatestFrame() {
+  ui.captureTimer = null;
+  const interval = Math.max(34, Math.ceil(1000 / ui.captureFps));
+  if (!ui.running || !ui.mediaStream || ui.paused || ui.socket?.readyState !== WebSocket.OPEN) {
+    scheduleNextCapture(interval);
+    return;
+  }
+  if (ui.requestInFlight || ui.socket.bufferedAmount > 1024 * 1024) {
+    scheduleNextCapture(interval);
+    return;
+  }
+  ui.requestInFlight = true;
+  const video = $("#localVideo");
+  if (video.readyState < 2 || video.videoWidth <= 0) {
+    finishFrameRequest();
+    return;
+  }
+  const canvas = $("#captureCanvas");
+  const longEdge = ui.realtimeConfig.inference_long_edge || 640;
+  const scale = Math.min(1, longEdge / Math.max(video.videoWidth, video.videoHeight));
+  canvas.width = Math.max(2, Math.round(video.videoWidth * scale));
+  canvas.height = Math.max(2, Math.round(video.videoHeight * scale));
+  const clientCaptureMs = performance.now();
+  canvas.getContext("2d", { alpha: false }).drawImage(video, 0, 0, canvas.width, canvas.height);
+  const jpegQuality = Number(ui.realtimeConfig.jpeg_quality ?? 0.65);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", jpegQuality));
+  if (!ui.running || ui.socket?.readyState !== WebSocket.OPEN) {
+    finishFrameRequest();
+    return;
+  }
+  if (!blob || blob.size > (ui.realtimeConfig.max_frame_bytes || 512 * 1024)) {
+    finishFrameRequest();
+    return;
+  }
+  const frameId = ++ui.sequence;
+  const metadata = new TextEncoder().encode(JSON.stringify({
+    session_id: ui.activeRealtimeSessionId,
+    run_id: ui.activeRealtimeRunId,
+    frame_id: frameId,
+    client_capture_ms: clientCaptureMs,
+    action: $("#actionSelect").value,
+    backend: $("#backendSelect").value,
+  }));
+  const image = new Uint8Array(await blob.arrayBuffer());
+  if (!ui.running || ui.socket?.readyState !== WebSocket.OPEN) {
+    finishFrameRequest();
+    return;
+  }
+  const packet = new Uint8Array(8 + metadata.length + image.length);
+  packet.set([0x50, 0x53, 0x56, 0x32], 0);
+  new DataView(packet.buffer).setUint32(4, metadata.length, false);
+  packet.set(metadata, 8);
+  packet.set(image, 8 + metadata.length);
+  const sentAt = performance.now();
+  ui.lastFrameSentAt = sentAt;
+  ui.inFlightFrameId = frameId;
+  ui.pendingFrames.clear();
+  ui.pendingFrames.set(frameId, { sentAt, captureMs: clientCaptureMs });
+  try {
+    ui.socket.send(packet.buffer);
+  } catch (_) {
+    finishFrameRequest(frameId);
+    return;
+  }
+  clearTimeout(ui.requestTimeout);
+  ui.requestTimeout = setTimeout(() => {
+    if (ui.inFlightFrameId !== frameId) return;
+    ui.pendingFrames.delete(frameId);
+    ui.lastDiscardedFrameId = Math.max(ui.lastDiscardedFrameId, frameId);
+    ui.requestInFlight = false;
+    ui.inFlightFrameId = -1;
+    ui.staleResultCount += 1;
+    $("#connectionMetric").textContent = "请求超时 · 正在恢复";
+    $("#connectionMetric").className = "bad";
+    scheduleNextCapture(0);
+  }, Math.max(1000, Number(ui.realtimeConfig.request_timeout_ms || 3000)));
+}
+
+function finishFrameRequest(frameId = null) {
+  if (frameId !== null && frameId !== undefined && Number(frameId) !== ui.inFlightFrameId) return;
+  clearTimeout(ui.requestTimeout);
+  ui.requestTimeout = null;
+  if (ui.inFlightFrameId >= 0) ui.pendingFrames.delete(ui.inFlightFrameId);
+  ui.requestInFlight = false;
+  ui.inFlightFrameId = -1;
+  scheduleNextCapture(0);
 }
 
 function stopCaptureLoop() {
   clearTimeout(ui.captureTimer);
+  clearTimeout(ui.requestTimeout);
   ui.captureTimer = null;
+  ui.requestTimeout = null;
+  ui.requestInFlight = false;
+  ui.inFlightFrameId = -1;
   ui.pendingFrames.clear();
 }
 
 function handleRealtimeResult(result) {
-  ui.latestResult = result;
-  ui.lastResultAt = performance.now();
-  const sentAt = ui.pendingFrames.get(result.sequence);
-  const roundTrip = sentAt ? performance.now() - sentAt : result.metrics.server_ms;
-  ui.pendingFrames.delete(result.sequence);
+  const frameId = Number(result.frame_id ?? result.sequence ?? -1);
+  const receivedAt = performance.now();
+  const pending = ui.pendingFrames.get(frameId);
+  finishFrameRequest(frameId);
+  const contextIsCurrent = Boolean(
+    ui.running
+    && result.session_id === ui.activeRealtimeSessionId
+    && result.run_id === ui.activeRealtimeRunId
+    && result.action === $("#actionSelect").value
+    && result.request_backend === $("#backendSelect").value
+  );
+  if (
+    !contextIsCurrent
+    || frameId <= ui.lastRenderedPoseFrameId
+    || frameId <= ui.lastDiscardedFrameId
+  ) {
+    ui.staleResultCount += 1;
+    return;
+  }
+  const captureMs = Number(result.client_capture_ms ?? pending?.captureMs);
+  const poseAge = Number.isFinite(captureMs) ? Math.max(0, receivedAt - captureMs) : Number(result.pose_age_ms || 0);
+  if (poseAge > Number(ui.realtimeConfig.hide_pose_after_ms || 300)) {
+    ui.staleResultCount += 1;
+    return;
+  }
+  ui.lastRenderedPoseFrameId = frameId;
+  ui.latestResult = { ...result, frame_id: frameId, client_capture_ms: captureMs };
+  ui.lastResultAt = receivedAt;
+  const roundTrip = pending ? receivedAt - pending.sentAt : result.metrics.server_ms;
   let quality = "流畅";
   let qualityClass = "good";
   if (roundTrip > 500) { quality = "网络较慢"; qualityClass = "bad"; }
   else if (roundTrip > 250) { quality = "一般"; qualityClass = "neutral"; }
   if (roundTrip > 500) ui.captureFps = Math.max(15, ui.captureFps - 2);
   else if (roundTrip < 200 && result.sequence % 30 === 0) ui.captureFps = Math.min(ui.realtimeConfig.target_fps || 30, ui.captureFps + 1);
-  $("#connectionMetric").textContent = `${quality} · ${Math.round(roundTrip)} ms`;
+  $("#connectionMetric").textContent = `${quality} · RTT ${Math.round(roundTrip)} ms · 姿态 ${Math.round(poseAge)} ms`;
   $("#connectionMetric").className = qualityClass;
   $("#loadingOverlay").hidden = true;
   updateState({
@@ -545,7 +679,6 @@ function handleRealtimeResult(result) {
     voice_feedback: result.voice_feedback,
     frame_index: result.sequence,
   });
-  drawSkeleton(result);
   $$("#downloadText, #downloadJson, #downloadCsv").forEach(link => link.setAttribute("aria-disabled", "false"));
   $("#generateReportButton").disabled = false;
   $("#reportReadyBanner").hidden = false;
@@ -558,7 +691,6 @@ function resizeOverlay() {
   canvas.width = Math.max(1, Math.round(stage.clientWidth * ratio));
   canvas.height = Math.max(1, Math.round(stage.clientHeight * ratio));
   canvas.hidden = !ui.mediaStream;
-  if (ui.latestResult) drawSkeleton(ui.latestResult);
 }
 
 function clearOverlay() {
@@ -567,13 +699,59 @@ function clearOverlay() {
   canvas.hidden = true;
 }
 
-function drawSkeleton(result) {
+function startPoseDrawLoop() {
+  if (ui.drawAnimation !== null) return;
+  const drawLoop = now => {
+    ui.drawAnimation = requestAnimationFrame(drawLoop);
+    if (!ui.mediaStream || !ui.running) return;
+    const result = ui.latestResult;
+    const contextIsCurrent = Boolean(
+      result
+      && result.session_id === ui.activeRealtimeSessionId
+      && result.run_id === ui.activeRealtimeRunId
+      && result.action === $("#actionSelect").value
+      && result.request_backend === $("#backendSelect").value
+    );
+    // Pipeline age decides whether a result is safe to accept.  Once accepted,
+    // keep it visible based on when it reached the browser; otherwise normal
+    // inference latency consumes most of the display lifetime and makes the
+    // skeleton repeatedly fade out between consecutive results.
+    const displayAge = ui.lastResultAt > 0 ? Math.max(0, now - ui.lastResultAt) : Infinity;
+    const maxAge = Number(ui.realtimeConfig.max_pose_age_ms || 150);
+    const hideAfter = Math.max(maxAge, Number(ui.realtimeConfig.hide_pose_after_ms || 300));
+    if (!contextIsCurrent || displayAge > hideAfter) {
+      if (ui.floorCalibrationActive || ui.manualFloorPoints.length) {
+        drawSkeleton({ keypoints: [], connections: [], assessment: {}, floor_reference: {} }, 1);
+      } else {
+        const canvas = $("#overlayCanvas");
+        canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+        canvas.hidden = true;
+      }
+      return;
+    }
+    const fadeAfter = Math.max(maxAge, hideAfter * 0.8);
+    const opacity = displayAge <= fadeAfter
+      ? 1
+      : Math.max(0, 1 - (displayAge - fadeAfter) / Math.max(1, hideAfter - fadeAfter));
+    drawSkeleton(result, opacity);
+  };
+  ui.drawAnimation = requestAnimationFrame(drawLoop);
+}
+
+function stopPoseDrawLoop() {
+  if (ui.drawAnimation !== null) cancelAnimationFrame(ui.drawAnimation);
+  ui.drawAnimation = null;
+}
+
+function drawSkeleton(result, opacity = 1) {
   const video = $("#localVideo");
   const canvas = $("#overlayCanvas");
   if (!ui.mediaStream || !video.videoWidth || !result) return;
   resizeOverlayIfNeeded();
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
   const { drawWidth, drawHeight, offsetX, offsetY } = videoContentRect(canvas, video);
   const mirrored = $("#mirrorToggle").checked;
   const points = new Map((result.keypoints || []).map(point => [point.name, point]));
@@ -620,6 +798,7 @@ function drawSkeleton(result) {
     ctx.fillText(label, x + 11, y - 5);
   }
   drawFloorReferenceOverlay(ctx, { drawWidth, drawHeight, offsetX, offsetY }, result.floor_reference);
+  ctx.restore();
   canvas.hidden = false;
 }
 
@@ -702,7 +881,6 @@ function beginFloorCalibration() {
   $("#floorCalibrateButton").classList.add("active");
   $("#floorCalibrateButton").textContent = "点击两个点";
   $("#floorCalibrationStatus").textContent = "请依次点击脚下地板的两个相距较远的点";
-  drawSkeleton(ui.latestResult || { keypoints: [], connections: [], assessment: {} });
 }
 
 function handleFloorCalibrationClick(event) {
@@ -730,7 +908,6 @@ function handleFloorCalibrationClick(event) {
     Math.max(0, Math.min(1, backendX)),
     Math.max(0, Math.min(1, (y - rect.offsetY) / rect.drawHeight)),
   ]);
-  drawSkeleton(ui.latestResult || { keypoints: [], connections: [], assessment: {} });
   if (ui.manualFloorPoints.length < 2) {
     $("#floorCalibrationStatus").textContent = "已记录第一个点，请点击另一侧地板";
     return;
@@ -738,7 +915,6 @@ function handleFloorCalibrationClick(event) {
   if (Math.abs(ui.manualFloorPoints[1][0] - ui.manualFloorPoints[0][0]) <= 0.05) {
     ui.manualFloorPoints = [];
     $("#floorCalibrationStatus").textContent = "两点水平距离太近，请重新点击";
-    drawSkeleton(ui.latestResult || { keypoints: [], connections: [], assessment: {} });
     return;
   }
   const floorSlope = Math.abs(
@@ -748,7 +924,6 @@ function handleFloorCalibrationClick(event) {
   if (floorSlope > 1) {
     ui.manualFloorPoints = [];
     $("#floorCalibrationStatus").textContent = "地板线倾斜过大，请重新点击";
-    drawSkeleton(ui.latestResult || { keypoints: [], connections: [], assessment: {} });
     return;
   }
   ui.floorCalibrationActive = false;
@@ -767,7 +942,6 @@ function resetFloorCalibration() {
   $("#floorCalibrateButton").textContent = "两点标定";
   $("#floorCalibrationStatus").textContent = "已恢复自动估计；请站直并保持双脚完整可见";
   updateLiveSetting("manual_floor_points", []);
-  drawSkeleton(ui.latestResult || { keypoints: [], connections: [], assessment: {} });
 }
 
 function resizeOverlayIfNeeded() {
@@ -801,6 +975,13 @@ async function startAnalysis() {
     $("#startButton span:first-child").textContent = "正在启动…";
     ui.manualStop = false;
     if (ui.sourceMode === "camera") {
+      ui.latestResult = null;
+      ui.lastResultAt = 0;
+      ui.lastRenderedPoseFrameId = -1;
+      ui.lastDiscardedFrameId = -1;
+      ui.staleResultCount = 0;
+      ui.activeRealtimeSessionId = "";
+      ui.activeRealtimeRunId = "";
       if (!ui.mediaStream) await openCamera();
       setRunning(true);
       $("#loadingOverlay").hidden = false;
@@ -867,6 +1048,7 @@ function resetStage(clearImage = true) {
   clearInterval(ui.stateTimer);
   ui.stateTimer = null;
   stopCaptureLoop();
+  stopPoseDrawLoop();
   setRunning(false);
   $("#videoRepCount").textContent = "0";
   ui.paused = false;
@@ -887,7 +1069,10 @@ function resetStage(clearImage = true) {
 async function updateLiveSetting(key, value) {
   if (key === "mirror") {
     $("#localVideo").classList.toggle("mirrored", Boolean(value));
-    if (ui.latestResult) drawSkeleton(ui.latestResult);
+  }
+  if (["action", "backend"].includes(key)) {
+    ui.latestResult = null;
+    ui.lastRenderedPoseFrameId = -1;
   }
   if (!ui.running) return;
   try {
@@ -1073,6 +1258,9 @@ function updateState(state) {
   $("#latencyMetric").textContent = Number(state.inference_ms || 0).toFixed(1);
   $("#poseMetric").textContent = state.pose_detected ? "已锁定人体" : state.running ? "正在寻找人体" : "等待画面";
   $("#poseMetric").className = state.pose_detected ? "good" : state.running ? "bad" : "neutral";
+  if (ui.sourceMode !== "camera" && state.source_mode !== "browser-camera") {
+    setConnectionMetricForSource(ui.sourceMode);
+  }
   const candidateCount = state.candidate_count ?? state.reps ?? 0;
   $("#repCount").textContent = candidateCount;
   $("#poseValidRepCount").textContent = state.pose_valid_rep_count ?? state.reps ?? 0;
@@ -1148,7 +1336,16 @@ $("#fingerToggle").addEventListener("change", event => updateLiveSetting("show_f
 $("#faceToggle").addEventListener("change", () => updateLiveSetting("landmark_profile", selectedLandmarkProfile()));
 $("#mirrorToggle").addEventListener("change", event => updateLiveSetting("mirror", event.target.checked));
 window.addEventListener("resize", resizeOverlay);
-window.addEventListener("pagehide", () => { ui.manualStop = true; cancelVoiceFeedback(); stopLocalRecording(); stopMediaTracks(); ui.socket?.close(); if (ui.recordingUrl) URL.revokeObjectURL(ui.recordingUrl); });
+window.addEventListener("pagehide", () => {
+  ui.manualStop = true;
+  cancelVoiceFeedback();
+  stopCaptureLoop();
+  stopPoseDrawLoop();
+  stopLocalRecording();
+  stopMediaTracks();
+  ui.socket?.close();
+  if (ui.recordingUrl) URL.revokeObjectURL(ui.recordingUrl);
+});
 document.addEventListener("visibilitychange", () => { if (document.hidden && ui.mediaStream) stopAnalysis(); });
 
 initializeVoiceFeedback();

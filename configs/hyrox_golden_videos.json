@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "model": "models/pose_landmarker_full.task",
+  "cases": [
+    {
+      "id": "lunge",
+      "video": "HYROX视频/负重箭步蹲.mp4",
+      "action": "lunge",
+      "camera_view": "side",
+      "expectations": {
+        "total_frames": [133, 133],
+        "pose_detected_rate": [0.98, 1.0],
+        "candidate_count": [1, 1],
+        "pose_valid_rep_count": [0, 0],
+        "no_rep_count": [1, 1],
+        "unsure_count": [0, 0],
+        "rep_count": [0, 0]
+      }
+    },
+    {
+      "id": "skierg",
+      "video": "HYROX视频/滑雪机.mp4",
+      "action": "skierg",
+      "camera_view": "front",
+      "expectations": {
+        "total_frames": [103, 103],
+        "pose_detected_rate": [0.98, 1.0],
+        "candidate_count": [1, 1],
+        "cycle_count": [1, 1],
+        "rep_count": [1, 1]
+      }
+    },
+    {
+      "id": "burpee_broad_jump",
+      "video": "HYROX视频/波比跳远.mp4",
+      "action": "burpee_broad_jump",
+      "camera_view": "side",
+      "expectations": {
+        "total_frames": [501, 501],
+        "pose_detected_rate": [0.98, 1.0],
+        "candidate_count": [3, 3],
+        "pose_valid_rep_count": [0, 0],
+        "no_rep_count": [0, 0],
+        "unsure_count": [3, 3],
+        "rep_count": [0, 0]
+      }
+    },
+    {
+      "id": "sled_push",
+      "video": "HYROX视频/推雪橇.mp4",
+      "action": "sled_push",
+      "camera_view": "side",
+      "expectations": {
+        "total_frames": [247, 247],
+        "pose_detected_rate": [0.98, 1.0],
+        "candidate_count": [5, 5],
+        "cycle_count": [5, 5],
+        "rep_count": [5, 5]
+      }
+    },
+    {
+      "id": "sled_pull",
+      "video": "HYROX视频/拉雪橇.mp4",
+      "action": "sled_pull",
+      "camera_view": "side",
+      "expectations": {
+        "total_frames": [332, 332],
+        "pose_detected_rate": [0.98, 1.0],
+        "candidate_count": [4, 4],
+        "cycle_count": [4, 4],
+        "rep_count": [4, 4]
+      }
+    },
+    {
+      "id": "wall_ball",
+      "video": "HYROX视频/投掷药球.mp4",
+      "action": "wall_ball",
+      "camera_view": "front",
+      "expectations": {
+        "total_frames": [145, 145],
+        "pose_detected_rate": [0.98, 1.0],
+        "candidate_count": [3, 3],
+        "pose_valid_rep_count": [0, 0],
+        "no_rep_count": [0, 0],
+        "unsure_count": [3, 3],
+        "rep_count": [0, 0]
+      }
+    },
+    {
+      "id": "rowing",
+      "video": "HYROX视频/划船机.mp4",
+      "action": "rowing",
+      "camera_view": "side",
+      "expectations": {
+        "total_frames": [512, 512],
+        "pose_detected_rate": [0.98, 1.0],
+        "candidate_count": [5, 5],
+        "pose_valid_rep_count": [4, 4],
+        "no_rep_count": [0, 0],
+        "unsure_count": [1, 1],
+        "cycle_count": [4, 4],
+        "rep_count": [4, 4]
+      }
+    },
+    {
+      "id": "farmers_carry",
+      "video": "HYROX视频/农夫行走.mp4",
+      "action": "farmers_carry",
+      "camera_view": "front",
+      "expectations": {
+        "total_frames": [297, 297],
+        "pose_detected_rate": [0.98, 1.0],
+        "candidate_count": [0, 0],
+        "cycle_count": [0, 0],
+        "rep_count": [0, 0]
+      }
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+product_pose:
+  backend: mediapipe
+  allow_experimental_backends: false
+
+realtime_latency:
+  latest_frame_only: true
+  camera_buffer_size: 1
+  warning_pose_age_ms: 80
+  max_pose_age_ms: 150
+  max_frame_gap: 5
+  hide_pose_after_ms: 300
+
+realtime_smoothing:
+  mode: adaptive_one_euro
+  profile: responsive
+  max_gap_ms_before_reset: 250
+  stable_min_cutoff: 0.8
+  stable_beta: 0.025
+  stable_d_cutoff: 1.0
+  balanced_min_cutoff: 1.2
+  balanced_beta: 0.05
+  balanced_d_cutoff: 1.0
+  responsive_min_cutoff: 1.7
+  responsive_beta: 0.08
+  responsive_d_cutoff: 1.0
+  fast_joint_min_cutoff_scale: 1.25
+  fast_joint_beta_scale: 1.50
+  stable_joint_min_cutoff_scale: 0.75
+  stable_joint_beta_scale: 0.50
+  world_min_cutoff_scale: 0.90
+  world_beta_scale: 0.85
+
+three_d_kinematics:
+  enabled: true
+  decision_mode: assist
+  assist_confidence_boost: 0.05
+  assist_conflict_confidence_cap: 0.49
+
+three_d_quality:
+  min_visibility: 0.70
+  min_presence: 0.70
+  max_bone_length_change_ratio: 0.20
+  max_angle_delta_deg: 35.0
+  max_angular_velocity_deg_s: 720.0
+  max_2d_3d_difference_deg: 25.0
+  max_z_change_body_scale: 0.35
+  identity_swap_cost_ratio: 0.75
+  max_gap_ms_before_reset: 250
+
+web_realtime:
+  max_requests_in_flight: 1
+  inference_long_edge: 640
+  jpeg_quality: 0.65

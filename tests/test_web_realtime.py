@@ -15,10 +15,12 @@ from src.backends.base import Keypoint, PoseResult
 from webui.app import create_app
 from webui.realtime import (
     FramePacket,
+    FrameRequest,
     LatestFrameQueue,
     RealtimePoseSession,
     RealtimeProtocolError,
     unpack_frame,
+    unpack_frame_request,
     validate_manual_floor_points,
     validate_settings,
 )
@@ -58,6 +60,32 @@ def make_packet(sequence: int, width: int = 320, height: int = 240) -> bytes:
     return struct.pack(">I", sequence) + encoded.tobytes()
 
 
+def make_v2_packet(
+    frame_id: int,
+    *,
+    session_id: str,
+    run_id: str,
+    action: str = "none",
+    backend: str = "mediapipe",
+    client_capture_ms: float = 1234.5,
+    width: int = 320,
+    height: int = 240,
+) -> bytes:
+    jpeg = make_packet(frame_id, width=width, height=height)[4:]
+    metadata = json.dumps(
+        {
+            "session_id": session_id,
+            "run_id": run_id,
+            "frame_id": frame_id,
+            "client_capture_ms": client_capture_ms,
+            "action": action,
+            "backend": backend,
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return b"PSV2" + struct.pack(">I", len(metadata)) + metadata + jpeg
+
+
 def wait_for_result(session: RealtimePoseSession, timeout: float = 2.0) -> dict[str, object]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -85,16 +113,27 @@ def test_finger_nodes_can_be_hidden_independently() -> None:
     assert _profile_names("full", names, show_fingers=False) == {"left_wrist", "left_knee"}
 
 
-def test_validate_settings_accepts_rtmw_wholebody() -> None:
+def test_validate_settings_rejects_rtmw_in_product_mode() -> None:
+    with pytest.raises(RealtimeProtocolError, match="无效的识别模型"):
+        validate_settings({"backend": "rtmw-wholebody"})
+
+
+def test_validate_settings_accepts_rtmw_in_explicit_experimental_mode() -> None:
     assert (
-        validate_settings({"backend": "rtmw-wholebody"})["backend"]
+        validate_settings(
+            {"backend": "rtmw-wholebody"},
+            allow_experimental_backends=True,
+        )["backend"]
         == "rtmw-wholebody"
     )
 
 
 def test_validate_settings_accepts_explicit_yolo_mediapipe() -> None:
     assert (
-        validate_settings({"backend": "yolo-mediapipe"})["backend"]
+        validate_settings(
+            {"backend": "yolo-mediapipe"},
+            allow_experimental_backends=True,
+        )["backend"]
         == "yolo-mediapipe"
     )
 
@@ -132,6 +171,44 @@ def test_frame_protocol_validates_header_size_and_media_signature() -> None:
     assert jpeg.startswith(b"\xff\xd8\xff")
 
 
+def test_frame_protocol_v2_restores_request_identity_and_capture_time() -> None:
+    request = unpack_frame_request(
+        make_v2_packet(
+            42,
+            session_id="session-42",
+            run_id="run-7",
+            action="lunge",
+            client_capture_ms=9876.25,
+        )
+    )
+
+    assert isinstance(request, FrameRequest)
+    assert request.frame_id == 42
+    assert request.session_id == "session-42"
+    assert request.run_id == "run-7"
+    assert request.action == "lunge"
+    assert request.backend == "mediapipe"
+    assert request.client_capture_ms == pytest.approx(9876.25)
+    assert request.jpeg.startswith(b"\xff\xd8\xff")
+
+
+def test_frame_protocol_v2_requires_complete_context_identity() -> None:
+    jpeg = make_packet(1)[4:]
+    metadata = json.dumps(
+        {
+            "frame_id": 1,
+            "client_capture_ms": 10.0,
+            "run_id": "run",
+            "action": "none",
+            "backend": "mediapipe",
+        }
+    ).encode("utf-8")
+    packet = b"PSV2" + struct.pack(">I", len(metadata)) + metadata + jpeg
+
+    with pytest.raises(RealtimeProtocolError, match="session_id"):
+        unpack_frame_request(packet)
+
+
 def test_realtime_session_returns_pose_json_and_downloadable_reports() -> None:
     backend = FakePoseBackend()
     session = RealtimePoseSession(
@@ -140,17 +217,22 @@ def test_realtime_session_returns_pose_json_and_downloadable_reports() -> None:
         max_receive_fps=1000,
     )
     session.mark_connected()
-    session.start({"action": "none", "backend": "auto", "landmark_profile": "full"})
+    state = session.start({"action": "none", "backend": "auto", "landmark_profile": "full"})
 
     assert session.submit(make_packet(7)) is True
     result = wait_for_result(session)
 
     assert result["type"] == "result"
+    assert result["session_id"] == "unit-session"
+    assert result["run_id"] == state["run_id"]
+    assert result["frame_id"] == 7
     assert result["sequence"] == 7
     assert result["pose_detected"] is True
     assert result["voice_feedback"] is None
     assert result["metrics"]["width"] == 320
     assert result["metrics"]["inference_ms"] == 7.5
+    assert result["server_inference_ms"] == 7.5
+    assert result["pose_age_ms"] >= 0
     assert {point["name"] for point in result["keypoints"]} == {
         "left_shoulder", "right_shoulder", "left_hip", "right_hip"
     }
@@ -159,6 +241,145 @@ def test_realtime_session_returns_pose_json_and_downloadable_reports() -> None:
 
     session.stop()
     assert backend.closed is True
+
+
+def test_realtime_session_rejects_stale_v2_session_run_action_backend_and_frame() -> None:
+    session = RealtimePoseSession(
+        "identity-session",
+        backend_factory=lambda _requested, _action: (FakePoseBackend(), "fake"),
+        max_receive_fps=1000,
+    )
+    state = session.start({"action": "none", "backend": "mediapipe"})
+    run_id = str(state["run_id"])
+
+    with pytest.raises(RealtimeProtocolError, match="其他会话"):
+        session.submit(make_v2_packet(1, session_id="other", run_id=run_id))
+    with pytest.raises(RealtimeProtocolError, match="已停止"):
+        session.submit(make_v2_packet(1, session_id="identity-session", run_id="old"))
+    with pytest.raises(RealtimeProtocolError, match="旧动作"):
+        session.submit(
+            make_v2_packet(1, session_id="identity-session", run_id=run_id, action="lunge")
+        )
+    with pytest.raises(RealtimeProtocolError, match="旧后端"):
+        session.submit(
+            make_v2_packet(
+                1,
+                session_id="identity-session",
+                run_id=run_id,
+                backend="auto",
+            )
+        )
+
+    assert session.submit(
+        make_v2_packet(1, session_id="identity-session", run_id=run_id)
+    )
+    with pytest.raises(RealtimeProtocolError, match="严格递增"):
+        session.submit(make_v2_packet(1, session_id="identity-session", run_id=run_id))
+    session.stop()
+
+
+def test_settings_change_rejects_inference_result_from_old_action_context() -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    class SlowBackend(FakePoseBackend):
+        def detect(self, frame: np.ndarray, timestamp_ms: int | None = None) -> PoseResult:
+            started.set()
+            assert release.wait(2.0)
+            return super().detect(frame, timestamp_ms)
+
+    session = RealtimePoseSession(
+        "settings-session",
+        backend_factory=lambda _requested, _action: (SlowBackend(), "fake"),
+        max_receive_fps=1000,
+    )
+    session.start({"action": "none"})
+    assert session.submit(make_packet(1))
+    assert started.wait(1.0)
+
+    session.update_settings({"action": "lunge"})
+    release.set()
+    result = wait_for_result(session)
+
+    assert result["type"] == "frame_dropped"
+    assert result["reason"] == "stale_context"
+    assert result["frame_id"] == 1
+    assert session.snapshot()["action"] == "lunge"
+    assert session.report()["summary"]["processed_frames"] == 0
+    session.stop()
+
+
+def test_v2_client_capture_intervals_drive_server_pose_timestamps() -> None:
+    timestamps: list[int] = []
+
+    class TimestampBackend(FakePoseBackend):
+        def detect(self, frame: np.ndarray, timestamp_ms: int | None = None) -> PoseResult:
+            assert timestamp_ms is not None
+            timestamps.append(timestamp_ms)
+            return super().detect(frame, timestamp_ms)
+
+    session = RealtimePoseSession(
+        "clock-session",
+        backend_factory=lambda _requested, _action: (TimestampBackend(), "fake"),
+        max_receive_fps=1000,
+    )
+    session.mark_connected()
+    state = session.start({"action": "none", "backend": "mediapipe"})
+    run_id = str(state["run_id"])
+
+    assert session.submit(
+        make_v2_packet(
+            1,
+            session_id="clock-session",
+            run_id=run_id,
+            client_capture_ms=1000.0,
+        )
+    )
+    wait_for_result(session)
+    time.sleep(0.02)
+    assert session.submit(
+        make_v2_packet(
+            2,
+            session_id="clock-session",
+            run_id=run_id,
+            client_capture_ms=1033.0,
+        )
+    )
+    wait_for_result(session)
+
+    assert timestamps[1] - timestamps[0] == 33
+    session.stop()
+
+
+def test_disconnect_invalidates_an_inflight_result_from_old_connection() -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    class SlowBackend(FakePoseBackend):
+        def detect(self, frame: np.ndarray, timestamp_ms: int | None = None) -> PoseResult:
+            started.set()
+            assert release.wait(2.0)
+            return super().detect(frame, timestamp_ms)
+
+    session = RealtimePoseSession(
+        "disconnect-session",
+        backend_factory=lambda _requested, _action: (SlowBackend(), "fake"),
+        max_receive_fps=1000,
+    )
+    session.mark_connected()
+    session.start({"action": "none"})
+    assert session.submit(make_packet(1))
+    assert started.wait(1.0)
+
+    session.mark_disconnected()
+    session.mark_connected()
+    release.set()
+    result = wait_for_result(session)
+
+    assert result["type"] == "frame_dropped"
+    assert result["reason"] == "stale_context"
+    assert session.report()["summary"]["processed_frames"] == 0
+    session.stop()
 
 
 def test_realtime_session_rejects_oversized_dimensions_without_crashing_worker() -> None:
@@ -237,13 +458,22 @@ def test_websocket_handshake_start_frame_result_and_stop() -> None:
         )
         connected = json.loads(socket.receive(timeout=2))
         assert connected["type"] == "connected"
-        assert connected["protocol_version"] == 1
+        assert connected["protocol_version"] == 2
+        assert connected["session_id"] == session_cookie.value
 
         socket.send(json.dumps({"type": "start", "settings": {"action": "none"}}))
-        assert json.loads(socket.receive(timeout=2))["type"] == "started"
-        socket.send(make_packet(9))
+        started_message = json.loads(socket.receive(timeout=2))
+        assert started_message["type"] == "started"
+        socket.send(
+            make_v2_packet(
+                9,
+                session_id=connected["session_id"],
+                run_id=started_message["state"]["run_id"],
+            )
+        )
         result = json.loads(socket.receive(timeout=2))
         assert result["type"] == "result"
+        assert result["frame_id"] == 9
         assert result["sequence"] == 9
         assert result["metrics"]["backend"] == "fake"
 

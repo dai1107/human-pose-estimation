@@ -21,6 +21,7 @@ def test_doctor_reports_missing_required_project_assets(tmp_path: Path) -> None:
     assert by_name["runtime:python"].passed
     assert not by_name["model:pose"].passed
     assert by_name["model:pose"].required
+    assert not by_name["config:product-pose"].passed
     assert not by_name["config:hyrox"].passed
     assert by_name["output:writable"].passed
 

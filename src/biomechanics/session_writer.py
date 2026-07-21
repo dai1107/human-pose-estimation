@@ -18,6 +18,7 @@ from src.output_schema import (
 )
 
 from .hand_landmarks import SUPPLEMENTAL_FINGER_JOINTS, empty_hand_landmarks, hand_landmark_name
+from .kinematics_3d import ANGLE_DEFINITIONS_3D, summarize_three_d_records
 from .landmarks import LANDMARK_NAMES, empty_landmarks
 from .report import write_report_outputs
 from .types import KinematicFrame, LandmarkPoint, PoseFrame
@@ -147,6 +148,7 @@ class SessionWriter:
             )
             self._write_landmarks_csv(session_dir / "landmarks.csv")
             self._write_kinematics_csv(session_dir / "kinematics.csv")
+            self._write_three_d_kinematics_csv(session_dir / "kinematics_3d.csv")
             write_report_outputs(
                 session_dir,
                 self.pose_frames,
@@ -204,6 +206,7 @@ class SessionWriter:
         detected = sum(1 for frame in self.pose_frames if frame.pose_detected)
         hands_detected = sum(1 for frame in self.pose_frames if frame.hands_detected)
         fps_values = [frame.fps for frame in self.pose_frames if isfinite(frame.fps) and frame.fps > 0]
+        three_d_summary = summarize_three_d_records(self.pose_frames)
         return {
             **artifact_metadata(
                 "pose_session",
@@ -228,6 +231,7 @@ class SessionWriter:
             "pose_detected_frame_count": detected,
             "pose_lost_frame_count": total - detected,
             "hands_detected_frame_count": hands_detected,
+            "three_d_kinematics": three_d_summary,
             "write_status": write_status,
             "recovery_error": recovery_error,
             "recovered_files": list(recovered_files or []),
@@ -374,4 +378,66 @@ class SessionWriter:
                 for column in columns:
                     if column not in row and hasattr(frame, column):
                         row[column] = _number(getattr(frame, column))
+                writer.writerow(versioned_csv_row(row))
+
+    def _write_three_d_kinematics_csv(self, path: Path) -> None:
+        angle_columns = [
+            field
+            for angle_name in ANGLE_DEFINITIONS_3D
+            for field in (
+                f"{angle_name}_2d",
+                f"{angle_name}_3d",
+                f"{angle_name}_2d_3d_difference_deg",
+                f"{angle_name}_3d_reliable",
+            )
+        ]
+        columns = versioned_csv_columns(
+            [
+                "frame_index",
+                "timestamp_ms",
+                "decision_mode",
+                "assist_status",
+                "assist_confidence_boost",
+                "assist_conflict_confidence_cap",
+                "three_d_available",
+                "world_landmark_count",
+                "three_d_reliable",
+                "three_d_reliable_ratio",
+                "three_d_conflict_ratio",
+                "quality_reasons",
+                *angle_columns,
+            ]
+        )
+        with path.open("w", newline="", encoding="utf-8") as file:
+            writer = csv.DictWriter(file, fieldnames=columns)
+            writer.writeheader()
+            for frame in self.pose_frames:
+                kinematics = frame.three_d_kinematics
+                row: dict[str, object] = {
+                    "frame_index": frame.frame_index,
+                    "timestamp_ms": frame.timestamp_ms,
+                    "decision_mode": kinematics.get("decision_mode", "shadow"),
+                    "assist_status": kinematics.get("assist_status", "shadow"),
+                    "assist_confidence_boost": _number(
+                        kinematics.get("assist_confidence_boost")
+                    ),
+                    "assist_conflict_confidence_cap": _number(
+                        kinematics.get("assist_conflict_confidence_cap")
+                    ),
+                    "three_d_available": int(bool(kinematics.get("three_d_available"))),
+                    "world_landmark_count": kinematics.get("world_landmark_count", 0),
+                    "three_d_reliable": int(bool(kinematics.get("three_d_reliable"))),
+                    "three_d_reliable_ratio": _number(
+                        kinematics.get("three_d_reliable_ratio")
+                    ),
+                    "three_d_conflict_ratio": _number(
+                        kinematics.get("three_d_conflict_ratio")
+                    ),
+                    "quality_reasons": ";".join(
+                        str(reason) for reason in kinematics.get("quality_reasons", [])
+                    ),
+                }
+                for column in angle_columns:
+                    value = kinematics.get(column)
+                    row[column] = int(value) if isinstance(value, bool) else _number(value)
                 writer.writerow(versioned_csv_row(row))

@@ -25,8 +25,12 @@ def test_pyproject_declares_python_cli_and_optional_dependency_groups() -> None:
         "pose-doctor",
         "pose-web",
         "pose-replay",
+        "pose-golden",
+        "pose-endurance",
         "pose-clean",
     } <= set(project["scripts"])
+    assert "configs/hyrox_golden_videos.json" in payload["tool"]["setuptools"]["data-files"]["configs"]
+    assert "configs/product_pose.yaml" in payload["tool"]["setuptools"]["data-files"]["configs"]
 
 
 def test_verified_requirement_files_use_exact_direct_versions() -> None:

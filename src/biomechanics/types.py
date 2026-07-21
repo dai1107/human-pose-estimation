@@ -64,6 +64,7 @@ class PoseFrame:
     camera_width: int = 0
     camera_height: int = 0
     fps: float = 0.0
+    three_d_kinematics: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

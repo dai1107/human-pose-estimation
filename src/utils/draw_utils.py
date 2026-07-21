@@ -207,6 +207,7 @@ def draw_realtime_overlay(
         f"FPS: {metrics.realtime_fps:4.1f}",
         f"inference: {metrics.inference_time_ms:4.1f} ms",
         f"latency: {metrics.end_to_end_latency_ms:4.1f} ms",
+        f"drops busy/stale: {metrics.pose_busy_drop_count}/{metrics.pose_stale_drop_count}",
         f"success: {'YES' if result.success else 'NO'}",
         f"keypoints: {result.num_keypoints}",
         f"avg_conf: {metrics.avg_keypoint_confidence:.2f}",

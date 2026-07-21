@@ -32,6 +32,7 @@ class FakeLandmarker:
 
         return SimpleNamespace(
             pose_landmarks=[person(0.25), person(0.75)],
+            pose_world_landmarks=[person(0.05), person(0.15)],
             segmentation_masks=[],
         )
 
@@ -58,3 +59,6 @@ def test_detect_exposes_all_pose_candidates_while_returning_first_for_compatibil
     assert result.keypoints[0].x == 0.25
     assert len(candidates) == 2
     assert candidates[1][0].x == 0.75
+    assert result.extra["world_landmarks_available"] is True
+    assert result.extra["world_keypoints"][0].x == 0.05
+    assert result.extra["world_keypoints"][0].source_model == "mediapipe-world"

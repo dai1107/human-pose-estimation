@@ -13,14 +13,18 @@ def test_backend_auto_defaults_to_mediapipe_for_unknown_actions() -> None:
     assert resolve_backend_choice("auto") == "mediapipe"
 
 
-def test_backend_auto_uses_hyrox_policy_from_action_type() -> None:
-    assert resolve_backend_choice("auto", action_type="rowing") == "yolo-pose"
-    assert resolve_backend_choice("auto", action_type="ski_erg") == "yolo-pose"
+def test_backend_auto_product_mode_always_uses_mediapipe() -> None:
+    assert resolve_backend_choice("auto", action_type="rowing") == "mediapipe"
+    assert resolve_backend_choice("auto", action_type="ski_erg") == "mediapipe"
     assert resolve_backend_choice("auto", action_type="burpee_broad_jump") == "mediapipe"
 
 
-def test_backend_auto_can_infer_from_hyrox_video_stem() -> None:
-    assert resolve_backend_choice("auto", input_video="HYROX视频/划船机.mp4") == "yolo-pose"
+def test_experimental_offline_policy_can_infer_from_hyrox_video_stem() -> None:
+    assert resolve_backend_choice(
+        "auto",
+        input_video="HYROX视频/划船机.mp4",
+        product_mode=False,
+    ) == "yolo-pose"
     assert resolve_backend_choice("auto", input_video="HYROX视频/波比跳远.mp4") == "mediapipe"
 
 
@@ -29,10 +33,11 @@ def test_explicit_backend_overrides_action_policy() -> None:
     assert resolve_backend_choice("yolo-pose", action_type="burpee_broad_jump") == "yolo-pose"
 
 
-def test_main_defaults_to_auto_backend() -> None:
+def test_main_defaults_to_mediapipe_product_backend() -> None:
     args = parse_args([])
 
-    assert args.backend == "auto"
+    assert args.backend == "mediapipe"
+    assert args.experimental_backends is False
     assert args.action_type == "auto"
     assert args.yolo_device == "auto"
     assert args.hyrox_debug is False
@@ -95,8 +100,17 @@ def test_runtime_backend_hotkey_toggles_supported_backends() -> None:
     assert next_runtime_backend("yolo-pose") == "mediapipe"
 
 
-def test_runtime_backend_switch_allowed_for_plain_realtime_pipeline() -> None:
+def test_runtime_backend_switch_disabled_in_product_pipeline() -> None:
     args = parse_args(["--backend", "auto"])
+
+    allowed, reason = runtime_backend_switch_allowed(args)
+
+    assert not allowed
+    assert "experimental_backends" in reason
+
+
+def test_runtime_backend_switch_requires_explicit_experimental_mode() -> None:
+    args = parse_args(["--backend", "mediapipe", "--experimental-backends"])
 
     allowed, reason = runtime_backend_switch_allowed(args)
 

@@ -13,8 +13,10 @@ from .validity import (
     ObservabilityPolicy,
     RepCandidate,
     RepDecision,
+    ThreeDAssistAssessment,
     aggregate_rep_decision,
     apply_observability_policy,
+    apply_three_d_assist,
 )
 from .view_policy import (
     action_view_suitability,
@@ -276,6 +278,7 @@ class BaseActionAnalyzer:
         self.last_observability_assessment: (
             ObservabilityAssessment | None
         ) = None
+        self.last_three_d_assist_assessment: ThreeDAssistAssessment | None = None
         self._candidate_completed_frame: int | None = None
         self._candidate_start_frame = 1
         self._candidate_frames: list[Mapping[str, object]] = []
@@ -366,6 +369,11 @@ class BaseActionAnalyzer:
             frames=tuple(self._candidate_frames),
         )
         decision = aggregate_rep_decision(rules, required_rules=required_rules)
+        decision, three_d_assist = apply_three_d_assist(
+            decision,
+            candidate,
+            required_rules=required_rules,
+        )
         action_key = self.action.strip().lower().replace(" ", "_")
         decision, observability = apply_observability_policy(
             decision,
@@ -390,6 +398,7 @@ class BaseActionAnalyzer:
         self.last_rep_candidate = candidate
         self.last_rep_decision = decision
         self.last_observability_assessment = observability
+        self.last_three_d_assist_assessment = three_d_assist
         self._candidate_completed_frame = self.frame_index
         self._candidate_start_frame = self.frame_index + 1
         self._candidate_frames = []
@@ -440,6 +449,11 @@ class BaseActionAnalyzer:
                 None
                 if self.last_observability_assessment is None
                 else self.last_observability_assessment.as_dict()
+            ),
+            "last_three_d_assist": (
+                None
+                if self.last_three_d_assist_assessment is None
+                else self.last_three_d_assist_assessment.as_dict()
             ),
         }
 
@@ -516,6 +530,11 @@ class BaseActionAnalyzer:
                     None
                     if self.last_observability_assessment is None
                     else self.last_observability_assessment.as_dict()
+                ),
+                "last_three_d_assist": (
+                    None
+                    if self.last_three_d_assist_assessment is None
+                    else self.last_three_d_assist_assessment.as_dict()
                 ),
                 "floor_reference": self.last_floor_reference.as_dict(),
                 "contacts": self.contact_detectors.as_dict(),

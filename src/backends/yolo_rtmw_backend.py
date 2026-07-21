@@ -70,6 +70,7 @@ class YoloRtmwWholeBodyBackend:
     """Lock one person with YOLO and run RTMW WholeBody on that target box."""
 
     model_name = "yolo-rtmw-wholebody"
+    support_tier = "experimental"
 
     def __init__(
         self,

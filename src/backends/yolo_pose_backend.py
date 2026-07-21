@@ -34,6 +34,7 @@ class YoloPoseCandidate:
 
 class YoloPoseBackend:
     model_name = "yolo-pose"
+    support_tier = "experimental"
 
     def __init__(
         self,

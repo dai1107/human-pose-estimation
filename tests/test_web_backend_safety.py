@@ -61,7 +61,9 @@ def test_explicit_yolo_mediapipe_uses_hybrid_backend_for_any_action(
         FakeYoloGuidedMediaPipeBackend,
     )
 
-    _, resolved = web_app.PoseStreamEngine()._create_backend(
+    _, resolved = web_app.PoseStreamEngine(
+        allow_experimental_backends=True
+    )._create_backend(
         "yolo-mediapipe",
         "rowing",
         "",
@@ -72,15 +74,11 @@ def test_explicit_yolo_mediapipe_uses_hybrid_backend_for_any_action(
     assert FakeYoloGuidedMediaPipeBackend.calls[0][1]["target_select"] == "tracking"
 
 
-def test_auto_lunge_sample_keeps_yolo_mediapipe_identity_lock(
+def test_auto_lunge_sample_uses_product_mediapipe(
     monkeypatch: Any,
 ) -> None:
-    FakeYoloGuidedMediaPipeBackend.calls.clear()
-    monkeypatch.setattr(
-        web_app,
-        "YoloGuidedMediaPipeBackend",
-        FakeYoloGuidedMediaPipeBackend,
-    )
+    FakeMediaPipeBackend.calls.clear()
+    monkeypatch.setattr(web_app, "MediaPipeBackend", FakeMediaPipeBackend)
 
     _, resolved = web_app.PoseStreamEngine()._create_backend(
         "auto",
@@ -89,7 +87,7 @@ def test_auto_lunge_sample_keeps_yolo_mediapipe_identity_lock(
         target_select="tracking",
     )
 
-    assert resolved == "yolo-guided-mediapipe"
+    assert resolved == "mediapipe"
 
 
 def test_explicit_mediapipe_stays_pure_for_lunge(monkeypatch: Any) -> None:
@@ -107,6 +105,28 @@ def test_explicit_mediapipe_stays_pure_for_lunge(monkeypatch: Any) -> None:
     assert FakeMediaPipeBackend.calls[0][1]["output_segmentation_masks"] is False
 
 
+def test_trusted_bundled_lunge_can_use_internal_tracking_backend(
+    monkeypatch: Any,
+) -> None:
+    FakeYoloGuidedMediaPipeBackend.calls.clear()
+    monkeypatch.setattr(
+        web_app,
+        "YoloGuidedMediaPipeBackend",
+        FakeYoloGuidedMediaPipeBackend,
+    )
+
+    _, resolved = web_app.PoseStreamEngine()._create_backend(
+        "yolo-mediapipe",
+        "lunge",
+        "HYROX视频/负重箭步蹲.mp4",
+        target_select="tracking",
+        allow_internal_tracking_backend=True,
+    )
+
+    assert resolved == "yolo-guided-mediapipe"
+    assert FakeYoloGuidedMediaPipeBackend.calls[0][1]["target_select"] == "tracking"
+
+
 def test_realtime_explicit_yolo_mediapipe_uses_hybrid_backend_for_any_action(
     monkeypatch: Any,
 ) -> None:
@@ -117,7 +137,7 @@ def test_realtime_explicit_yolo_mediapipe_uses_hybrid_backend_for_any_action(
         FakeYoloGuidedMediaPipeBackend,
     )
 
-    _, resolved = web_realtime.default_backend_factory(
+    _, resolved = web_realtime.experimental_backend_factory(
         "yolo-mediapipe",
         "wall_ball",
     )
@@ -126,19 +146,15 @@ def test_realtime_explicit_yolo_mediapipe_uses_hybrid_backend_for_any_action(
     assert FakeYoloGuidedMediaPipeBackend.calls[0][1]["target_select"] == "tracking"
 
 
-def test_realtime_auto_lunge_keeps_yolo_mediapipe_identity_lock(
+def test_realtime_auto_lunge_uses_product_mediapipe(
     monkeypatch: Any,
 ) -> None:
-    FakeYoloGuidedMediaPipeBackend.calls.clear()
-    monkeypatch.setattr(
-        web_realtime,
-        "YoloGuidedMediaPipeBackend",
-        FakeYoloGuidedMediaPipeBackend,
-    )
+    FakeMediaPipeBackend.calls.clear()
+    monkeypatch.setattr(web_realtime, "MediaPipeBackend", FakeMediaPipeBackend)
 
     _, resolved = web_realtime.default_backend_factory("auto", "lunge")
 
-    assert resolved == "yolo-guided-mediapipe"
+    assert resolved == "mediapipe"
 
 
 def test_realtime_explicit_mediapipe_stays_pure_for_lunge(
@@ -157,7 +173,9 @@ def test_sample_can_select_rtmw_wholebody(monkeypatch: Any) -> None:
     FakeYoloRtmwBackend.calls.clear()
     monkeypatch.setattr(web_app, "YoloRtmwWholeBodyBackend", FakeYoloRtmwBackend)
 
-    _, resolved = web_app.PoseStreamEngine()._create_backend(
+    _, resolved = web_app.PoseStreamEngine(
+        allow_experimental_backends=True
+    )._create_backend(
         "rtmw-wholebody",
         "lunge",
         "",
@@ -176,7 +194,10 @@ def test_realtime_can_select_rtmw_wholebody(monkeypatch: Any) -> None:
         FakeYoloRtmwBackend,
     )
 
-    _, resolved = web_realtime.default_backend_factory("rtmw-wholebody", "wall_ball")
+    _, resolved = web_realtime.experimental_backend_factory(
+        "rtmw-wholebody",
+        "wall_ball",
+    )
 
     assert resolved == "yolo-rtmw-wholebody"
     assert FakeYoloRtmwBackend.calls[0][1]["target_select"] == "tracking"
@@ -197,7 +218,10 @@ def test_rtmw_initialization_failure_has_a_visible_safe_fallback(
         FakeYoloGuidedMediaPipeBackend,
     )
 
-    _, resolved = web_realtime.default_backend_factory("rtmw-wholebody", "lunge")
+    _, resolved = web_realtime.experimental_backend_factory(
+        "rtmw-wholebody",
+        "lunge",
+    )
 
     assert resolved == "yolo-guided-mediapipe-fallback"
     assert FakeYoloGuidedMediaPipeBackend.calls

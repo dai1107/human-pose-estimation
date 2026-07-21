@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 from typing import Any
 
 from webui.app import _backend_plan, create_app
@@ -59,6 +60,7 @@ def test_web_home_and_options_are_available() -> None:
     assert 'id="poseValidRepCount"' in page.get_data(as_text=True)
     assert "完整动作周期" in page.get_data(as_text=True)
     assert 'id="voiceToggle"' in page.get_data(as_text=True)
+    assert 'id="fingerToggle" type="checkbox">' in page.get_data(as_text=True)
     assert options.status_code == 200
     assert {item["value"] for item in options.json["actions"]} >= {"lunge", "wall_ball", "rowing"}
     assert len(options.json["samples"]) == 8
@@ -69,6 +71,44 @@ def test_web_home_and_options_are_available() -> None:
     assert options.json["official_rules"]["wall_ball"]
     assert options.json["realtime"]["target_fps"] == 30
     assert options.json["realtime"]["camera_fps"] == 60
+    assert options.json["realtime"]["max_requests_in_flight"] == 1
+    assert options.json["realtime"]["inference_long_edge"] == 640
+    assert options.json["realtime"]["jpeg_quality"] == 0.65
+    assert options.json["realtime"]["max_pose_age_ms"] == 150
+    assert options.json["realtime"]["hide_pose_after_ms"] == 300
+
+
+def test_browser_realtime_client_uses_single_in_flight_request_and_raf_drawing() -> None:
+    source = Path("webui/static/app.js").read_text(encoding="utf-8")
+
+    assert "requestInFlight: false" in source
+    assert "if (!ui.running || ui.requestInFlight) return;" in source
+    assert "ui.requestInFlight = true;" in source
+    assert "finishFrameRequest(frameId)" in source
+    assert "requestAnimationFrame(drawLoop)" in source
+    assert "lastRenderedPoseFrameId" in source
+    assert "result.session_id === ui.activeRealtimeSessionId" in source
+    assert "result.run_id === ui.activeRealtimeRunId" in source
+    assert "lastDiscardedFrameId" in source
+    assert "ui.requestTimeout = setTimeout" in source
+    assert "inference_long_edge" in source
+    assert 'ui.realtimeConfig.jpeg_quality ?? 0.65' in source
+    assert "new TextEncoder().encode(JSON.stringify" in source
+    assert "now - ui.lastResultAt" in source
+    assert "hideAfter * 0.8" in source
+    assert "now - captureMs" not in source
+    assert 'mode === "camera" ? "未连接" : "本机处理"' in source
+    assert 'ui.sourceMode === "camera" && ui.running && !ui.manualStop' in source
+    assert '"sample-cache": "预计算示例结果"' in source
+
+
+def test_sample_videos_analyze_every_frame_without_artificial_playback_wait() -> None:
+    source = Path("webui/app.py").read_text(encoding="utf-8")
+
+    assert 'mode="one-euro"' in source
+    assert "sample_frame_step" not in source
+    assert "capture.grab()" not in source
+    assert "(1.0 / source_fps) - elapsed" not in source
 
 
 def test_camera_analysis_can_be_started_and_stopped_from_api() -> None:
@@ -99,7 +139,7 @@ def test_camera_analysis_can_be_started_and_stopped_from_api() -> None:
     assert engine.stopped is True
 
 
-def test_camera_analysis_accepts_explicit_yolo_mediapipe() -> None:
+def test_camera_analysis_rejects_experimental_backend_in_product_api() -> None:
     engine = FakeEngine()
     client = create_app(engine).test_client()
     headers = csrf_headers(client)
@@ -115,9 +155,9 @@ def test_camera_analysis_accepts_explicit_yolo_mediapipe() -> None:
         },
     )
 
-    assert response.status_code == 200
-    assert engine.started_with is not None
-    assert engine.started_with["backend"] == "yolo-mediapipe"
+    assert response.status_code == 400
+    assert engine.started_with is None
+    assert "无效的识别后端" in response.json["error"]
 
 
 def test_start_rejects_unknown_action() -> None:
@@ -159,9 +199,9 @@ def test_sample_action_and_video_are_linked_by_the_api() -> None:
     assert "不一致" in mismatch.json["error"]
 
 
-def test_crowded_lunge_sample_locks_the_foreground_person() -> None:
+def test_backend_plan_limits_internal_tracking_to_trusted_lunge_sample() -> None:
     assert _backend_plan({"source_mode": "sample", "action": "lunge", "backend": "auto"}) == (
-        "yolo-mediapipe",
+        "auto",
         "tracking",
     )
     assert _backend_plan({"source_mode": "camera", "action": "lunge", "backend": "auto"}) == (
@@ -175,16 +215,25 @@ def test_crowded_lunge_sample_locks_the_foreground_person() -> None:
             "backend": "rtmw-wholebody",
         }
     ) == ("rtmw-wholebody", "tracking")
+    assert _backend_plan(
+        {
+            "source_mode": "sample",
+            "action": "lunge",
+            "backend": "mediapipe",
+            "bundled_sample_tracking": True,
+        }
+    ) == ("yolo-mediapipe", "tracking")
 
 
-def test_web_page_offers_rtmw_wholebody_model() -> None:
+def test_web_product_page_only_offers_mediapipe_pose() -> None:
     response = create_app(FakeEngine()).test_client().get("/")
 
     assert response.status_code == 200
     assert b'value="mediapipe"' in response.data
-    assert b'value="yolo-mediapipe"' in response.data
+    assert b'value="auto"' not in response.data
+    assert b'value="yolo-mediapipe"' not in response.data
     assert b'value="yolo-pose"' not in response.data
-    assert b'value="rtmw-wholebody"' in response.data
+    assert b'value="rtmw-wholebody"' not in response.data
 
 
 def test_server_screenshot_is_disabled_for_privacy() -> None:

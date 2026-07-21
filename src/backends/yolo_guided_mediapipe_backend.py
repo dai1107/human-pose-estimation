@@ -38,6 +38,7 @@ class YoloGuidedMediaPipeBackend:
     """Use YOLO to select one athlete and MediaPipe to supplement that identity."""
 
     model_name = "yolo-guided-mediapipe"
+    support_tier = "experimental"
 
     def __init__(
         self,

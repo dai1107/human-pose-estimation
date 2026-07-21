@@ -91,10 +91,7 @@
             <div class="control-group">
               <label for="backendSelect">识别模型</label>
               <select id="backendSelect">
-                <option value="auto">自动选择（推荐）</option>
-                <option value="mediapipe">纯 MediaPipe</option>
-                <option value="yolo-mediapipe">YOLO + MediaPipe</option>
-                <option value="rtmw-wholebody">YOLO + RTMW WholeBody（高精度 133 点）</option>
+                <option value="mediapipe">MediaPipe Pose</option>
               </select>
             </div>
             <div class="control-group">
@@ -114,7 +111,7 @@
             </div>
             <label class="switch-row">
               <span><strong>显示手指节点</strong><small>使用 WholeBody 或独立手部模型显示五根手指的 20 个关节点</small></span>
-              <input id="fingerToggle" type="checkbox" checked>
+              <input id="fingerToggle" type="checkbox">
               <span class="switch" aria-hidden="true"></span>
             </label>
             <label class="switch-row">

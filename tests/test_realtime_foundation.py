@@ -139,12 +139,17 @@ def test_metrics_can_write_csv(tmp_path) -> None:
 
     metrics.update(pose, {"left_knee_angle": 90.0}, frame_started=1.0, frame_finished=1.01)
     metrics.update(pose, {"left_knee_angle": 91.0}, frame_started=1.02, frame_finished=1.03)
+    snapshot = metrics.snapshot()
     path = tmp_path / "metrics.csv"
     metrics.write_csv(path)
 
     text = path.read_text(encoding="utf-8")
     assert "success_rate" in text
     assert "mediapipe" in text
+    assert "p50_inference_time_ms" in text
+    assert "p95_end_to_end_latency_ms" in text
+    assert snapshot.p50_end_to_end_latency_ms == pytest.approx(10.0)
+    assert snapshot.p95_end_to_end_latency_ms == pytest.approx(10.0)
 
 
 def test_metrics_records_runtime_backend_switch_history() -> None:
@@ -178,3 +183,14 @@ def test_metrics_counts_stability_guards() -> None:
 
     assert snapshot.stabilized_hold_count == 1
     assert snapshot.occlusion_guard_count == 2
+
+
+def test_metrics_exposes_realtime_drop_counts() -> None:
+    metrics = RealtimeMetrics(backend="mediapipe", smoothing="one-euro")
+
+    metrics.set_realtime_drop_counts(busy=4, stale=2, camera_overwrite=7)
+    snapshot = metrics.snapshot()
+
+    assert snapshot.pose_busy_drop_count == 4
+    assert snapshot.pose_stale_drop_count == 2
+    assert snapshot.camera_overwrite_drop_count == 7

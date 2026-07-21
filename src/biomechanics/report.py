@@ -12,6 +12,7 @@ from src.output_schema import versioned_payload
 os.environ.setdefault("MPLCONFIGDIR", str(Path(__file__).resolve().parents[2] / ".cache" / "matplotlib"))
 
 from .sequencing import compare_peak_order, find_local_peaks
+from .kinematics_3d import summarize_three_d_records
 from .types import KinematicFrame, PoseFrame
 
 
@@ -72,6 +73,7 @@ def build_summary(pose_frames: list[PoseFrame], kinematic_frames: list[Kinematic
         "pose_valid_frame_ratio": valid_ratio,
         "motion_energy_proxy_peak": max(energy_values) if energy_values else None,
         "peak_events": peak_events,
+        "three_d_kinematics": summarize_three_d_records(pose_frames),
     }
 
 

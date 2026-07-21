@@ -1,12 +1,74 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from statistics import median
 from typing import Literal, Mapping, Sequence
 
 
 RuleStatus = Literal["PASS", "FAIL", "UNSURE", "NOT_APPLICABLE"]
 DecisionStatus = Literal["VALID", "NO_REP", "UNSURE"]
+
+
+THREE_D_ASSIST_RULE_ANGLES: Mapping[str, Mapping[str, tuple[str, ...]]] = {
+    "lunge": {
+        "full_knee_extension": ("left_knee_angle", "right_knee_angle"),
+        "full_hip_extension": ("left_hip_angle", "right_hip_angle"),
+    },
+    "wall_ball": {
+        "tall_start": (
+            "left_knee_angle",
+            "right_knee_angle",
+            "left_hip_angle",
+            "right_hip_angle",
+        ),
+        "upward_extension": (
+            "left_knee_angle",
+            "right_knee_angle",
+            "left_hip_angle",
+            "right_hip_angle",
+        ),
+    },
+    "rowing": {
+        "body_sequence_valid": (
+            "left_knee_angle",
+            "right_knee_angle",
+            "left_hip_angle",
+            "right_hip_angle",
+            "left_elbow_angle",
+            "right_elbow_angle",
+        ),
+    },
+    "skierg": {
+        "body_sequence_valid": (
+            "left_hip_angle",
+            "right_hip_angle",
+            "left_elbow_angle",
+            "right_elbow_angle",
+            "left_shoulder_angle",
+            "right_shoulder_angle",
+        ),
+    },
+    "sled_push": {
+        "body_sequence_valid": (
+            "left_knee_angle",
+            "right_knee_angle",
+            "left_hip_angle",
+            "right_hip_angle",
+        ),
+    },
+    "sled_pull": {
+        "body_sequence_valid": (
+            "left_knee_angle",
+            "right_knee_angle",
+            "left_hip_angle",
+            "right_hip_angle",
+            "left_elbow_angle",
+            "right_elbow_angle",
+            "left_shoulder_angle",
+            "right_shoulder_angle",
+        ),
+    },
+}
 
 
 def _clamp_confidence(value: float) -> float:
@@ -87,6 +149,43 @@ class RepDecision:
             "rules": [rule.as_dict() for rule in self.rules],
             "reason_codes": list(self.reason_codes),
             "confidence": self.confidence,
+        }
+
+
+@dataclass(frozen=True)
+class ThreeDAssistAssessment:
+    status: Literal[
+        "DISABLED",
+        "SHADOW",
+        "FALLBACK_2D",
+        "NOT_APPLICABLE",
+        "SUPPORTING",
+        "CONFLICT",
+    ]
+    decision_mode: str
+    original_status: DecisionStatus
+    final_status: DecisionStatus
+    confidence_before: float
+    confidence_after: float
+    supported_rules: tuple[str, ...] = field(default_factory=tuple)
+    boosted_rules: tuple[str, ...] = field(default_factory=tuple)
+    conflicted_rules: tuple[str, ...] = field(default_factory=tuple)
+    relevant_angles: tuple[str, ...] = field(default_factory=tuple)
+    reason_codes: tuple[str, ...] = field(default_factory=tuple)
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "status": self.status,
+            "decision_mode": self.decision_mode,
+            "original_status": self.original_status,
+            "final_status": self.final_status,
+            "confidence_before": self.confidence_before,
+            "confidence_after": self.confidence_after,
+            "supported_rules": list(self.supported_rules),
+            "boosted_rules": list(self.boosted_rules),
+            "conflicted_rules": list(self.conflicted_rules),
+            "relevant_angles": list(self.relevant_angles),
+            "reason_codes": list(self.reason_codes),
         }
 
 
@@ -371,6 +470,185 @@ def aggregate_rep_decision(
     )
 
 
+def _candidate_rule_snapshots(
+    candidate: RepCandidate,
+    rule: BodyRuleResult,
+) -> tuple[Mapping[str, object], ...]:
+    if rule.evidence_frames:
+        snapshots = tuple(
+            candidate.frames[frame - candidate.start_frame]
+            for frame in sorted(set(rule.evidence_frames))
+            if 0 <= frame - candidate.start_frame < len(candidate.frames)
+        )
+        if snapshots:
+            return snapshots
+    return candidate.frames[-1:] if candidate.frames else ()
+
+
+def _unit_interval(value: object, default: float) -> float:
+    resolved = _safe_confidence(value)
+    return default if resolved is None else resolved
+
+
+def _assist_measurement_state(
+    payload: Mapping[str, object],
+    angle_name: str,
+) -> str:
+    raw_measurements = payload.get("measurements")
+    if not isinstance(raw_measurements, Mapping):
+        return "unavailable"
+    measurement = raw_measurements.get(angle_name)
+    if not isinstance(measurement, Mapping):
+        return "unavailable"
+    raw_reasons = measurement.get("quality_reasons")
+    reasons = (
+        {str(reason) for reason in raw_reasons}
+        if isinstance(raw_reasons, (list, tuple))
+        else set()
+    )
+    if "two_d_three_d_conflict" in reasons:
+        return "conflict"
+    if bool(measurement.get("three_d_reliable")):
+        return "support"
+    return "unavailable"
+
+
+def apply_three_d_assist(
+    decision: RepDecision,
+    candidate: RepCandidate,
+    *,
+    required_rules: Sequence[str] | None = None,
+) -> tuple[RepDecision, ThreeDAssistAssessment]:
+    """Use reliable 3D only to qualify confidence; never replace a 2D rule status."""
+    action_key = str(candidate.action).strip().lower().replace(" ", "_").replace("-", "_")
+    rule_angles = THREE_D_ASSIST_RULE_ANGLES.get(action_key, {})
+    original_status = decision.status
+    confidence_before = decision.confidence
+    rules: list[BodyRuleResult] = []
+    supported_rules: list[str] = []
+    boosted_rules: list[str] = []
+    conflicted_rules: list[str] = []
+    relevant_angles: set[str] = set()
+    mapped_rule_seen = False
+    saw_assist = False
+    saw_shadow = False
+    saw_disabled = False
+
+    for rule in decision.rules:
+        angles = rule_angles.get(rule.rule_id)
+        if not angles:
+            rules.append(rule)
+            continue
+        mapped_rule_seen = True
+        relevant_angles.update(angles)
+        support = False
+        conflict = False
+        confidence_boost = 0.05
+        conflict_cap = 0.49
+        for snapshot in _candidate_rule_snapshots(candidate, rule):
+            payload = snapshot.get("three_d_kinematics")
+            if not isinstance(payload, Mapping):
+                continue
+            mode = str(payload.get("decision_mode", "shadow")).strip().lower()
+            if mode != "assist":
+                saw_shadow = True
+                continue
+            if not bool(payload.get("enabled", True)):
+                saw_disabled = True
+                continue
+            saw_assist = True
+            confidence_boost = _unit_interval(
+                payload.get("assist_confidence_boost"),
+                confidence_boost,
+            )
+            conflict_cap = _unit_interval(
+                payload.get("assist_conflict_confidence_cap"),
+                conflict_cap,
+            )
+            states = tuple(
+                _assist_measurement_state(payload, angle_name)
+                for angle_name in angles
+            )
+            support = support or "support" in states
+            conflict = conflict or "conflict" in states
+
+        adjusted_rule = rule
+        if conflict:
+            conflicted_rules.append(rule.rule_id)
+            adjusted_rule = replace(rule, confidence=min(rule.confidence, conflict_cap))
+        elif support:
+            supported_rules.append(rule.rule_id)
+            adjusted_confidence = min(1.0, rule.confidence + confidence_boost)
+            if adjusted_confidence > rule.confidence:
+                boosted_rules.append(rule.rule_id)
+            adjusted_rule = replace(rule, confidence=adjusted_confidence)
+        rules.append(adjusted_rule)
+
+    if not mapped_rule_seen:
+        status = "NOT_APPLICABLE"
+        decision_mode = "assist" if any(
+            isinstance(frame.get("three_d_kinematics"), Mapping)
+            and str(frame["three_d_kinematics"].get("decision_mode", "")).lower()
+            == "assist"
+            for frame in candidate.frames
+        ) else "none"
+        resolved = decision
+        reasons: tuple[str, ...] = ()
+    elif conflicted_rules:
+        assisted = aggregate_rep_decision(rules, required_rules=required_rules)
+        caps = tuple(
+            rule.confidence
+            for rule in rules
+            if rule.rule_id in set(conflicted_rules)
+        )
+        resolved = RepDecision(
+            status="UNSURE",
+            rules=assisted.rules,
+            reason_codes=tuple(
+                dict.fromkeys(("THREE_D_ASSIST_CONFLICT", *assisted.reason_codes))
+            ),
+            confidence=min((assisted.confidence, *caps), default=0.0),
+        )
+        status = "CONFLICT"
+        decision_mode = "assist"
+        reasons = ("THREE_D_ASSIST_CONFLICT",)
+    elif supported_rules:
+        resolved = aggregate_rep_decision(rules, required_rules=required_rules)
+        status = "SUPPORTING"
+        decision_mode = "assist"
+        reasons = ()
+    else:
+        resolved = decision
+        reasons = ("THREE_D_ASSIST_UNAVAILABLE",)
+        if saw_assist:
+            status = "FALLBACK_2D"
+            decision_mode = "assist"
+        elif saw_disabled:
+            status = "DISABLED"
+            decision_mode = "assist"
+        elif saw_shadow:
+            status = "SHADOW"
+            decision_mode = "shadow"
+        else:
+            status = "FALLBACK_2D"
+            decision_mode = "none"
+
+    assessment = ThreeDAssistAssessment(
+        status=status,  # type: ignore[arg-type]
+        decision_mode=decision_mode,
+        original_status=original_status,
+        final_status=resolved.status,
+        confidence_before=confidence_before,
+        confidence_after=resolved.confidence,
+        supported_rules=tuple(dict.fromkeys(supported_rules)),
+        boosted_rules=tuple(dict.fromkeys(boosted_rules)),
+        conflicted_rules=tuple(dict.fromkeys(conflicted_rules)),
+        relevant_angles=tuple(sorted(relevant_angles)),
+        reason_codes=reasons,
+    )
+    return resolved, assessment
+
+
 __all__ = [
     "ObservabilityAssessment",
     "ObservabilityPolicy",
@@ -379,6 +657,9 @@ __all__ = [
     "RepCandidate",
     "RepDecision",
     "RuleStatus",
+    "THREE_D_ASSIST_RULE_ANGLES",
+    "ThreeDAssistAssessment",
     "apply_observability_policy",
+    "apply_three_d_assist",
     "aggregate_rep_decision",
 ]
