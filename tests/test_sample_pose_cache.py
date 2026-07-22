@@ -5,6 +5,7 @@ from pathlib import Path
 from src.backends.base import Keypoint, PoseResult
 from src.utils.keypoint_schema import MEDIAPIPE_CONNECTIONS
 from webui.sample_cache import (
+    SAMPLE_CACHE_SCHEMA_VERSION,
     build_cache_payload,
     expected_source_backend,
     load_sample_pose_backend,
@@ -17,6 +18,16 @@ from src.biomechanics.types import LandmarkPoint
 
 
 def pose() -> PoseResult:
+    world_point = Keypoint(
+        "left_knee",
+        0.01,
+        0.02,
+        z=0.03,
+        confidence=0.9,
+        source_model="mediapipe-world",
+        visibility=0.95,
+        presence=0.9,
+    )
     return PoseResult(
         keypoints=[
             Keypoint(
@@ -37,6 +48,7 @@ def pose() -> PoseResult:
         inference_time_ms=14.5,
         bbox=(0.3, 0.2, 0.7, 0.9),
         timestamp_ms=33,
+        extra={"world_keypoints": [world_point]},
     )
 
 
@@ -68,6 +80,8 @@ def test_sample_pose_cache_round_trip_has_zero_runtime_inference(tmp_path: Path)
     assert result.inference_time_ms == 0.0
     assert result.timestamp_ms == 100
     assert result.keypoints[0].name == "left_knee"
+    assert result.extra["world_landmarks_available"] is True
+    assert result.extra["world_keypoints"][0].z == 0.03
     assert result.extra["cached_source_inference_ms"] == 14.5
 
 
@@ -87,6 +101,31 @@ def test_sample_pose_cache_invalidates_when_video_changes(tmp_path: Path) -> Non
     )
     write_cache_payload(payload, cache)
     video.write_bytes(b"changed-version")
+
+    assert load_sample_pose_backend(
+        action="rowing",
+        video_path=video,
+        total_frames=1,
+        path=cache,
+    ) is None
+
+
+def test_sample_pose_cache_rejects_the_previous_schema(tmp_path: Path) -> None:
+    video = tmp_path / "sample.mp4"
+    video.write_bytes(b"fixed-sample-video")
+    cache = tmp_path / "rowing.json.gz"
+    payload = build_cache_payload(
+        action="rowing",
+        video_path=video,
+        source_backend="mediapipe",
+        fps=30.0,
+        width=640,
+        height=480,
+        connections=MEDIAPIPE_CONNECTIONS,
+        frames=[serialize_pose_result(pose())],
+    )
+    payload["schema_version"] = SAMPLE_CACHE_SCHEMA_VERSION - 1
+    write_cache_payload(payload, cache)
 
     assert load_sample_pose_backend(
         action="rowing",

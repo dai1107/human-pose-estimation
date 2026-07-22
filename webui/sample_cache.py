@@ -14,8 +14,8 @@ from src.backends.base import Keypoint, PoseResult
 from src.paths import installation_root
 
 
-SAMPLE_CACHE_SCHEMA_VERSION = 1
-SAMPLE_CACHE_FORMAT = "web-sample-pose-v1"
+SAMPLE_CACHE_SCHEMA_VERSION = 2
+SAMPLE_CACHE_FORMAT = "web-sample-pose-v2"
 SAMPLE_CACHE_DIR = installation_root() / "configs" / "sample_pose_cache"
 
 
@@ -79,12 +79,8 @@ def serialize_pose_result(result: PoseResult) -> dict[str, Any]:
     bbox = None
     if result.bbox is not None and all(math.isfinite(float(value)) for value in result.bbox):
         bbox = [round(float(value), 8) for value in result.bbox]
-    return {
-        "success": bool(result.success),
-        "model_name": str(result.model_name),
-        "source_inference_ms": round(float(result.inference_time_ms), 3),
-        "bbox": bbox,
-        "keypoints": [
+    def serialize_keypoints(points: Sequence[Keypoint]) -> list[dict[str, Any]]:
+        return [
             {
                 "name": point.name,
                 "x": finite(point.x),
@@ -95,8 +91,22 @@ def serialize_pose_result(result: PoseResult) -> dict[str, Any]:
                 "visibility": finite(point.visibility),
                 "presence": finite(point.presence),
             }
-            for point in result.keypoints
-        ],
+            for point in points
+        ]
+
+    raw_world_keypoints = result.extra.get("world_keypoints")
+    world_keypoints = (
+        list(raw_world_keypoints)
+        if isinstance(raw_world_keypoints, (list, tuple))
+        else []
+    )
+    return {
+        "success": bool(result.success),
+        "model_name": str(result.model_name),
+        "source_inference_ms": round(float(result.inference_time_ms), 3),
+        "bbox": bbox,
+        "keypoints": serialize_keypoints(result.keypoints),
+        "world_keypoints": serialize_keypoints(world_keypoints),
     }
 
 
@@ -228,27 +238,34 @@ class SamplePoseCacheBackend:
         def number(value: object, *, fallback: float = 0.0) -> float:
             return fallback if value is None else float(value)
 
-        keypoints = [
-            Keypoint(
-                name=str(point["name"]),
-                x=number(point.get("x"), fallback=float("nan")),
-                y=number(point.get("y"), fallback=float("nan")),
-                z=number(point.get("z"), fallback=float("nan")),
-                confidence=number(point.get("confidence")),
-                source_model=str(point.get("source_model", "")),
-                visibility=(
-                    None
-                    if point.get("visibility") is None
-                    else float(point["visibility"])
-                ),
-                presence=(
-                    None
-                    if point.get("presence") is None
-                    else float(point["presence"])
-                ),
-            )
-            for point in cached.get("keypoints", ())
-        ]
+        def deserialize_keypoints(raw_points: object) -> list[Keypoint]:
+            if not isinstance(raw_points, list):
+                return []
+            return [
+                Keypoint(
+                    name=str(point["name"]),
+                    x=number(point.get("x"), fallback=float("nan")),
+                    y=number(point.get("y"), fallback=float("nan")),
+                    z=number(point.get("z"), fallback=float("nan")),
+                    confidence=number(point.get("confidence")),
+                    source_model=str(point.get("source_model", "")),
+                    visibility=(
+                        None
+                        if point.get("visibility") is None
+                        else float(point["visibility"])
+                    ),
+                    presence=(
+                        None
+                        if point.get("presence") is None
+                        else float(point["presence"])
+                    ),
+                )
+                for point in raw_points
+                if isinstance(point, Mapping) and point.get("name")
+            ]
+
+        keypoints = deserialize_keypoints(cached.get("keypoints"))
+        world_keypoints = deserialize_keypoints(cached.get("world_keypoints"))
         raw_bbox = cached.get("bbox")
         bbox = (
             tuple(float(value) for value in raw_bbox)
@@ -270,6 +287,8 @@ class SamplePoseCacheBackend:
                 "cached_source_inference_ms": float(
                     cached.get("source_inference_ms", 0.0)
                 ),
+                "world_keypoints": world_keypoints,
+                "world_landmarks_available": bool(world_keypoints),
                 "cached_hand_detections": _deserialize_hand_detections(
                     cached.get("hands")
                 ),

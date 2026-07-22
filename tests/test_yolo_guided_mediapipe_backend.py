@@ -75,16 +75,35 @@ def _candidate(x: float, y: float, *, foot_x: float) -> list[Keypoint]:
     return [by_name[name] for name in MEDIAPIPE_33_NAMES]
 
 
+def _world_candidate(x: float) -> list[Keypoint]:
+    return [
+        Keypoint(
+            name=name,
+            x=x,
+            y=float(index) / 100.0,
+            z=0.25,
+            confidence=0.95,
+            source_model="mediapipe-world",
+        )
+        for index, name in enumerate(MEDIAPIPE_33_NAMES)
+    ]
+
+
 def test_selects_matching_person_and_only_uses_mediapipe_for_supplemental_points() -> None:
     yolo_points = _keypoints(COCO_17_NAMES, 0.50, 0.50, "yolo-pose")
     background = _candidate(0.85, 0.15, foot_x=0.91)
     athlete = _candidate(0.52, 0.51, foot_x=0.42)
+    background_world = _world_candidate(8.5)
+    athlete_world = _world_candidate(5.2)
     yolo = FakeBackend(_result(yolo_points, model_name="yolo-pose"))
     mediapipe = FakeBackend(
         _result(
             background,
             model_name="mediapipe",
-            extra={"pose_candidates": [background, athlete]},
+            extra={
+                "pose_candidates": [background, athlete],
+                "world_pose_candidates": [background_world, athlete_world],
+            },
         )
     )
     backend = YoloGuidedMediaPipeBackend(
@@ -106,6 +125,8 @@ def test_selects_matching_person_and_only_uses_mediapipe_for_supplemental_points
     assert result.extra["identity_match_points"] == len(IDENTITY_MATCH_NAMES)
     assert result.extra["mediapipe_candidate_count"] == 2
     assert result.extra["mediapipe_supplemental_available"] is True
+    assert result.extra["world_landmarks_available"] is True
+    assert result.extra["world_keypoints"][0].x == pytest.approx(5.2)
 
 
 def test_rejects_background_candidate_and_marks_supplemental_points_missing() -> None:

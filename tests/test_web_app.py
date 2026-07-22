@@ -100,15 +100,18 @@ def test_browser_realtime_client_uses_single_in_flight_request_and_raf_drawing()
     assert 'mode === "camera" ? "未连接" : "本机处理"' in source
     assert 'ui.sourceMode === "camera" && ui.running && !ui.manualStop' in source
     assert '"sample-cache": "预计算示例结果"' in source
+    assert "Math.round(angle.value)}° 3D" in source
 
 
-def test_sample_videos_analyze_every_frame_without_artificial_playback_wait() -> None:
+def test_file_videos_analyze_every_frame_at_the_source_playback_rate() -> None:
     source = Path("webui/app.py").read_text(encoding="utf-8")
 
     assert 'mode="one-euro"' in source
     assert "sample_frame_step" not in source
     assert "capture.grab()" not in source
-    assert "(1.0 / source_fps) - elapsed" not in source
+    assert 'config["source_mode"] != "camera"' in source
+    assert "remaining = (1.0 / source_fps) - elapsed" in source
+    assert "self._stop_event.wait(remaining)" in source
 
 
 def test_camera_analysis_can_be_started_and_stopped_from_api() -> None:

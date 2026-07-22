@@ -789,7 +789,7 @@ function drawSkeleton(result, opacity = 1) {
     const point = points.get(angle.anchor);
     if (!point || point.visibility < 0.2) continue;
     const [x, y] = xy(point);
-    const label = `${angle.label} ${Math.round(angle.value)}°`;
+    const label = `${angle.label} ${Math.round(angle.value)}° 3D`;
     const color = angle.status === "bad" ? "#ff5b50" : angle.status === "good" ? "#59e481" : "#f5f5ef";
     const width = ctx.measureText(label).width;
     ctx.fillStyle = "rgba(20,20,18,.72)";

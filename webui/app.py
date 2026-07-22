@@ -29,6 +29,7 @@ from hyrox.action_names import HYROX_ACTION_NAMES
 from hyrox.features import extract_basic_pose_features
 from hyrox.registry import create_action_analyzer
 from hyrox.view_policy import CAMERA_VIEWS
+from src.biomechanics.kinematics_3d import ThreeDKinematicsTracker
 from src.backends.mediapipe_backend import MediaPipeBackend
 from src.backends.catalog import is_experimental_backend
 from src.backends.yolo_guided_mediapipe_backend import YoloGuidedMediaPipeBackend
@@ -210,7 +211,7 @@ def _draw_angle_overlay(frame: Any, result: Any, assessment: Mapping[str, Any]) 
             continue
         x, y = to_pixel(point.x, point.y, width, height)
         color = (70, 220, 110) if item.get("status") != "bad" else (50, 70, 245)
-        label = f"{float(item.get('value', 0)):.0f} deg"
+        label = f"{float(item.get('value', 0)):.0f} deg 3D"
         origin = (x + 8, max(20, y - 8))
         (text_width, text_height), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.48, 1)
         cv2.rectangle(
@@ -628,6 +629,11 @@ class PoseStreamEngine:
                 max_missing_frames=5,
                 occlusion_guard=True,
             )
+            product_pose_config = load_product_pose_config()
+            three_d_tracker = ThreeDKinematicsTracker(
+                product_pose_config.three_d_kinematics,
+                product_pose_config.three_d_quality,
+            )
             analyzer = None
             analyzer_key: tuple[str, str, str] | None = None
             started = time.perf_counter()
@@ -663,6 +669,12 @@ class PoseStreamEngine:
                 frame = cv2.flip(raw_frame, 1) if config["source_mode"] == "camera" and settings["mirror"] else raw_frame.copy()
                 timestamp_ms = int(round((frame_index * 1000.0) / source_fps)) if config["source_mode"] != "camera" else int((time.perf_counter() - started) * 1000)
                 result = smoother.smooth_result(backend.detect(frame, timestamp_ms=timestamp_ms))
+                result, three_d_result = three_d_tracker.attach(
+                    result,
+                    capture_timestamp_ns=timestamp_ms * 1_000_000,
+                    pose_age_ms=0.0,
+                )
+                three_d_payload = three_d_result.as_dict()
                 has_pose = bool(result.success and result.keypoints)
                 show_hand_overlay = hand_overlay_visible(
                     str(settings["landmark_profile"]),
@@ -723,6 +735,7 @@ class PoseStreamEngine:
                             image_height=height,
                             segmentation_mask=result.extra.get("segmentation_mask"),
                         )
+                        features["three_d_kinematics"] = three_d_payload
                     action_state = analyzer.attach_view_context(analyzer.update(features, timestamp_ms=timestamp_ms))
 
                 phase = "idle" if action_state is None else str(action_state.get("phase", "unknown"))
@@ -867,6 +880,8 @@ class PoseStreamEngine:
                                 "voice_feedback": voice_feedback,
                                 "detected_issues": all_feedback,
                                 "assessment": assessment,
+                                "world_angles": three_d_payload["angles_3d"],
+                                "three_d_kinematics": three_d_payload,
                                 "keypoints": keypoints,
                                 "metrics": {
                                     "backend": resolved_backend,
@@ -916,6 +931,17 @@ class PoseStreamEngine:
                             }
                         )
                         self._frame_ready.notify_all()
+
+                # File-backed sources should be presented at their encoded
+                # frame rate.  Cached sample poses make processing much faster
+                # than realtime, so without this pacing the MJPEG stream looks
+                # like fast-forward playback.  Keep every frame; only wait for
+                # the remainder of its source-frame interval.
+                if config["source_mode"] != "camera":
+                    elapsed = time.perf_counter() - frame_started
+                    remaining = (1.0 / source_fps) - elapsed
+                    if remaining > 0:
+                        self._stop_event.wait(remaining)
 
         except Exception as exc:
             with self._frame_ready:

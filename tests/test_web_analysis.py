@@ -5,16 +5,46 @@ import pytest
 from webui.analysis import RepVoiceFeedbackTracker, assess_action, enrich_report, official_rules_for, render_text_report, standards_for, visible_feedback
 
 
+def _three_d_angles(**angles: float) -> dict[str, object]:
+    return {
+        "measurements": {
+            name: {
+                "angle_3d": value,
+                "three_d_reliable": True,
+            }
+            for name, value in angles.items()
+        }
+    }
+
+
 def test_action_assessment_uses_phase_specific_angle_ranges() -> None:
     good = assess_action(
         "lunge",
         "bottom",
-        {"min_knee_angle": 98.0, "left_knee_angle": 98.0, "right_knee_angle": 101.0, "torso_angle": 12.0},
+        {
+            "min_knee_angle": 98.0,
+            "left_knee_angle": 98.0,
+            "right_knee_angle": 101.0,
+            "torso_angle": 12.0,
+            "three_d_kinematics": _three_d_angles(
+                left_knee_angle=96.0,
+                right_knee_angle=103.0,
+            ),
+        },
     )
     bad = assess_action(
         "lunge",
         "bottom",
-        {"min_knee_angle": 142.0, "left_knee_angle": 142.0, "right_knee_angle": 145.0, "torso_angle": 12.0},
+        {
+            "min_knee_angle": 142.0,
+            "left_knee_angle": 142.0,
+            "right_knee_angle": 145.0,
+            "torso_angle": 12.0,
+            "three_d_kinematics": _three_d_angles(
+                left_knee_angle=144.0,
+                right_knee_angle=147.0,
+            ),
+        },
     )
     borderline = assess_action("lunge", "bottom", {"min_knee_angle": 130.0, "torso_angle": 12.0})
 
@@ -25,8 +55,37 @@ def test_action_assessment_uses_phase_specific_angle_ranges() -> None:
     assert borderline["status"] == "unknown"
     assert borderline["evaluable"] is False
     assert {item["anchor"] for item in bad["angles"]} >= {"left_knee", "right_knee"}
+    assert {item["source"] for item in bad["angles"]} == {"3d"}
+    assert {item["value"] for item in bad["angles"]} == {144.0, 147.0}
     assert any(item["range_text"] == "75–125°" for item in standards_for("lunge"))
     assert official_rules_for("lunge")[0]["pose_observable"] is True
+
+
+def test_action_assessment_hides_unreliable_or_unavailable_three_d_angles() -> None:
+    result = assess_action(
+        "wall_ball",
+        "throw_extension",
+        {
+            "min_knee_angle": 155.0,
+            "left_knee_angle": 155.0,
+            "right_knee_angle": 157.0,
+            "three_d_kinematics": {
+                "measurements": {
+                    "left_knee_angle": {
+                        "angle_3d": 151.0,
+                        "three_d_reliable": False,
+                    },
+                    "right_knee_angle": {
+                        "angle_3d": 159.0,
+                        "three_d_reliable": True,
+                    },
+                }
+            },
+        },
+    )
+
+    assert [item["key"] for item in result["angles"]] == ["right_knee_angle"]
+    assert result["angles"][0]["value"] == 159.0
 
 
 def test_effort_feedback_is_hidden_during_recovery_but_retained_during_pull() -> None:

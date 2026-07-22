@@ -29,6 +29,13 @@ development builds use the `X.Y.Z.devN` form.
 
 ### Changed
 
+- Web angle overlays now show quality-gated MediaPipe world-landmark 3D joint
+  angles and label them `3D`; unavailable or unreliable 3D measurements are
+  omitted instead of being silently replaced by 2D display values. Bundled
+  sample caches were upgraded to v2 to include world landmarks.
+- File-backed web playback is now paced at the video's encoded frame rate.
+  Cached samples still analyze every frame, but no longer play faster than the
+  source video when cached pose lookup finishes ahead of realtime.
 - Replaced WebSocket result polling with an event-driven sender thread and made
   optional finger tracking off by default to reduce realtime camera latency.
 
@@ -56,18 +63,18 @@ development builds use the `X.Y.Z.devN` form.
   p95; server processing was 17.2 ms p50, pose inference 14.4 ms p50, and pose
   age 16.0 ms p50. These are machine-specific baselines, not hardware-neutral
   guarantees.
-- Final API verification of the cached 133-frame lunge sample completed in
-  about 1.1 seconds with 0.0 ms runtime model inference, compared with about
-  15.7 seconds on the former inference path. The rowing sample benchmark
-  improved from about 14.3 seconds to 6.1 seconds; remaining time is video
-  decode, rule evaluation, drawing, and JPEG encoding.
+- Without presentation pacing, cached processing of the 133-frame lunge sample
+  required about 1.1 seconds with 0.0 ms runtime model inference, compared with
+  about 15.7 seconds on the former inference path. Web presentation is now
+  intentionally capped at the source frame rate, so this 30 FPS sample plays
+  for its original duration of about 4.43 seconds.
 
 ### Validation
 
-- The 3D Assist completion baseline passed 479 tests. The final focused suite
-  covering sample caches, web APIs, backend safety, product configuration, and
-  realtime protocol behavior passed 126 tests; online lunge verification also
-  confirmed cached hand landmarks without starting the hand model.
+- The current full suite passes 487 tests. End-to-end replay of the cached
+  133-frame lunge sample completed normally; 51 frames passed the strict 3D
+  display gate, and every displayed angle reported `source=3d`. Cache audit
+  also confirmed schema v2 and world-landmark payloads for all eight samples.
 
 ## [0.1.0.dev0] - 2026-07-20
 

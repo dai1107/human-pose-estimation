@@ -114,7 +114,7 @@ class YoloGuidedMediaPipeBackend:
             mediapipe_result = None
 
         candidates = self._pose_candidates(mediapipe_result)
-        matched_candidate, match_distance, match_points = self._select_identity(
+        matched_candidate, match_distance, match_points, matched_index = self._select_identity(
             yolo_result.keypoints,
             candidates,
         )
@@ -147,6 +147,15 @@ class YoloGuidedMediaPipeBackend:
         if mediapipe_result is not None:
             inference_time_ms += mediapipe_result.inference_time_ms
 
+        world_candidates = self._world_pose_candidates(mediapipe_result)
+        matched_world_keypoints = (
+            world_candidates[matched_index]
+            if identity_matched
+            and matched_index is not None
+            and matched_index < len(world_candidates)
+            else []
+        )
+
         extra = {
             **dict(yolo_result.extra),
             "identity_matched": identity_matched,
@@ -156,6 +165,8 @@ class YoloGuidedMediaPipeBackend:
             "mediapipe_supplemental_available": supplemental_available,
             "mediapipe_temporal_foot_points": temporal_foot_points,
             "mediapipe_temporal_foot_age_ms": temporal_foot_age_ms,
+            "world_keypoints": matched_world_keypoints,
+            "world_landmarks_available": bool(matched_world_keypoints),
         }
         if mediapipe_error:
             extra["mediapipe_error"] = mediapipe_error
@@ -198,13 +209,14 @@ class YoloGuidedMediaPipeBackend:
         self,
         yolo_keypoints: Sequence[Keypoint],
         candidates: Sequence[Sequence[Keypoint]],
-    ) -> tuple[list[Keypoint] | None, float | None, int]:
+    ) -> tuple[list[Keypoint] | None, float | None, int, int | None]:
         yolo_by_name = {point.name: point for point in yolo_keypoints}
         best_candidate: list[Keypoint] | None = None
         best_distance: float | None = None
         best_points = 0
+        best_index: int | None = None
 
-        for raw_candidate in candidates:
+        for candidate_index, raw_candidate in enumerate(candidates):
             candidate = list(raw_candidate)
             candidate_by_name = {point.name: point for point in candidate}
             distances = [
@@ -225,8 +237,29 @@ class YoloGuidedMediaPipeBackend:
                 best_candidate = candidate
                 best_distance = distance
                 best_points = len(distances)
+                best_index = candidate_index
 
-        return best_candidate, best_distance, best_points
+        return best_candidate, best_distance, best_points, best_index
+
+    def _world_pose_candidates(
+        self,
+        result: PoseResult | None,
+    ) -> list[list[Keypoint]]:
+        if result is None:
+            return []
+        candidates = result.extra.get("world_pose_candidates")
+        if isinstance(candidates, (list, tuple)):
+            resolved = [
+                list(candidate)
+                for candidate in candidates
+                if isinstance(candidate, (list, tuple))
+            ]
+            if resolved:
+                return resolved
+        world_keypoints = result.extra.get("world_keypoints")
+        if isinstance(world_keypoints, (list, tuple)) and world_keypoints:
+            return [list(world_keypoints)]
+        return []
 
     def _supplemental_keypoints(
         self,

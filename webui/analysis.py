@@ -418,7 +418,10 @@ ANGLE_SPECS: dict[str, tuple[tuple[str, str, str], ...]] = {
     "burpee_broad_jump": (("left_knee_angle", "左膝", "left_knee"), ("right_knee_angle", "右膝", "right_knee"), ("torso_angle", "躯干", "left_hip")),
     "sled_push": (("left_knee_angle", "左膝", "left_knee"), ("right_knee_angle", "右膝", "right_knee"), ("torso_angle", "躯干", "left_hip")),
     "sled_pull": (("left_elbow_angle", "左肘", "left_elbow"), ("right_elbow_angle", "右肘", "right_elbow"), ("left_knee_angle", "左膝", "left_knee"), ("right_knee_angle", "右膝", "right_knee"), ("torso_angle", "躯干", "left_hip")),
-    "farmers_carry": (("torso_angle", "躯干", "left_hip"),),
+    "farmers_carry": (
+        ("left_elbow_angle", "左肘", "left_elbow"),
+        ("right_elbow_angle", "右肘", "right_elbow"),
+    ),
 }
 
 
@@ -495,6 +498,9 @@ def assess_action(
                     "clear_failure": clear_failure,
                     "borderline": not passed and not clear_failure,
                     "metric": standard["metric"],
+                    "min": standard["min"],
+                    "max": standard["max"],
+                    "tolerance": tolerance,
                     "category": standard["category"],
                     "category_text": standard["category_text"],
                 }
@@ -536,14 +542,49 @@ def assess_action(
             status_reason = "当前关键阶段未发现明确问题"
         evaluable = status in {"good", "bad"}
         evaluation_mode = "standard"
+    three_d_payload = values.get("three_d_kinematics")
+    three_d_measurements = (
+        three_d_payload.get("measurements")
+        if isinstance(three_d_payload, Mapping)
+        else None
+    )
     angles: list[dict[str, Any]] = []
     for key, label, anchor in ANGLE_SPECS.get(action, ()):
-        value = _number(values.get(key))
+        measurement = (
+            three_d_measurements.get(key)
+            if isinstance(three_d_measurements, Mapping)
+            else None
+        )
+        value = (
+            _number(measurement.get("angle_3d"))
+            if isinstance(measurement, Mapping)
+            and measurement.get("three_d_reliable") is True
+            else None
+        )
         if value is None:
             continue
         related = [item for item in active if _angle_matches_metric(key, item["metric"])]
-        angle_status = "bad" if any(item["clear_failure"] for item in related) else "good" if related and all(item["passed"] for item in related) else "neutral"
-        angles.append({"key": key, "label": label, "anchor": anchor, "value": round(value, 1), "status": angle_status})
+        clear_failure = any(
+            (item["min"] is not None and value < item["min"] - item["tolerance"])
+            or (item["max"] is not None and value > item["max"] + item["tolerance"])
+            for item in related
+        )
+        passed = bool(related) and all(
+            (item["min"] is None or value >= item["min"])
+            and (item["max"] is None or value <= item["max"])
+            for item in related
+        )
+        angle_status = "bad" if clear_failure else "good" if passed else "neutral"
+        angles.append(
+            {
+                "key": key,
+                "label": label,
+                "anchor": anchor,
+                "value": round(value, 1),
+                "status": angle_status,
+                "source": "3d",
+            }
+        )
     return {
         "status": status,
         "evaluable": evaluable,
