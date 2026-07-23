@@ -219,6 +219,19 @@ def test_browser_pose_worker_uses_latest_frame_slot_and_landmark_protocol() -> N
     )
 
 
+def test_browser_render_cache_keeps_finger_landmarks_with_pose_prediction() -> None:
+    source = Path("webui/static/app.js").read_text(encoding="utf-8")
+
+    assert "const supplementalFingerLandmarkNames" in source
+    assert "const renderLandmarkNames = [...poseLandmarkNames, ...supplementalFingerLandmarkNames]" in source
+    assert "new Uint8Array(renderLandmarkNames.length)" in source
+    assert "new Map(renderLandmarkNames.map" in source
+    assert "new Int16Array(renderLandmarkNames.length * 2)" in source
+    assert "if (displayLandmarks) {" in source
+    assert "index < poseLandmarkNames.length" in source
+    assert "index < renderLandmarkNames.length" in source
+
+
 def test_file_videos_analyze_every_frame_at_the_source_playback_rate() -> None:
     source = Path("webui/app.py").read_text(encoding="utf-8")
 

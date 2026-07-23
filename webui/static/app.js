@@ -106,6 +106,17 @@ const poseLandmarkNames = [
   "left_thumb", "right_thumb", "left_hip", "right_hip", "left_knee", "right_knee", "left_ankle",
   "right_ankle", "left_heel", "right_heel", "left_foot_index", "right_foot_index",
 ];
+const fingerLandmarkSuffixes = [
+  "thumb_cmc", "thumb_mcp", "thumb_ip", "thumb_tip",
+  "index_finger_mcp", "index_finger_pip", "index_finger_dip", "index_finger_tip",
+  "middle_finger_mcp", "middle_finger_pip", "middle_finger_dip", "middle_finger_tip",
+  "ring_finger_mcp", "ring_finger_pip", "ring_finger_dip", "ring_finger_tip",
+  "pinky_mcp", "pinky_pip", "pinky_dip", "pinky_tip",
+];
+const supplementalFingerLandmarkNames = ["left", "right"].flatMap(side =>
+  fingerLandmarkSuffixes.map(suffix => `${side}_hand_${suffix}`),
+);
+const renderLandmarkNames = [...poseLandmarkNames, ...supplementalFingerLandmarkNames];
 const poseConnectionIndexes = [
   [0,1],[1,2],[2,3],[3,7],[0,4],[4,5],[5,6],[6,8],[9,10],[11,12],[11,13],[13,15],[15,17],
   [15,19],[15,21],[17,19],[12,14],[14,16],[16,18],[16,20],[16,22],[18,20],[11,23],[12,24],
@@ -114,14 +125,14 @@ const poseConnectionIndexes = [
 const poseConnectionNames = poseConnectionIndexes.map(
   ([start, end]) => [poseLandmarkNames[start], poseLandmarkNames[end]],
 );
-const poseNameToIndex = new Map(poseLandmarkNames.map((name, index) => [name, index]));
+const poseNameToIndex = new Map(renderLandmarkNames.map((name, index) => [name, index]));
 const drawingCache = {
-  pointPresent: new Uint8Array(poseLandmarkNames.length),
-  pointX: new Float32Array(poseLandmarkNames.length),
-  pointY: new Float32Array(poseLandmarkNames.length),
-  pointVisibility: new Float32Array(poseLandmarkNames.length),
+  pointPresent: new Uint8Array(renderLandmarkNames.length),
+  pointX: new Float32Array(renderLandmarkNames.length),
+  pointY: new Float32Array(renderLandmarkNames.length),
+  pointVisibility: new Float32Array(renderLandmarkNames.length),
   connectionSource: null,
-  connectionPairs: new Int16Array(128),
+  connectionPairs: new Int16Array(renderLandmarkNames.length * 2),
   connectionCount: 0,
   rectKey: "",
   rect: { drawWidth: 0, drawHeight: 0, offsetX: 0, offsetY: 0 },
@@ -1694,6 +1705,18 @@ function drawSkeletonCore(result, opacity = 1, now = performance.now(), displayL
     drawingCache.pointY[index] = offsetY + point.y * drawHeight;
     drawingCache.pointVisibility[index] = Number(point.visibility || 0);
   }
+  // Prediction only contains the 33 pose landmarks. Keep the current hand
+  // detections alongside the predicted body instead of dropping the fingers.
+  if (displayLandmarks) {
+    for (const point of result.keypoints || []) {
+      const index = poseNameToIndex.get(point.name);
+      if (index === undefined || index < poseLandmarkNames.length) continue;
+      drawingCache.pointPresent[index] = 1;
+      drawingCache.pointX[index] = offsetX + (mirrored ? 1 - point.x : point.x) * drawWidth;
+      drawingCache.pointY[index] = offsetY + point.y * drawHeight;
+      drawingCache.pointVisibility[index] = Number(point.visibility || 0);
+    }
+  }
   if (drawingCache.connectionSource !== result.connections) {
     drawingCache.connectionSource = result.connections;
     drawingCache.connectionCount = 0;
@@ -1748,7 +1771,7 @@ function drawSkeletonCore(result, opacity = 1, now = performance.now(), displayL
     ctx.lineTo(drawingCache.pointX[end], drawingCache.pointY[end]);
     ctx.stroke();
   }
-  for (let index = 0; index < poseLandmarkNames.length; index += 1) {
+  for (let index = 0; index < renderLandmarkNames.length; index += 1) {
     if (!drawingCache.pointPresent[index] || drawingCache.pointVisibility[index] < 0.2) continue;
     ctx.beginPath();
     ctx.arc(
