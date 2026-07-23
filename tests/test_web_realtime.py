@@ -99,6 +99,19 @@ def wait_for_result(session: RealtimePoseSession, timeout: float = 2.0) -> dict[
     raise AssertionError("realtime result was not published")
 
 
+def receive_json_message(socket: Client, timeout: float = 5.0) -> dict[str, object]:
+    deadline = time.monotonic() + timeout
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise AssertionError("WebSocket JSON message was not received before timeout")
+        message = socket.receive(timeout=min(0.25, remaining))
+        if message is not None:
+            payload = json.loads(message)
+            assert isinstance(payload, dict)
+            return payload
+
+
 def make_browser_pose_payload(
     *, session_id: str, run_id: str, frame_id: int = 1
 ) -> dict[str, object]:
@@ -759,7 +772,7 @@ def test_websocket_handshake_start_frame_result_and_stop() -> None:
             f"ws://127.0.0.1:{server.server_port}/ws/pose?csrf=invalid",
             headers={"Cookie": f"pose_session={session_cookie.value}"},
         )
-        rejection = json.loads(rejected.receive(timeout=2))
+        rejection = receive_json_message(rejected)
         assert rejection["type"] == "error"
         assert rejection["code"] == "csrf_failed"
         try:
@@ -771,13 +784,13 @@ def test_websocket_handshake_start_frame_result_and_stop() -> None:
             f"ws://127.0.0.1:{server.server_port}/ws/pose?csrf={csrf}",
             headers={"Cookie": f"pose_session={session_cookie.value}"},
         )
-        connected = json.loads(socket.receive(timeout=2))
+        connected = receive_json_message(socket)
         assert connected["type"] == "connected"
         assert connected["protocol_version"] == 2
         assert connected["session_id"] == session_cookie.value
 
         socket.send(json.dumps({"type": "start", "settings": {"action": "none"}}))
-        started_message = json.loads(socket.receive(timeout=2))
+        started_message = receive_json_message(socket)
         assert started_message["type"] == "started"
         socket.send(
             make_v2_packet(
@@ -786,14 +799,14 @@ def test_websocket_handshake_start_frame_result_and_stop() -> None:
                 run_id=started_message["state"]["run_id"],
             )
         )
-        result = json.loads(socket.receive(timeout=2))
+        result = receive_json_message(socket)
         assert result["type"] == "result"
         assert result["frame_id"] == 9
         assert result["sequence"] == 9
         assert result["metrics"]["backend"] == "fake"
 
         socket.send(json.dumps({"type": "stop"}))
-        assert json.loads(socket.receive(timeout=2))["type"] == "stopped"
+        assert receive_json_message(socket)["type"] == "stopped"
     finally:
         if socket is not None:
             try:
