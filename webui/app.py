@@ -19,7 +19,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import cv2
-from flask import Flask, Response, g, jsonify, redirect, render_template, request
+from flask import Flask, Response, g, jsonify, redirect, render_template, request, send_file
 from flask_sock import Sock
 from simple_websocket.errors import ConnectionClosed
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -1016,7 +1016,7 @@ def create_app(
         engine_factory=make_engine,
         realtime_factory=realtime_factory,
         storage_root=storage_root,
-        realtime_smoothing_config=product_pose_config.realtime_smoothing,
+        realtime_smoothing_config=product_pose_config.analysis_smoothing,
         three_d_kinematics_config=product_pose_config.three_d_kinematics,
         three_d_quality_config=product_pose_config.three_d_quality,
         max_pose_age_ms=realtime_latency_config.max_pose_age_ms,
@@ -1138,6 +1138,7 @@ def create_app(
         response.headers["Permissions-Policy"] = "camera=(self), microphone=(), geolocation=()"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; "
+            "script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; "
             "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:"
         )
         response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
@@ -1177,6 +1178,24 @@ def create_app(
     def index() -> str:
         return render_template("index.html")
 
+    @app.get("/assets/models/pose_landmarker_full.task")
+    def browser_pose_model() -> Response:
+        return send_file(
+            PROJECT_ROOT / "models" / "pose_landmarker_full.task",
+            mimetype="application/octet-stream",
+            conditional=True,
+            max_age=86400,
+        )
+
+    @app.get("/assets/models/pose_landmarker_lite.task")
+    def browser_pose_lite_model() -> Response:
+        return send_file(
+            PROJECT_ROOT / "models" / "pose_landmarker_lite.task",
+            mimetype="application/octet-stream",
+            conditional=True,
+            max_age=86400,
+        )
+
     @app.get("/api/options")
     def options() -> Response:
         item = current_session()
@@ -1189,19 +1208,95 @@ def create_app(
                 "official_rules": {action: official_rules_for(action) for action in HYROX_ACTION_NAMES},
                 "csrf_token": item.csrf_token,
                 "realtime": {
-                    "frame_width": 640,
-                    "frame_height": 480,
+                    "frame_width": product_pose_config.camera.preferred_width,
+                    "frame_height": product_pose_config.camera.preferred_height,
                     "inference_long_edge": web_realtime_config.inference_long_edge,
                     "jpeg_quality": web_realtime_config.jpeg_quality,
                     "max_requests_in_flight": web_realtime_config.max_requests_in_flight,
                     "target_fps": 30,
-                    "camera_fps": 60,
+                    "camera_fps": product_pose_config.camera.preferred_fps,
                     "max_frame_bytes": 512 * 1024,
                     "request_timeout_ms": 3000,
                     "warning_pose_age_ms": realtime_latency_config.warning_pose_age_ms,
                     "max_pose_age_ms": realtime_latency_config.max_pose_age_ms,
                     "hide_pose_after_ms": realtime_latency_config.hide_pose_after_ms,
                     "report_retention_seconds": 600,
+                    "rendering": {
+                        "angle_text_fps": product_pose_config.rendering.angle_text_fps,
+                        "metrics_fps": product_pose_config.rendering.metrics_fps,
+                        "stats_fps": product_pose_config.rendering.stats_fps,
+                        "timing_sample_capacity": product_pose_config.rendering.timing_sample_capacity,
+                    },
+                    "camera": {
+                        "preferred_width": product_pose_config.camera.preferred_width,
+                        "preferred_height": product_pose_config.camera.preferred_height,
+                        "preferred_fps": product_pose_config.camera.preferred_fps,
+                        "fallback_fps": product_pose_config.camera.fallback_fps,
+                        "diagnostic_sample_fps": product_pose_config.camera.diagnostic_sample_fps,
+                        "low_light_luma": product_pose_config.camera.low_light_luma,
+                        "fps_warning_ratio": product_pose_config.camera.fps_warning_ratio,
+                        "interval_anomaly_ratio": product_pose_config.camera.interval_anomaly_ratio,
+                        "duplicate_warning_ratio": product_pose_config.camera.duplicate_warning_ratio,
+                    },
+                    "local_first": {
+                        "web_pipeline": product_pose_config.local_first.web_pipeline,
+                        "desktop_pipeline": product_pose_config.local_first.desktop_pipeline,
+                        "server_pose_fallback": product_pose_config.local_first.server_pose_fallback,
+                        "neural_prediction_enabled": product_pose_config.local_first.neural_prediction_enabled,
+                    },
+                    "browser_pose": {
+                        "enabled": True,
+                        "worker_url": "/static/workers/pose_worker.js",
+                        "wasm_root": "/static/vendor/mediapipe/wasm",
+                        "model_url": "/assets/models/pose_landmarker_full.task",
+                        "model_urls": {
+                            "lite": "/assets/models/pose_landmarker_lite.task",
+                            "full": "/assets/models/pose_landmarker_full.task",
+                        },
+                        "model_preference": product_pose_config.realtime_model,
+                        "analysis_model": product_pose_config.analysis_model,
+                        "lite_auto_approved": False,
+                        "benchmark_duration_ms": 3000,
+                        "initialization_timeout_ms": 30000,
+                        "full_overload_inference_ms": 50,
+                        "max_inference_ms": 100,
+                        "slow_frame_limit": 12,
+                        "analysis_smoothing": {
+                            "profile": product_pose_config.analysis_smoothing.profile,
+                            "prediction_enabled": product_pose_config.analysis_smoothing.prediction_enabled,
+                        },
+                        "display_smoothing": {
+                            "mode": product_pose_config.display_smoothing.mode,
+                            "profile": product_pose_config.display_smoothing.profile,
+                            "prediction_enabled": product_pose_config.display_smoothing.prediction_enabled,
+                            "max_gap_ms_before_reset": product_pose_config.display_smoothing.max_gap_ms_before_reset,
+                            "min_cutoff": product_pose_config.display_smoothing.min_cutoff,
+                            "beta": product_pose_config.display_smoothing.beta,
+                            "d_cutoff": product_pose_config.display_smoothing.d_cutoff,
+                            "raw_blend_enabled": product_pose_config.display_smoothing.raw_blend_enabled,
+                            "max_raw_weight": product_pose_config.display_smoothing.max_raw_weight,
+                            "minimum_visibility": product_pose_config.display_smoothing.minimum_visibility,
+                            "slow_speed": product_pose_config.display_smoothing.slow_speed,
+                            "fast_speed": product_pose_config.display_smoothing.fast_speed,
+                            "extremity_raw_weight_scale": product_pose_config.display_smoothing.extremity_raw_weight_scale,
+                            "core_raw_weight_scale": product_pose_config.display_smoothing.core_raw_weight_scale,
+                            "face_raw_weight_scale": product_pose_config.display_smoothing.face_raw_weight_scale,
+                            "world_speed_scale": product_pose_config.display_smoothing.world_speed_scale,
+                        },
+                        "display_prediction": {
+                            "enabled": product_pose_config.display_prediction.enabled,
+                            "mode": product_pose_config.display_prediction.mode,
+                            "max_horizon_ms": product_pose_config.display_prediction.max_horizon_ms,
+                            "maximum_body_scale_displacement": product_pose_config.display_prediction.maximum_body_scale_displacement,
+                            "minimum_visibility": product_pose_config.display_prediction.minimum_visibility,
+                            "velocity_decay": product_pose_config.display_prediction.velocity_decay,
+                            "disable_after_gap_ms": product_pose_config.display_prediction.disable_after_gap_ms,
+                            "reversal_strength": product_pose_config.display_prediction.reversal_strength,
+                            "core_prediction_scale": product_pose_config.display_prediction.core_prediction_scale,
+                            "face_prediction_scale": product_pose_config.display_prediction.face_prediction_scale,
+                            "support_foot_horizontal_scale": product_pose_config.display_prediction.support_foot_horizontal_scale,
+                        },
+                    },
                 },
                 "privacy": {
                     "audio": False,
@@ -1449,6 +1544,11 @@ def create_app(
         result_sender_stop = threading.Event()
 
         def send_json(payload: Mapping[str, Any], *, compact: bool = False) -> None:
+            if payload.get("type") == "result":
+                payload = dict(payload)
+                timing = dict(payload.get("latency_timing") or {})
+                timing["socket_result_send_ms"] = time.monotonic() * 1000.0
+                payload["latency_timing"] = timing
             rendered = json.dumps(
                 payload,
                 ensure_ascii=False,
@@ -1505,6 +1605,18 @@ def create_app(
                             send_json({"type": "stopped", "state": state_value})
                         elif message_type == "ping":
                             send_json({"type": "pong", "client_time": payload.get("client_time")})
+                        elif message_type == "pose_frame":
+                            accepted = realtime.submit_pose_frame(payload)
+                            if not accepted:
+                                send_json({
+                                    "type": "frame_dropped",
+                                    "reason": "rate_limited",
+                                    "frame_id": payload.get("frame_id"),
+                                })
+                        elif message_type == "latency_audit":
+                            realtime.record_latency_audit(payload)
+                        elif message_type == "camera_diagnostics":
+                            realtime.record_camera_diagnostics(payload)
                         else:
                             raise RealtimeProtocolError("unknown_message", "无法识别的 WebSocket 消息")
                     except json.JSONDecodeError:

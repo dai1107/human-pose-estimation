@@ -1,6 +1,8 @@
 product_pose:
   backend: mediapipe
   allow_experimental_backends: false
+  realtime_model: auto
+  analysis_model: full
 
 realtime_latency:
   latest_frame_only: true
@@ -10,9 +12,10 @@ realtime_latency:
   max_frame_gap: 5
   hide_pose_after_ms: 300
 
-realtime_smoothing:
+analysis_smoothing:
   mode: adaptive_one_euro
   profile: responsive
+  prediction_enabled: false
   max_gap_ms_before_reset: 250
   stable_min_cutoff: 0.8
   stable_beta: 0.025
@@ -29,6 +32,60 @@ realtime_smoothing:
   stable_joint_beta_scale: 0.50
   world_min_cutoff_scale: 0.90
   world_beta_scale: 0.85
+
+display_smoothing:
+  mode: adaptive_one_euro
+  profile: ultra_responsive
+  prediction_enabled: true
+  max_gap_ms_before_reset: 250
+  min_cutoff: 2.2
+  beta: 0.12
+  d_cutoff: 1.0
+  raw_blend_enabled: true
+  max_raw_weight: 0.45
+  minimum_visibility: 0.70
+  slow_speed: 0.15
+  fast_speed: 1.20
+  extremity_raw_weight_scale: 1.00
+  core_raw_weight_scale: 0.35
+  face_raw_weight_scale: 0.00
+  world_speed_scale: 1.25
+
+display_prediction:
+  enabled: true
+  mode: constant_velocity
+  max_horizon_ms: 45
+  maximum_body_scale_displacement: 0.06
+  minimum_visibility: 0.70
+  velocity_decay: 0.85
+  disable_after_gap_ms: 100
+  reversal_strength: 0.25
+  core_prediction_scale: 0.45
+  face_prediction_scale: 0.0
+  support_foot_horizontal_scale: 0.0
+
+rendering:
+  angle_text_fps: 12
+  metrics_fps: 5
+  stats_fps: 3
+  timing_sample_capacity: 240
+
+camera:
+  preferred_width: 640
+  preferred_height: 480
+  preferred_fps: 60
+  fallback_fps: 30
+  diagnostic_sample_fps: 5
+  low_light_luma: 55
+  fps_warning_ratio: 0.80
+  interval_anomaly_ratio: 1.80
+  duplicate_warning_ratio: 0.20
+
+local_first:
+  web_pipeline: local_browser
+  desktop_pipeline: local_device
+  server_pose_fallback: true
+  neural_prediction_enabled: false
 
 three_d_kinematics:
   enabled: true

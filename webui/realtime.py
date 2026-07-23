@@ -12,7 +12,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -28,18 +28,21 @@ from src.biomechanics.kinematics_3d import (
     summarize_three_d_records,
 )
 from src.backends.mediapipe_backend import MediaPipeBackend
+from src.backends.base import Keypoint, PoseResult
 from src.backends.yolo_guided_mediapipe_backend import YoloGuidedMediaPipeBackend
 from src.backends.yolo_pose_backend import YoloPoseBackend
 from src.backends.yolo_rtmw_backend import YoloRtmwWholeBodyBackend
 from src.utils.backend_policy import resolve_backend_choice
 from src.utils.device import resolve_torch_device
 from src.utils.smoothing import KeypointSmoother
+from src.utils.keypoint_schema import MEDIAPIPE_33_NAMES, MEDIAPIPE_CONNECTIONS
 from src.output_schema import artifact_metadata, versioned_csv_columns, versioned_csv_row
 from src.product_pose import (
     RealtimeSmoothingConfig,
     ThreeDKinematicsConfig,
     ThreeDQualityConfig,
 )
+from src.latency_audit import derive_web_latencies, summarize_latency_samples
 from webui.analysis import RepVoiceFeedbackTracker, assess_action, enrich_report, visible_feedback
 from webui.hands import (
     WebHandOverlay,
@@ -61,6 +64,92 @@ MAX_FRAME_PIXELS = MAX_FRAME_WIDTH * MAX_FRAME_HEIGHT
 DEFAULT_RECEIVE_FPS = 30.0
 REPORT_RETENTION_SECONDS = 10 * 60
 DISCONNECT_GRACE_SECONDS = 30
+WEB_CLIENT_TIMING_FIELDS = {
+    "camera_frame_presented_ms",
+    "frame_copy_start_ms",
+    "frame_copy_end_ms",
+    "encode_start_ms",
+    "encode_end_ms",
+    "socket_send_ms",
+    "expected_display_time_ms",
+    "capture_time_ms",
+    "media_time_s",
+    "presented_frames",
+}
+WEB_LATENCY_AUDIT_FIELDS = WEB_CLIENT_TIMING_FIELDS | {
+    "server_receive_ms",
+    "inference_start_ms",
+    "inference_end_ms",
+    "socket_result_send_ms",
+    "client_result_receive_ms",
+    "pose_render_start_ms",
+    "pose_render_end_ms",
+    "video_frame_presented_at_render_ms",
+    "source_video_frame_id",
+    "current_video_frame_id",
+    "current_video_presented_frames",
+    "rvfc_lateness_ms",
+    "rvfc_late_frame_count",
+    "presented_frame_skip_count",
+    "main_thread_long_task_count",
+    "main_thread_long_task_duration_ms",
+    "render_loop_p95_ms",
+    "canvas_draw_p95_ms",
+    "dom_update_p95_ms",
+    "long_task_render_count",
+    "long_task_dom_update_count",
+    "long_task_frame_copy_count",
+    "long_task_encode_count",
+    "long_task_pose_transfer_count",
+    "long_task_other_count",
+    "local_pose_inference_ms",
+    "local_pose_dropped_frames",
+}
+WEB_FRAME_META_FIELDS = {
+    "sessionId",
+    "frameId",
+    "presentedFrames",
+    "mediaTime",
+    "presentationTime",
+    "expectedDisplayTime",
+    "captureTime",
+    "processingDuration",
+    "width",
+    "height",
+    "callbackSource",
+}
+CAMERA_DIAGNOSTIC_WARNINGS = {
+    "fps_below_requested",
+    "low_light",
+    "frame_interval_unstable",
+    "duplicate_frames",
+}
+CAMERA_DIAGNOSTIC_FIELDS = {
+    "settings",
+    "requestedFps",
+    "actualPresentedFps",
+    "frameIntervalP50Ms",
+    "frameIntervalP95Ms",
+    "frameIntervalAnomalyRatio",
+    "brightnessMean",
+    "duplicateFrameRatio",
+    "sampleCount",
+    "warnings",
+}
+CAMERA_SETTING_FIELDS = {
+    "width",
+    "height",
+    "frameRate",
+    "deviceId",
+    "resizeMode",
+    "facingMode",
+}
+FORBIDDEN_ANALYSIS_PREDICTION_FIELDS = {
+    "predicted_landmarks",
+    "display_landmarks",
+    "prediction_landmarks",
+    "prediction",
+}
 
 ACTION_LABELS = {
     "none": "关闭动作指导",
@@ -110,6 +199,12 @@ class FramePacket:
     received_at: float
     client_capture_ms: float | None = None
     connection_generation: int = 0
+    timing: dict[str, float] = field(default_factory=dict)
+    frame_meta: dict[str, Any] = field(default_factory=dict)
+    pose_result: PoseResult | None = None
+    frame_width: int = 0
+    frame_height: int = 0
+    source: str = "server_mediapipe"
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +216,8 @@ class FrameRequest:
     action: str
     backend: str
     jpeg: bytes
+    timing: dict[str, float] = field(default_factory=dict)
+    frame_meta: dict[str, Any] = field(default_factory=dict)
 
 
 class LatestFrameQueue:
@@ -161,6 +258,138 @@ def _validate_frame_media(jpeg: bytes) -> None:
     is_webp = len(jpeg) >= 12 and jpeg[:4] == b"RIFF" and jpeg[8:12] == b"WEBP"
     if not (is_jpeg or is_webp):
         raise RealtimeProtocolError("unsupported_frame", "仅接受 JPEG 或 WebP 摄像头帧")
+
+
+def _browser_landmarks(values: Any, *, world: bool = False) -> list[Keypoint]:
+    if not isinstance(values, list) or len(values) > len(MEDIAPIPE_33_NAMES):
+        raise RealtimeProtocolError("invalid_pose_frame", "浏览器姿态关键点数量无效")
+    points: list[Keypoint] = []
+    coordinate_limit = 100.0 if world else 10.0
+    for index, name in enumerate(MEDIAPIPE_33_NAMES):
+        if index >= len(values):
+            break
+        item = values[index]
+        if not isinstance(item, Mapping):
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器姿态关键点格式无效")
+        numbers: dict[str, float] = {}
+        for field_name, default in (("x", 0.0), ("y", 0.0), ("z", 0.0), ("visibility", 1.0), ("presence", 1.0)):
+            value = item.get(field_name, default)
+            if isinstance(value, bool):
+                raise RealtimeProtocolError("invalid_pose_frame", f"关键点 {field_name} 无效")
+            try:
+                number = float(value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise RealtimeProtocolError("invalid_pose_frame", f"关键点 {field_name} 无效") from exc
+            if not math.isfinite(number):
+                raise RealtimeProtocolError("invalid_pose_frame", f"关键点 {field_name} 无效")
+            numbers[field_name] = number
+        if any(abs(numbers[field_name]) > coordinate_limit for field_name in ("x", "y", "z")):
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器姿态坐标超出范围")
+        visibility = min(1.0, max(0.0, numbers["visibility"]))
+        presence = min(1.0, max(0.0, numbers["presence"]))
+        points.append(Keypoint(
+            name=name,
+            x=numbers["x"],
+            y=numbers["y"],
+            z=numbers["z"],
+            confidence=min(visibility, presence),
+            source_model="browser-mediapipe-world" if world else "browser-mediapipe",
+            visibility=visibility,
+            presence=presence,
+        ))
+    return points
+
+
+def _browser_model_benchmark(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise RealtimeProtocolError("invalid_pose_frame", "浏览器模型基准格式无效")
+    selected = str(value.get("selectedModel", "")).strip().lower()
+    if selected not in {"lite", "full"}:
+        raise RealtimeProtocolError("invalid_pose_frame", "浏览器模型基准档位无效")
+    raw_stats = value.get("stats")
+    if not isinstance(raw_stats, Mapping):
+        raise RealtimeProtocolError("invalid_pose_frame", "浏览器模型基准统计无效")
+    stats: dict[str, dict[str, float | int]] = {}
+    for model in ("lite", "full"):
+        raw_model = raw_stats.get(model)
+        if not isinstance(raw_model, Mapping):
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器模型基准统计缺失")
+        parsed: dict[str, float | int] = {}
+        for name in ("inferenceP50Ms", "inferenceP95Ms", "poseFps", "detectionRate"):
+            raw_number = raw_model.get(name, 0)
+            if isinstance(raw_number, bool):
+                raise RealtimeProtocolError("invalid_pose_frame", "浏览器模型基准数值无效")
+            try:
+                number = float(raw_number)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise RealtimeProtocolError("invalid_pose_frame", "浏览器模型基准数值无效") from exc
+            limit = 1.0 if name == "detectionRate" else 60_000.0
+            if not math.isfinite(number) or not 0 <= number <= limit:
+                raise RealtimeProtocolError("invalid_pose_frame", "浏览器模型基准数值无效")
+            parsed[name] = round(number, 4)
+        samples = raw_model.get("samples", 0)
+        if isinstance(samples, bool) or not isinstance(samples, int) or not 0 <= samples <= 10_000:
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器模型基准样本数无效")
+        parsed["samples"] = samples
+        stats[model] = parsed
+    long_tasks = value.get("mainThreadLongTaskCount", 0)
+    if isinstance(long_tasks, bool) or not isinstance(long_tasks, int) or not 0 <= long_tasks <= 100_000:
+        raise RealtimeProtocolError("invalid_pose_frame", "浏览器长任务计数无效")
+    return {
+        "selected_model": selected,
+        "selection_reason": str(value.get("reason", ""))[:256],
+        "main_thread_long_task_count": long_tasks,
+        "stats": stats,
+    }
+
+
+def _browser_display_filter(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise RealtimeProtocolError("invalid_pose_frame", "浏览器显示滤波摘要无效")
+    profile = str(value.get("profile", ""))
+    if profile != "ultra_responsive":
+        raise RealtimeProtocolError("invalid_pose_frame", "浏览器显示滤波档位无效")
+    prediction_enabled = value.get("predictionEnabled", False)
+    raw_blend_enabled = value.get("rawBlendEnabled", False)
+    if not isinstance(prediction_enabled, bool) or not isinstance(raw_blend_enabled, bool):
+        raise RealtimeProtocolError("invalid_pose_frame", "浏览器显示滤波标志无效")
+    parsed: dict[str, float | int | bool | str] = {
+        "profile": profile,
+        "prediction_enabled": prediction_enabled,
+        "raw_blend_enabled": raw_blend_enabled,
+    }
+    blended_count = value.get("blendedPointCount", 0)
+    if isinstance(blended_count, bool) or not isinstance(blended_count, int) or not 0 <= blended_count <= 66:
+        raise RealtimeProtocolError("invalid_pose_frame", "浏览器显示混合节点数无效")
+    parsed["blended_point_count"] = blended_count
+    for source_name, target_name in (("meanRawWeight", "mean_raw_weight"), ("maxRawWeight", "max_raw_weight")):
+        raw_number = value.get(source_name, 0)
+        if isinstance(raw_number, bool):
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器显示混合权重无效")
+        try:
+            number = float(raw_number)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器显示混合权重无效") from exc
+        if not math.isfinite(number) or not 0 <= number <= 0.45 + 1e-6:
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器显示混合权重无效")
+        parsed[target_name] = round(number, 6)
+    return parsed
+
+
+def _keypoint_bbox(points: list[Keypoint]) -> tuple[float, float, float, float] | None:
+    usable = [point for point in points if point.confidence >= 0.2]
+    if not usable:
+        return None
+    return (
+        min(point.x for point in usable),
+        min(point.y for point in usable),
+        max(point.x for point in usable),
+        max(point.y for point in usable),
+    )
 
 
 def unpack_frame_request(message: bytes) -> FrameRequest:
@@ -204,6 +433,45 @@ def unpack_frame_request(message: bytes) -> FrameRequest:
                     f"{name} 缺失或过长",
                 )
             identity[name] = resolved
+        timing_value = metadata.get("timing", {})
+        if not isinstance(timing_value, Mapping):
+            raise RealtimeProtocolError("invalid_frame_metadata", "timing 必须是对象")
+        timing: dict[str, float] = {}
+        for name, value in timing_value.items():
+            if name not in WEB_CLIENT_TIMING_FIELDS or isinstance(value, bool):
+                continue
+            try:
+                resolved_value = float(value)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if math.isfinite(resolved_value) and resolved_value >= 0:
+                timing[name] = resolved_value
+        frame_meta_value = metadata.get("frame_meta", {})
+        if not isinstance(frame_meta_value, Mapping):
+            raise RealtimeProtocolError("invalid_frame_metadata", "frame_meta 必须是对象")
+        frame_meta = {
+            str(name): value
+            for name, value in frame_meta_value.items()
+            if name in WEB_FRAME_META_FIELDS
+            and not isinstance(value, bool)
+            and (value is None or isinstance(value, (str, int, float)))
+        }
+        if frame_meta:
+            if frame_meta.get("frameId") != frame_id:
+                raise RealtimeProtocolError("invalid_frame_metadata", "frame_meta.frameId 与 frame_id 不一致")
+            if str(frame_meta.get("sessionId", "")) != identity["session_id"]:
+                raise RealtimeProtocolError("invalid_frame_metadata", "frame_meta.sessionId 与 session_id 不一致")
+            for name in (
+                "presentedFrames", "mediaTime", "presentationTime", "expectedDisplayTime",
+                "captureTime", "processingDuration", "width", "height",
+            ):
+                value = frame_meta.get(name)
+                if value is not None and (not isinstance(value, (int, float)) or not math.isfinite(float(value)) or value < 0):
+                    raise RealtimeProtocolError("invalid_frame_metadata", f"frame_meta.{name} 无效")
+            if frame_meta.get("callbackSource") not in {
+                "requestVideoFrameCallback", "requestAnimationFrame",
+            }:
+                raise RealtimeProtocolError("invalid_frame_metadata", "frame_meta.callbackSource 无效")
         jpeg = message[metadata_end:]
         _validate_frame_media(jpeg)
         return FrameRequest(
@@ -214,6 +482,8 @@ def unpack_frame_request(message: bytes) -> FrameRequest:
             action=identity["action"],
             backend=identity["backend"],
             jpeg=jpeg,
+            timing=timing,
+            frame_meta=frame_meta,
         )
 
     sequence = FRAME_HEADER.unpack_from(message, 0)[0]
@@ -517,6 +787,8 @@ class RealtimePoseSession:
             "queue_dropped": 0,
         }
         self._history: deque[dict[str, Any]] = deque(maxlen=9000)
+        self._pending_latency_audits: dict[int, tuple[dict[str, float], dict[str, float | None]]] = {}
+        self._camera_diagnostics: dict[str, Any] = {}
         self._last_submit_at = 0.0
         self._connected = False
         self._disconnected_at: float | None = None
@@ -576,6 +848,8 @@ class RealtimePoseSession:
                 self._last_submitted_sequence = 0
                 self._last_submit_at = 0.0
                 self._history.clear()
+                self._pending_latency_audits.clear()
+                self._camera_diagnostics.clear()
                 self._frames = LatestFrameQueue()
                 while True:
                     try:
@@ -688,8 +962,311 @@ class RealtimePoseSession:
                 received_at=now,
                 client_capture_ms=request.client_capture_ms,
                 connection_generation=connection_generation,
+                timing={**request.timing, "server_receive_ms": now * 1000.0},
+                frame_meta=request.frame_meta,
             )
         )
+        return True
+
+    def submit_pose_frame(self, values: Mapping[str, Any]) -> bool:
+        """Accept browser-local MediaPipe landmarks without rerunning the model."""
+
+        if set(values) & FORBIDDEN_ANALYSIS_PREDICTION_FIELDS:
+            raise RealtimeProtocolError(
+                "invalid_pose_frame",
+                "显示预测数据不得进入分析协议",
+            )
+        if str(values.get("source", "")) != "browser_mediapipe":
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器姿态来源无效")
+        pose_model = str(values.get("pose_model", "")).strip().lower()
+        if pose_model not in {"lite", "full"}:
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器姿态模型档位无效")
+        model_benchmark = _browser_model_benchmark(values.get("pose_model_benchmark"))
+        display_filter = _browser_display_filter(values.get("display_filter"))
+        frame_id = values.get("frame_id")
+        if isinstance(frame_id, bool) or not isinstance(frame_id, int) or not 0 < frame_id <= 0xFFFFFFFF:
+            raise RealtimeProtocolError("invalid_frame_id", "frame_id 必须是正整数")
+        image_points = _browser_landmarks(values.get("image_landmarks"), world=False)
+        world_points = _browser_landmarks(values.get("world_landmarks"), world=True)
+        inference_ms = values.get("pose_inference_ms", 0.0)
+        capture_ms = values.get("capture_timestamp_ms")
+        try:
+            inference_ms = float(inference_ms)
+            capture_ms = float(capture_ms)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器姿态时间戳无效") from exc
+        if not math.isfinite(inference_ms) or inference_ms < 0 or inference_ms > 60_000:
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器推理耗时无效")
+        if not math.isfinite(capture_ms) or capture_ms < 0:
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器采集时间无效")
+        frame_meta_value = values.get("frame_meta")
+        if not isinstance(frame_meta_value, Mapping):
+            raise RealtimeProtocolError("invalid_pose_frame", "frame_meta 缺失")
+        frame_meta = {
+            str(name): value
+            for name, value in frame_meta_value.items()
+            if name in WEB_FRAME_META_FIELDS and not isinstance(value, bool)
+        }
+        if frame_meta.get("frameId") != frame_id:
+            raise RealtimeProtocolError("invalid_pose_frame", "frame_meta.frameId 与 frame_id 不一致")
+        if str(frame_meta.get("sessionId", "")) != self.session_id:
+            raise RealtimeProtocolError("stale_session", "浏览器姿态属于其他会话")
+        width = frame_meta.get("width", 0)
+        height = frame_meta.get("height", 0)
+        if not isinstance(width, (int, float)) or not isinstance(height, (int, float)):
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器姿态尺寸无效")
+        width, height = int(width), int(height)
+        if width <= 0 or height <= 0 or width > MAX_FRAME_WIDTH * 4 or height > MAX_FRAME_HEIGHT * 4:
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器姿态尺寸无效")
+        timing_value = values.get("timing", {})
+        timing: dict[str, float] = {}
+        if isinstance(timing_value, Mapping):
+            for name, value in list(timing_value.items())[:64]:
+                if name not in WEB_LATENCY_AUDIT_FIELDS:
+                    continue
+                if isinstance(value, bool):
+                    continue
+                try:
+                    number = float(value)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if math.isfinite(number):
+                    timing[str(name)[:64]] = number
+        result = PoseResult(
+            keypoints=image_points,
+            connections=MEDIAPIPE_CONNECTIONS,
+            model_name=f"browser-mediapipe-{pose_model}",
+            num_keypoints=len(image_points),
+            success=bool(image_points),
+            inference_time_ms=inference_ms,
+            bbox=_keypoint_bbox(image_points),
+            timestamp_ms=int(round(capture_ms)),
+            extra={
+                "world_keypoints": world_points,
+                "world_landmarks_available": bool(world_points),
+                "source": "browser_mediapipe",
+                "pose_model": pose_model,
+                "pose_model_benchmark": model_benchmark,
+                "display_filter": display_filter,
+            },
+        )
+        now = time.monotonic()
+        with self._lock:
+            if not self._state["running"]:
+                raise RealtimeProtocolError("not_started", "请先发送 start 消息")
+            if str(values.get("session_id", "")) != self.session_id:
+                raise RealtimeProtocolError("stale_session", "浏览器姿态属于其他会话")
+            if str(values.get("run_id", "")) != self._run_id:
+                raise RealtimeProtocolError("stale_run", "浏览器姿态属于已停止的运行")
+            if str(values.get("action", "")) != str(self._settings["action"]):
+                raise RealtimeProtocolError("stale_action", "浏览器姿态属于旧动作")
+            if str(values.get("backend", "")) != str(self._settings["backend"]):
+                raise RealtimeProtocolError("stale_backend", "浏览器姿态属于旧后端")
+            if frame_id <= self._last_submitted_sequence:
+                raise RealtimeProtocolError("stale_frame", "frame_id 必须严格递增")
+            if now - self._last_submit_at < 1.0 / self._max_receive_fps:
+                return False
+            self._last_submit_at = now
+            self._last_submitted_sequence = frame_id
+            connection_generation = self._connection_generation
+            self._state["last_submitted_frame_id"] = frame_id
+        self._frames.put_latest(FramePacket(
+            sequence=frame_id,
+            jpeg=b"",
+            received_at=now,
+            client_capture_ms=capture_ms,
+            connection_generation=connection_generation,
+            timing={**timing, "server_receive_ms": now * 1000.0},
+            frame_meta=frame_meta,
+            pose_result=result,
+            frame_width=width,
+            frame_height=height,
+            source="browser_mediapipe",
+        ))
+        return True
+
+    def record_latency_audit(self, values: Mapping[str, Any]) -> bool:
+        """Attach browser render timestamps to an already processed frame."""
+
+        frame_id = values.get("frame_id")
+        timing_value = values.get("timing")
+        if isinstance(frame_id, bool) or not isinstance(frame_id, int) or not isinstance(timing_value, Mapping):
+            raise RealtimeProtocolError("invalid_latency_audit", "延迟审计数据无效")
+        unknown_fields = set(timing_value) - WEB_LATENCY_AUDIT_FIELDS
+        if unknown_fields or len(timing_value) > len(WEB_LATENCY_AUDIT_FIELDS):
+            raise RealtimeProtocolError(
+                "invalid_latency_audit",
+                "延迟审计包含未知字段",
+            )
+        timing: dict[str, float] = {}
+        for name, value in timing_value.items():
+            if isinstance(value, bool):
+                continue
+            try:
+                number = float(value)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if math.isfinite(number):
+                timing[str(name)] = number
+        derived = derive_web_latencies(timing)
+        with self._lock:
+            for frame in reversed(self._history):
+                if frame.get("frame_id") == frame_id:
+                    frame["latency_timing"] = timing
+                    frame["latency"] = derived
+                    return True
+            self._pending_latency_audits[frame_id] = (timing, derived)
+            while len(self._pending_latency_audits) > 256:
+                self._pending_latency_audits.pop(next(iter(self._pending_latency_audits)))
+        return True
+
+    def record_camera_diagnostics(self, values: Mapping[str, Any]) -> bool:
+        """Store bounded browser camera telemetry outside the analysis frame stream."""
+
+        diagnostics_value = values.get("diagnostics")
+        if not isinstance(diagnostics_value, Mapping):
+            raise RealtimeProtocolError(
+                "invalid_camera_diagnostics",
+                "摄像头诊断数据无效",
+            )
+        if set(diagnostics_value) - CAMERA_DIAGNOSTIC_FIELDS:
+            raise RealtimeProtocolError(
+                "invalid_camera_diagnostics",
+                "摄像头诊断包含未知字段",
+            )
+        settings_value = diagnostics_value.get("settings")
+        if not isinstance(settings_value, Mapping):
+            raise RealtimeProtocolError(
+                "invalid_camera_diagnostics",
+                "摄像头实际设置无效",
+            )
+        if set(settings_value) - CAMERA_SETTING_FIELDS:
+            raise RealtimeProtocolError(
+                "invalid_camera_diagnostics",
+                "摄像头实际设置包含未知字段",
+            )
+
+        def finite_number(
+            name: str,
+            *,
+            minimum: float,
+            maximum: float,
+            source: Mapping[str, Any] = diagnostics_value,
+        ) -> float:
+            raw = source.get(name)
+            if isinstance(raw, bool):
+                raise RealtimeProtocolError(
+                    "invalid_camera_diagnostics",
+                    f"摄像头诊断字段 {name} 无效",
+                )
+            try:
+                number = float(raw)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise RealtimeProtocolError(
+                    "invalid_camera_diagnostics",
+                    f"摄像头诊断字段 {name} 无效",
+                ) from exc
+            if not math.isfinite(number) or not minimum <= number <= maximum:
+                raise RealtimeProtocolError(
+                    "invalid_camera_diagnostics",
+                    f"摄像头诊断字段 {name} 超出范围",
+                )
+            return number
+
+        width = finite_number("width", minimum=0, maximum=16_384, source=settings_value)
+        height = finite_number("height", minimum=0, maximum=16_384, source=settings_value)
+        frame_rate = finite_number("frameRate", minimum=0, maximum=1_000, source=settings_value)
+        if width != int(width) or height != int(height):
+            raise RealtimeProtocolError(
+                "invalid_camera_diagnostics",
+                "摄像头宽高必须为整数",
+            )
+
+        settings: dict[str, Any] = {
+            "width": int(width),
+            "height": int(height),
+            "frameRate": frame_rate,
+        }
+        for name, maximum_length in (
+            ("deviceId", 256),
+            ("resizeMode", 64),
+            ("facingMode", 64),
+        ):
+            raw = settings_value.get(name, "")
+            if not isinstance(raw, str) or len(raw) > maximum_length:
+                raise RealtimeProtocolError(
+                    "invalid_camera_diagnostics",
+                    f"摄像头实际设置字段 {name} 无效",
+                )
+            settings[name] = raw
+
+        sample_count = diagnostics_value.get("sampleCount")
+        if (
+            isinstance(sample_count, bool)
+            or not isinstance(sample_count, int)
+            or not 0 <= sample_count <= 10_000_000
+        ):
+            raise RealtimeProtocolError(
+                "invalid_camera_diagnostics",
+                "摄像头诊断采样数无效",
+            )
+        warnings_value = diagnostics_value.get("warnings")
+        if (
+            not isinstance(warnings_value, list)
+            or len(warnings_value) > len(CAMERA_DIAGNOSTIC_WARNINGS)
+            or any(
+                not isinstance(item, str) or item not in CAMERA_DIAGNOSTIC_WARNINGS
+                for item in warnings_value
+            )
+            or len(set(warnings_value)) != len(warnings_value)
+        ):
+            raise RealtimeProtocolError(
+                "invalid_camera_diagnostics",
+                "摄像头诊断警告无效",
+            )
+
+        diagnostics = {
+            "settings": settings,
+            "requestedFps": finite_number(
+                "requestedFps",
+                minimum=1,
+                maximum=1_000,
+            ),
+            "actualPresentedFps": finite_number(
+                "actualPresentedFps",
+                minimum=0,
+                maximum=1_000,
+            ),
+            "frameIntervalP50Ms": finite_number(
+                "frameIntervalP50Ms",
+                minimum=0,
+                maximum=60_000,
+            ),
+            "frameIntervalP95Ms": finite_number(
+                "frameIntervalP95Ms",
+                minimum=0,
+                maximum=60_000,
+            ),
+            "frameIntervalAnomalyRatio": finite_number(
+                "frameIntervalAnomalyRatio",
+                minimum=0,
+                maximum=1,
+            ),
+            "brightnessMean": finite_number(
+                "brightnessMean",
+                minimum=0,
+                maximum=255,
+            ),
+            "duplicateFrameRatio": finite_number(
+                "duplicateFrameRatio",
+                minimum=0,
+                maximum=1,
+            ),
+            "sampleCount": sample_count,
+            "warnings": list(warnings_value),
+        }
+        with self._lock:
+            self._camera_diagnostics = diagnostics
         return True
 
     def next_result(self, timeout: float = 0.0) -> dict[str, Any] | None:
@@ -735,12 +1312,16 @@ class RealtimePoseSession:
     def clear_results(self) -> None:
         with self._lock:
             self._history.clear()
+            self._pending_latency_audits.clear()
+            self._camera_diagnostics.clear()
             self._report_expires_at = None
 
     def report(self) -> dict[str, Any]:
         with self._lock:
             frames = list(self._history)
             state = dict(self._state)
+            camera_diagnostics = dict(self._camera_diagnostics)
+        latency_samples = [frame["latency"] for frame in frames if isinstance(frame.get("latency"), Mapping)]
         return enrich_report({
             **artifact_metadata("web_realtime_pose_report"),
             "generated_at_unix_ms": int(time.time() * 1000),
@@ -759,6 +1340,8 @@ class RealtimePoseSession:
                 "dropped_frames": state["queue_dropped"],
                 "backend": state["backend"],
                 "three_d_kinematics": summarize_three_d_records(frames),
+                "latency_audit": summarize_latency_samples(latency_samples),
+                "camera_diagnostics": camera_diagnostics,
             },
             "frames": frames,
         })
@@ -773,11 +1356,17 @@ class RealtimePoseSession:
             "three_d_assist_status", "three_d_kinematics_json",
             "three_d_assist_json",
             "feedback", "keypoints_json",
+            "frame_meta_json",
+            "capture_to_submit_ms", "submit_to_result_ms", "result_to_render_ms",
+            "render_to_expected_display_ms", "pose_age_at_render_ms",
+            "video_frame_age_at_render_ms", "pose_video_age_difference_ms",
+            "latency_timing_json",
         ])
         writer = csv.DictWriter(output, fieldnames=fieldnames)
         writer.writeheader()
         for frame in report["frames"]:
             metrics = frame.get("metrics", {})
+            latency = frame.get("latency", {})
             writer.writerow(
                 versioned_csv_row({
                     "sequence": frame.get("sequence"),
@@ -807,6 +1396,15 @@ class RealtimePoseSession:
                     ),
                     "feedback": json.dumps(frame.get("feedback", []), ensure_ascii=False),
                     "keypoints_json": json.dumps(frame.get("keypoints", []), ensure_ascii=False),
+                    "frame_meta_json": json.dumps(frame.get("frame_meta", {}), ensure_ascii=False),
+                    "capture_to_submit_ms": latency.get("capture_to_submit_ms"),
+                    "submit_to_result_ms": latency.get("submit_to_result_ms"),
+                    "result_to_render_ms": latency.get("result_to_render_ms"),
+                    "render_to_expected_display_ms": latency.get("render_to_expected_display_ms"),
+                    "pose_age_at_render_ms": latency.get("pose_age_at_render_ms"),
+                    "video_frame_age_at_render_ms": latency.get("video_frame_age_at_render_ms"),
+                    "pose_video_age_difference_ms": latency.get("pose_video_age_difference_ms"),
+                    "latency_timing_json": json.dumps(frame.get("latency_timing", {}), ensure_ascii=False),
                 })
             )
         return output.getvalue()
@@ -865,18 +1463,25 @@ class RealtimePoseSession:
                 if settings["paused"]:
                     continue
                 try:
-                    requested_backend = (str(settings["backend"]), str(settings["action"]))
-                    if backend is None or backend_request != requested_backend:
-                        if backend is not None:
-                            backend.close()
-                        backend, backend_name = self._backend_factory(settings["backend"], settings["action"])
-                        backend_request = requested_backend
-                        smoother = self._new_smoother()
-                        three_d_tracker.reset()
+                    message_backend_name = (
+                        packet.pose_result.model_name
+                        if packet.pose_result is not None
+                        else "browser-mediapipe"
+                    )
+                    if packet.pose_result is None:
+                        requested_backend = (str(settings["backend"]), str(settings["action"]))
+                        if backend is None or backend_request != requested_backend:
+                            if backend is not None:
+                                backend.close()
+                            backend, backend_name = self._backend_factory(settings["backend"], settings["action"])
+                            backend_request = requested_backend
+                            smoother = self._new_smoother()
+                            three_d_tracker.reset()
+                        message_backend_name = backend_name
                     message = self._process_packet(
                         packet,
                         backend,
-                        backend_name,
+                        message_backend_name,
                         smoother,
                         three_d_tracker,
                         settings,
@@ -914,13 +1519,16 @@ class RealtimePoseSession:
                     message["metrics"]["fps"] = round(smooth_fps, 1)
                     history_item = {key: value for key, value in message.items() if key != "type"}
                     with self._lock:
+                        pending_audit = self._pending_latency_audits.pop(packet.sequence, None)
+                        if pending_audit is not None:
+                            history_item["latency_timing"], history_item["latency"] = pending_audit
                         self._history.append(history_item)
                         self._state.update(
                             {
                                 "running": True,
                                 "status": "running",
                                 "status_text": "分析中",
-                                "backend": backend_name,
+                                "backend": message_backend_name,
                                 "pose_detected": message["pose_detected"],
                                 "fps": message["metrics"]["fps"],
                                 "inference_ms": message["metrics"]["inference_ms"],
@@ -1014,13 +1622,17 @@ class RealtimePoseSession:
         hand_overlay: WebHandOverlay,
     ) -> dict[str, Any]:
         started = time.perf_counter()
-        array = np.frombuffer(packet.jpeg, dtype=np.uint8)
-        frame = cv2.imdecode(array, cv2.IMREAD_COLOR)
-        if frame is None or frame.ndim != 3:
-            raise RealtimeProtocolError("decode_failed", "无法解码摄像头帧")
-        height, width = frame.shape[:2]
-        if width <= 0 or height <= 0 or width > MAX_FRAME_WIDTH or height > MAX_FRAME_HEIGHT or width * height > MAX_FRAME_PIXELS:
-            raise RealtimeProtocolError("invalid_dimensions", "摄像头帧最大支持 1280×720")
+        frame: np.ndarray | None = None
+        if packet.pose_result is None:
+            array = np.frombuffer(packet.jpeg, dtype=np.uint8)
+            frame = cv2.imdecode(array, cv2.IMREAD_COLOR)
+            if frame is None or frame.ndim != 3:
+                raise RealtimeProtocolError("decode_failed", "无法解码摄像头帧")
+            height, width = frame.shape[:2]
+            if width <= 0 or height <= 0 or width > MAX_FRAME_WIDTH or height > MAX_FRAME_HEIGHT or width * height > MAX_FRAME_PIXELS:
+                raise RealtimeProtocolError("invalid_dimensions", "摄像头帧最大支持 1280×720")
+        else:
+            width, height = packet.frame_width, packet.frame_height
 
         if packet.client_capture_ms is not None:
             with self._lock:
@@ -1037,8 +1649,16 @@ class RealtimePoseSession:
             capture_timestamp_ns = int(round(packet.received_at * 1_000_000_000.0))
             inference_timestamp_ms = int(round(capture_timestamp_ns / 1_000_000.0))
         with self._inference_gate:
+            inference_start_ms = time.monotonic() * 1000.0
+            if packet.pose_result is not None:
+                detected = packet.pose_result
+            elif backend is not None and frame is not None:
+                detected = backend.detect(frame, timestamp_ms=inference_timestamp_ms)
+            else:
+                raise RuntimeError("server pose backend is unavailable")
+            inference_end_ms = time.monotonic() * 1000.0
             result = smoother.smooth_result(
-                backend.detect(frame, timestamp_ms=inference_timestamp_ms),
+                detected,
                 capture_timestamp_ns=capture_timestamp_ns,
             )
             result, three_d_result = three_d_tracker.attach(
@@ -1046,7 +1666,7 @@ class RealtimePoseSession:
                 capture_timestamp_ns=capture_timestamp_ns,
                 pose_age_ms=max(0.0, (time.perf_counter() - packet.received_at) * 1000.0),
             )
-            show_hand_overlay = hand_overlay_visible(
+            show_hand_overlay = frame is not None and hand_overlay_visible(
                 str(settings["landmark_profile"]),
                 bool(settings["show_fingers"]),
             )
@@ -1055,13 +1675,17 @@ class RealtimePoseSession:
                 if show_hand_overlay
                 else {}
             )
-            hand_detections = hand_detections or hand_overlay.update(
-                frame,
-                timestamp_ms=inference_timestamp_ms,
-                enabled=show_hand_overlay,
+            hand_detections = hand_detections or (
+                hand_overlay.update(
+                    frame,
+                    timestamp_ms=inference_timestamp_ms,
+                    enabled=show_hand_overlay,
+                )
+                if frame is not None
+                else {}
             )
             if hand_detections and result.extra.get("rtmw_hand_keypoints"):
-                hand_overlay.update(
+                hand_overlay.update(  # type: ignore[arg-type]
                     frame,
                     timestamp_ms=inference_timestamp_ms,
                     enabled=False,
@@ -1193,6 +1817,11 @@ class RealtimePoseSession:
         )
         server_ms = (time.perf_counter() - started) * 1000.0
         pose_age_ms = (time.monotonic() - packet.received_at) * 1000.0
+        latency_timing = {
+            **packet.timing,
+            "inference_start_ms": inference_start_ms,
+            "inference_end_ms": inference_end_ms,
+        }
         return {
             "type": "result",
             "session_id": self.session_id,
@@ -1200,8 +1829,13 @@ class RealtimePoseSession:
             "frame_id": packet.sequence,
             "sequence": packet.sequence,
             "client_capture_ms": packet.client_capture_ms,
+            "frame_meta": packet.frame_meta,
+            "source": packet.source,
+            "pose_model_benchmark": result.extra.get("pose_model_benchmark", {}),
+            "display_filter": result.extra.get("display_filter", {}),
             "server_inference_ms": round(float(result.inference_time_ms), 1),
             "pose_age_ms": round(pose_age_ms, 1),
+            "latency_timing": latency_timing,
             "timestamp_unix_ms": int(time.time() * 1000),
             "action": settings["action"],
             "camera_view": settings["camera_view"],

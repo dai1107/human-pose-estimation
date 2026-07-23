@@ -296,7 +296,10 @@ def test_pose_age_gate_requires_monotonic_analysis_frame_ids() -> None:
     assert gate.last_analyzed_frame_id == 11
 
 
-def test_windows_camera_open_falls_back_when_dshow_fails(monkeypatch: Any) -> None:
+def test_windows_camera_auto_uses_default_before_safe_fallbacks(
+    monkeypatch: Any,
+    tmp_path: Path,
+) -> None:
     class FakeCapture:
         def __init__(self, opened: bool) -> None:
             self.opened = opened
@@ -314,13 +317,13 @@ def test_windows_camera_open_falls_back_when_dshow_fails(monkeypatch: Any) -> No
         def get(self, _name: object) -> float:
             return 30.0
 
-    dshow_capture = FakeCapture(False)
+    default_capture = FakeCapture(False)
     fallback_capture = FakeCapture(True)
     calls: list[tuple[object, ...]] = []
 
     def video_capture(*args: object) -> FakeCapture:
         calls.append(args)
-        return dshow_capture if len(calls) == 1 else fallback_capture
+        return default_capture if len(calls) == 1 else fallback_capture
 
     monkeypatch.setattr(capture_module.sys, "platform", "win32")
     monkeypatch.setattr(capture_module.cv2, "VideoCapture", video_capture)
@@ -331,13 +334,15 @@ def test_windows_camera_open_falls_back_when_dshow_fails(monkeypatch: Any) -> No
         width=640,
         height=480,
         camera_fps=30.0,
+        camera_api="auto",
+        camera_backend_cache=str(tmp_path / "missing-camera-cache.json"),
     )
 
     capture, mode, fps = open_capture(args)
 
-    assert calls[0] == (2, capture_module.cv2.CAP_DSHOW)
-    assert calls[1] == (2,)
-    assert dshow_capture.released
+    assert calls[0] == (2,)
+    assert calls[1] == (2, capture_module.cv2.CAP_DSHOW)
+    assert default_capture.released
     assert capture is fallback_capture
     assert mode == "camera"
     assert fps == 30.0

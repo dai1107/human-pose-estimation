@@ -46,6 +46,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--height", type=int, default=480, help="Requested camera height. Default: 480.")
     parser.add_argument("--camera-fps", type=float, default=60.0, help="Requested camera FPS. Default: 60.")
     parser.add_argument("--camera-fourcc", default="MJPG", help="Requested camera FourCC. Empty string leaves it unchanged.")
+    parser.add_argument(
+        "--camera-api",
+        default="auto",
+        choices=("auto", "default", "dshow", "msmf"),
+        help="OpenCV camera backend. auto uses the device cache, then the platform default.",
+    )
+    parser.add_argument(
+        "--camera-backend-cache",
+        default="outputs/camera_backend_cache.json",
+        help="Device-local cache written by pose-camera-benchmark.",
+    )
     parser.add_argument("--landmark-profile", default="full", choices=("full", "no-face", "upper-body", "lower-body"), help="Landmark display profile. Default: full.")
     parser.add_argument("--show-hands", action="store_true", help="Show supplemental five-finger hand landmarks at startup.")
     parser.add_argument("--hand-model", default="models/hand_landmarker.task", help="MediaPipe hand model path.")
@@ -55,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--record", default="", help="Save annotated video to this path.")
     parser.add_argument("--record-raw", default="", help="Save raw input frames to this path.")
     parser.add_argument("--save-metrics", default="", help="Append final metrics to this CSV path.")
+    parser.add_argument(
+        "--latency-audit",
+        default="outputs/benchmarks/desktop_latency_audit.json",
+        help="Save complete desktop sensor-to-display timing samples as JSON; empty disables it.",
+    )
     parser.add_argument("--save-dir", default="outputs", help="Directory for sessions, screenshots, and recordings. Default: outputs.")
     parser.add_argument("--headless", action="store_true", help="Do not open an OpenCV window; useful for input-video batch evaluation.")
     parser.add_argument("--normalized-pose-debug", action="store_true", help="Print the unified NormalizedPose summary every 30 frames. Default: off.")
@@ -79,7 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--smoothing-profile",
         choices=("stable", "balanced", "responsive"),
         default=None,
-        help="One Euro profile. Default: product realtime_smoothing.profile.",
+        help="One Euro analysis profile. Default: product analysis_smoothing.profile.",
     )
     parser.add_argument("--one-euro-min-cutoff", type=float, default=None, help="Override the selected One Euro min cutoff.")
     parser.add_argument("--one-euro-beta", type=float, default=None, help="Override the selected One Euro beta.")

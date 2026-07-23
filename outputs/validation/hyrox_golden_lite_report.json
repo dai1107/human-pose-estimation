@@ -1,0 +1,401 @@
+{
+  "schema_version": 1,
+  "program_version": "0.1.0.dev0",
+  "artifact_type": "hyrox_golden_video_report",
+  "status": "failed",
+  "case_count": 8,
+  "passed_count": 3,
+  "cases": [
+    {
+      "id": "lunge",
+      "status": "failed",
+      "failures": [
+        "no_rep_count=0 outside [1, 1]",
+        "unsure_count=1 outside [0, 0]"
+      ],
+      "expectations": {
+        "total_frames": [
+          133.0,
+          133.0
+        ],
+        "pose_detected_rate": [
+          0.98,
+          1.0
+        ],
+        "candidate_count": [
+          1.0,
+          1.0
+        ],
+        "pose_valid_rep_count": [
+          0.0,
+          0.0
+        ],
+        "no_rep_count": [
+          1.0,
+          1.0
+        ],
+        "unsure_count": [
+          0.0,
+          0.0
+        ],
+        "rep_count": [
+          0.0,
+          0.0
+        ]
+      },
+      "observation": {
+        "case_id": "lunge",
+        "video": "HYROX视频/负重箭步蹲.mp4",
+        "action": "lunge",
+        "total_frames": 133,
+        "pose_detected_frames": 133,
+        "pose_detected_rate": 1.0,
+        "candidate_count": 1,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 1,
+        "cycle_count": 0,
+        "rep_count": 0,
+        "final_phase": "ascent"
+      }
+    },
+    {
+      "id": "skierg",
+      "status": "passed",
+      "failures": [],
+      "expectations": {
+        "total_frames": [
+          103.0,
+          103.0
+        ],
+        "pose_detected_rate": [
+          0.98,
+          1.0
+        ],
+        "candidate_count": [
+          1.0,
+          1.0
+        ],
+        "cycle_count": [
+          1.0,
+          1.0
+        ],
+        "rep_count": [
+          1.0,
+          1.0
+        ]
+      },
+      "observation": {
+        "case_id": "skierg",
+        "video": "HYROX视频/滑雪机.mp4",
+        "action": "skierg",
+        "total_frames": 103,
+        "pose_detected_frames": 102,
+        "pose_detected_rate": 0.9902912621359223,
+        "candidate_count": 1,
+        "pose_valid_rep_count": 1,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "cycle_count": 1,
+        "rep_count": 1,
+        "final_phase": "return"
+      }
+    },
+    {
+      "id": "burpee_broad_jump",
+      "status": "passed",
+      "failures": [],
+      "expectations": {
+        "total_frames": [
+          501.0,
+          501.0
+        ],
+        "pose_detected_rate": [
+          0.98,
+          1.0
+        ],
+        "candidate_count": [
+          3.0,
+          3.0
+        ],
+        "pose_valid_rep_count": [
+          0.0,
+          0.0
+        ],
+        "no_rep_count": [
+          0.0,
+          0.0
+        ],
+        "unsure_count": [
+          3.0,
+          3.0
+        ],
+        "rep_count": [
+          0.0,
+          0.0
+        ]
+      },
+      "observation": {
+        "case_id": "burpee_broad_jump",
+        "video": "HYROX视频/波比跳远.mp4",
+        "action": "burpee_broad_jump",
+        "total_frames": 501,
+        "pose_detected_frames": 499,
+        "pose_detected_rate": 0.9960079840319361,
+        "candidate_count": 3,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 3,
+        "cycle_count": 0,
+        "rep_count": 0,
+        "final_phase": "unknown"
+      }
+    },
+    {
+      "id": "sled_push",
+      "status": "failed",
+      "failures": [
+        "candidate_count=8 outside [5, 5]",
+        "cycle_count=7 outside [5, 5]",
+        "rep_count=7 outside [5, 5]"
+      ],
+      "expectations": {
+        "total_frames": [
+          247.0,
+          247.0
+        ],
+        "pose_detected_rate": [
+          0.98,
+          1.0
+        ],
+        "candidate_count": [
+          5.0,
+          5.0
+        ],
+        "cycle_count": [
+          5.0,
+          5.0
+        ],
+        "rep_count": [
+          5.0,
+          5.0
+        ]
+      },
+      "observation": {
+        "case_id": "sled_push",
+        "video": "HYROX视频/推雪橇.mp4",
+        "action": "sled_push",
+        "total_frames": 247,
+        "pose_detected_frames": 247,
+        "pose_detected_rate": 1.0,
+        "candidate_count": 8,
+        "pose_valid_rep_count": 7,
+        "no_rep_count": 0,
+        "unsure_count": 1,
+        "cycle_count": 7,
+        "rep_count": 7,
+        "final_phase": "drive"
+      }
+    },
+    {
+      "id": "sled_pull",
+      "status": "failed",
+      "failures": [
+        "candidate_count=5 outside [4, 4]",
+        "cycle_count=5 outside [4, 4]",
+        "rep_count=5 outside [4, 4]"
+      ],
+      "expectations": {
+        "total_frames": [
+          332.0,
+          332.0
+        ],
+        "pose_detected_rate": [
+          0.98,
+          1.0
+        ],
+        "candidate_count": [
+          4.0,
+          4.0
+        ],
+        "cycle_count": [
+          4.0,
+          4.0
+        ],
+        "rep_count": [
+          4.0,
+          4.0
+        ]
+      },
+      "observation": {
+        "case_id": "sled_pull",
+        "video": "HYROX视频/拉雪橇.mp4",
+        "action": "sled_pull",
+        "total_frames": 332,
+        "pose_detected_frames": 332,
+        "pose_detected_rate": 1.0,
+        "candidate_count": 5,
+        "pose_valid_rep_count": 5,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "cycle_count": 5,
+        "rep_count": 5,
+        "final_phase": "recover"
+      }
+    },
+    {
+      "id": "wall_ball",
+      "status": "failed",
+      "failures": [
+        "candidate_count=2 outside [3, 3]",
+        "unsure_count=2 outside [3, 3]"
+      ],
+      "expectations": {
+        "total_frames": [
+          145.0,
+          145.0
+        ],
+        "pose_detected_rate": [
+          0.98,
+          1.0
+        ],
+        "candidate_count": [
+          3.0,
+          3.0
+        ],
+        "pose_valid_rep_count": [
+          0.0,
+          0.0
+        ],
+        "no_rep_count": [
+          0.0,
+          0.0
+        ],
+        "unsure_count": [
+          3.0,
+          3.0
+        ],
+        "rep_count": [
+          0.0,
+          0.0
+        ]
+      },
+      "observation": {
+        "case_id": "wall_ball",
+        "video": "HYROX视频/投掷药球.mp4",
+        "action": "wall_ball",
+        "total_frames": 145,
+        "pose_detected_frames": 145,
+        "pose_detected_rate": 1.0,
+        "candidate_count": 2,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 2,
+        "cycle_count": 0,
+        "rep_count": 0,
+        "final_phase": "drive"
+      }
+    },
+    {
+      "id": "rowing",
+      "status": "failed",
+      "failures": [
+        "pose_valid_rep_count=5 outside [4, 4]",
+        "unsure_count=0 outside [1, 1]",
+        "cycle_count=5 outside [4, 4]",
+        "rep_count=5 outside [4, 4]"
+      ],
+      "expectations": {
+        "total_frames": [
+          512.0,
+          512.0
+        ],
+        "pose_detected_rate": [
+          0.98,
+          1.0
+        ],
+        "candidate_count": [
+          5.0,
+          5.0
+        ],
+        "pose_valid_rep_count": [
+          4.0,
+          4.0
+        ],
+        "no_rep_count": [
+          0.0,
+          0.0
+        ],
+        "unsure_count": [
+          1.0,
+          1.0
+        ],
+        "cycle_count": [
+          4.0,
+          4.0
+        ],
+        "rep_count": [
+          4.0,
+          4.0
+        ]
+      },
+      "observation": {
+        "case_id": "rowing",
+        "video": "HYROX视频/划船机.mp4",
+        "action": "rowing",
+        "total_frames": 512,
+        "pose_detected_frames": 512,
+        "pose_detected_rate": 1.0,
+        "candidate_count": 5,
+        "pose_valid_rep_count": 5,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "cycle_count": 5,
+        "rep_count": 5,
+        "final_phase": "catch"
+      }
+    },
+    {
+      "id": "farmers_carry",
+      "status": "passed",
+      "failures": [],
+      "expectations": {
+        "total_frames": [
+          297.0,
+          297.0
+        ],
+        "pose_detected_rate": [
+          0.98,
+          1.0
+        ],
+        "candidate_count": [
+          0.0,
+          0.0
+        ],
+        "cycle_count": [
+          0.0,
+          0.0
+        ],
+        "rep_count": [
+          0.0,
+          0.0
+        ]
+      },
+      "observation": {
+        "case_id": "farmers_carry",
+        "video": "HYROX视频/农夫行走.mp4",
+        "action": "farmers_carry",
+        "total_frames": 297,
+        "pose_detected_frames": 296,
+        "pose_detected_rate": 0.9966329966329966,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "cycle_count": 0,
+        "rep_count": 0,
+        "final_phase": "carrying"
+      }
+    }
+  ]
+}

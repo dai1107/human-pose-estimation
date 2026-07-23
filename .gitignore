@@ -19,6 +19,7 @@ logs/
 models/rtmw-dw-x-l_simcc-cocktail14_270e-256x192_20231122.onnx
 
 # Generated analysis and test artifacts
+outputs/build_*/
 outputs/pytest_*/
 outputs/*_smoke.csv
 outputs/comparisons/hyrox_smoke/

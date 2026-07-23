@@ -50,6 +50,8 @@ pose-web = "start_web:main"
 pose-replay = "tools.replay_hyrox_video:main"
 pose-golden = "tools.validate_golden_videos:main"
 pose-endurance = "tools.run_endurance_test:main"
+pose-latency-benchmark = "tools.pose_latency_benchmark:main"
+pose-camera-benchmark = "tools.benchmark_camera_backends:main"
 pose-clean = "src.output_management:main"
 pose-reference-create = "src.tools.create_reference:main"
 pose-reference-list = "src.tools.list_references:main"
@@ -69,7 +71,16 @@ where = ["."]
 include = ["hyrox*", "src*", "tools*", "webui*"]
 
 [tool.setuptools.package-data]
-webui = ["templates/*.html", "static/*.js", "static/*.css"]
+webui = [
+  "templates/*.html",
+  "static/*.js",
+  "static/*.css",
+  "static/workers/*.js",
+  "static/workers/*.mjs",
+  "static/vendor/mediapipe/*.mjs",
+  "static/vendor/mediapipe/wasm/*.js",
+  "static/vendor/mediapipe/wasm/*.wasm",
+]
 
 [tool.setuptools.data-files]
 "configs" = [
@@ -95,6 +106,7 @@ webui = ["templates/*.html", "static/*.js", "static/*.css"]
   "configs/hyrox/wall_ball.yaml",
 ]
 "models" = [
+  "models/pose_landmarker_lite.task",
   "models/pose_landmarker_full.task",
   "models/hand_landmarker.task",
   "models/README.md",

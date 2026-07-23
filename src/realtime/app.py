@@ -23,6 +23,7 @@ from src.fusion.yolo_roi_mediapipe import FusionFrameStats, YoloRoiMediaPipeFusi
 from src.pose.adapters import format_normalized_pose_debug, normalize_backend_pose_result
 from src.paths import resolve_asset
 from src.product_pose import load_product_pose_config
+from src.latency_audit import LatencyAuditRecorder, derive_desktop_latencies
 from src.realtime.feedback_engine import FeedbackEngine, FeedbackState
 from src.runtime_hand import HandDetection, MediaPipeHandTracker
 from src.utils.angle_utils import body_angles
@@ -132,7 +133,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         product_pose_config = load_product_pose_config()
         realtime_latency_config = product_pose_config.realtime_latency
-        realtime_smoothing_config = product_pose_config.realtime_smoothing
+        realtime_smoothing_config = product_pose_config.analysis_smoothing
         use_latest_frame_pipeline = bool(
             realtime_latency_config.latest_frame_only
             and not args.input_video
@@ -166,6 +167,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         backend_device=runtime_backend_device,
         detector_device=runtime_detector_device,
     )
+    latency_audit = LatencyAuditRecorder(mode="desktop")
     exit_code = ExitCode.SUCCESS
     try:
         validate_runtime_args(args, resolved_backend)
@@ -357,6 +359,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         while True:
             captured_frame: CapturedFrame | None = None
+            capture_read_start_ns = 0
+            capture_read_end_ns = 0
             if latest_frame_camera is not None:
                 captured_frame = latest_frame_camera.get_latest(
                     after_frame_id=frame_index,
@@ -371,7 +375,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     continue
                 raw_frame = captured_frame.image
                 frame_index = captured_frame.frame_id
+                capture_read_start_ns = captured_frame.capture_read_start_ns
+                capture_read_end_ns = captured_frame.capture_read_end_ns or captured_frame.capture_timestamp_ns
             else:
+                capture_read_start_ns = time.perf_counter_ns()
                 ok, raw_frame = read_capture_frame(
                     capture,
                     input_mode=input_mode,
@@ -379,6 +386,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
                 if not ok or raw_frame is None:
                     break
+                capture_read_end_ns = time.perf_counter_ns()
                 frame_index += 1
             frame_started = time.perf_counter()
             display_frame = cv2.flip(raw_frame, 1) if input_mode == "camera" and mirror_enabled else raw_frame.copy()
@@ -408,6 +416,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             analysis_timestamp_ms = timestamp_ms
             analysis_frame_started = frame_started
             accepted_timed: TimedPoseResult | None = None
+            sync_inference_start_ns = 0
+            sync_inference_end_ns = 0
             fusion_stats = FusionFrameStats()
             if pose_scheduler is not None:
                 if captured_frame is None or pose_age_gate is None:
@@ -433,9 +443,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                         analysis_timestamp_ms = int(candidate.capture_timestamp_ns // 1_000_000)
                         analysis_frame_started = candidate.capture_timestamp_ns / 1_000_000_000.0
             elif fusion_runner is not None:
+                sync_inference_start_ns = time.perf_counter_ns()
                 analysis_result, fusion_stats = fusion_runner.detect(display_frame, timestamp_ms=timestamp_ms)
+                sync_inference_end_ns = time.perf_counter_ns()
             else:
+                sync_inference_start_ns = time.perf_counter_ns()
                 analysis_result = backend.detect(display_frame, timestamp_ms=timestamp_ms)
+                sync_inference_end_ns = time.perf_counter_ns()
 
             if analysis_result is not None:
                 normalized_pose = None
@@ -541,6 +555,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 latest_draw_result = result
                 latest_draw_timed = accepted_timed
 
+            analysis_end_ns = time.perf_counter_ns()
             if pose_scheduler is not None:
                 if pose_age_gate is not None and pose_age_gate.is_fresh(
                     latest_draw_timed,
@@ -565,6 +580,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 snapshot = metrics.snapshot()
             has_pose = bool(result.success and result.keypoints)
 
+            draw_start_ns = time.perf_counter_ns()
             annotated = display_frame.copy()
             draw_pose_result_filtered(
                 annotated,
@@ -646,9 +662,49 @@ def main(argv: Sequence[str] | None = None) -> int:
                     LOGGER.info("Recording started: %s", record_output_path)
                 record_writer.write(annotated)
 
+            draw_end_ns = time.perf_counter_ns()
+            imshow_return_ns = draw_end_ns
+
             if not args.headless:
                 cv2.imshow(window_name, annotated)
+                imshow_return_ns = time.perf_counter_ns()
                 delay = 1 if input_mode == "camera" else max(1, int(round(1000.0 / max(source_fps, 1.0))))
+                displayed_timed = latest_draw_timed if pose_scheduler is not None else None
+                pose_capture_timestamp_ns = (
+                    displayed_timed.capture_timestamp_ns
+                    if displayed_timed is not None
+                    else capture_read_end_ns
+                )
+                inference_start_ns = (
+                    displayed_timed.inference_start_ns
+                    if displayed_timed is not None
+                    else sync_inference_start_ns
+                )
+                inference_end_ns = (
+                    displayed_timed.inference_end_ns
+                    if displayed_timed is not None
+                    else sync_inference_end_ns
+                )
+                if (
+                    result.success
+                    and capture_read_end_ns > 0
+                    and inference_start_ns > 0
+                    and inference_end_ns > 0
+                ):
+                    latency_timing = {
+                        "frame_id": frame_index,
+                        "pose_frame_id": displayed_timed.frame_id if displayed_timed is not None else frame_index,
+                        "capture_read_start_ns": capture_read_start_ns,
+                        "capture_read_end_ns": capture_read_end_ns,
+                        "pose_capture_timestamp_ns": pose_capture_timestamp_ns,
+                        "inference_start_ns": inference_start_ns,
+                        "inference_end_ns": inference_end_ns,
+                        "analysis_end_ns": analysis_end_ns,
+                        "draw_start_ns": draw_start_ns,
+                        "draw_end_ns": draw_end_ns,
+                        "imshow_return_ns": imshow_return_ns,
+                    }
+                    latency_audit.add(latency_timing, derive_desktop_latencies(latency_timing))
                 key = cv2.waitKey(delay) & 0xFF
                 if key in (ord("q"), ord("Q")):
                     break
@@ -837,6 +893,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             except Exception as exc:
                 raise OutputWriteError(
                     f"无法保存指标 CSV：{args.save_metrics}",
+                    hint="检查磁盘空间和输出目录权限",
+                ) from exc
+        if args.latency_audit and latency_audit.samples:
+            try:
+                audit_path = latency_audit.write_json(args.latency_audit)
+                LOGGER.info("Latency audit saved: %s", audit_path)
+            except Exception as exc:
+                raise OutputWriteError(
+                    f"无法保存完整延迟审计：{args.latency_audit}",
                     hint="检查磁盘空间和输出目录权限",
                 ) from exc
         LOGGER.info("Metrics summary:")

@@ -48,6 +48,7 @@
               <button class="secondary-button" id="switchCameraButton" type="button" disabled>切换前 / 后</button>
             </div>
             <p class="permission-state" id="cameraPermission" data-state="idle" role="status">尚未申请摄像头权限</p>
+            <p class="permission-state" id="cameraDiagnostic" data-state="idle" role="status">开启摄像头后显示实际规格与硬件诊断</p>
           </div>
           <div class="source-pane" data-pane="sample">
             <div class="sample-note">
@@ -92,6 +93,21 @@
               <label for="backendSelect">识别模型</label>
               <select id="backendSelect">
                 <option value="mediapipe">MediaPipe Pose</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label for="poseRuntimeSelect">实时运行位置</label>
+              <select id="poseRuntimeSelect">
+                <option value="local" selected>本机优先（推荐）</option>
+                <option value="server">服务器兼容</option>
+              </select>
+            </div>
+            <div class="control-group">
+              <label for="poseModelSelect">本机姿态档位</label>
+              <select id="poseModelSelect">
+                <option value="auto" selected>自动基准（推荐）</option>
+                <option value="full">Full · 精度优先</option>
+                <option value="lite">Lite · 速度优先</option>
               </select>
             </div>
             <div class="control-group">
@@ -162,6 +178,7 @@
           <div class="video-badges" id="videoBadges" hidden>
             <span><i class="live-dot"></i> LIVE</span>
             <span id="sourceBadge">摄像头 0</span>
+            <span id="poseModeBadge">正在准备本机姿态</span>
           </div>
           <div class="video-rep-badge" id="videoRepBadge" hidden aria-live="polite">
             <span>完整周期</span><strong id="videoRepCount">0</strong>
@@ -255,12 +272,12 @@
     <footer class="privacy-footer">
       <details>
         <summary>隐私与摄像头说明</summary>
-        <p>摄像头只会在你点击“开启摄像头”后启用。浏览器只请求视频权限，麦克风始终关闭；语音提示由浏览器在本机根据文字建议合成，不上传音频。摄像头帧仅用于实时计算，不写入服务器磁盘；关闭、切换设备或离开页面时会立即停止所有视频轨道。你主动使用“录制”时，带骨架画面只在浏览器内生成并供你本机回放或保存，不上传服务器。上传视频仅作为临时分析输入，完成后删除。结构化分析结果最多保留 10 分钟，你也可以随时点击“删除本次数据”。</p>
+        <p>摄像头只会在你点击“开启摄像头”后启用。浏览器只请求视频权限，麦克风始终关闭；语音提示由浏览器在本机根据文字建议合成，不上传音频。支持时姿态模型在浏览器 Worker 中运行，只向服务器发送人体关键点和时间戳；若页面明确显示“服务器兼容姿态”，摄像头帧会临时发送给服务器推理，但不会写入磁盘。关闭、切换设备或离开页面时会立即停止所有视频轨道。你主动使用“录制”时，带骨架画面只在浏览器内生成并供你本机回放或保存，不上传服务器。上传视频仅作为临时分析输入，完成后删除。结构化分析结果最多保留 10 分钟，你也可以随时点击“删除本次数据”。</p>
       </details>
     </footer>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script type="module" src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

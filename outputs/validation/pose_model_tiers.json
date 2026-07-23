@@ -1,0 +1,570 @@
+{
+  "schema_version": 1,
+  "program_version": "0.1.0.dev0",
+  "artifact_type": "pose_model_tier_comparison",
+  "status": "failed",
+  "lite_auto_approved": false,
+  "case_count": 8,
+  "passed_count": 1,
+  "cases": [
+    {
+      "id": "lunge",
+      "action": "lunge",
+      "video": "HYROX视频/负重箭步蹲.mp4",
+      "total_frames": 133,
+      "matched_pose_frames": 133,
+      "full": {
+        "observation": {
+          "case_id": "lunge",
+          "video": "HYROX视频/负重箭步蹲.mp4",
+          "action": "lunge",
+          "total_frames": 133,
+          "pose_detected_frames": 133,
+          "pose_detected_rate": 1.0,
+          "candidate_count": 1,
+          "pose_valid_rep_count": 0,
+          "no_rep_count": 1,
+          "unsure_count": 0,
+          "cycle_count": 0,
+          "rep_count": 0,
+          "final_phase": "descent"
+        },
+        "golden_failures": [],
+        "inference_p50_ms": 12.757499993313104,
+        "inference_p95_ms": 14.165400003548712,
+        "three_d_available_rate": 1.0,
+        "step_event_count": 2
+      },
+      "lite": {
+        "observation": {
+          "case_id": "lunge",
+          "video": "HYROX视频/负重箭步蹲.mp4",
+          "action": "lunge",
+          "total_frames": 133,
+          "pose_detected_frames": 133,
+          "pose_detected_rate": 1.0,
+          "candidate_count": 1,
+          "pose_valid_rep_count": 0,
+          "no_rep_count": 0,
+          "unsure_count": 1,
+          "cycle_count": 0,
+          "rep_count": 0,
+          "final_phase": "ascent"
+        },
+        "golden_failures": [
+          "no_rep_count=0 outside [1, 1]",
+          "unsure_count=1 outside [0, 0]"
+        ],
+        "inference_p50_ms": 8.403500018175691,
+        "inference_p95_ms": 9.475500031840056,
+        "three_d_available_rate": 1.0,
+        "step_event_count": 1
+      },
+      "differences": {
+        "image_landmark_mean": 0.05598792441511385,
+        "image_landmark_p95": 0.22518367529259048,
+        "joint_angle_mean_deg": 17.901057710367546,
+        "joint_angle_p95_deg": 68.1843537967302,
+        "contact_status_match_rate": 0.9548872180451128,
+        "foot_status_match_rate": 0.8526315789473684,
+        "three_d_assist_status_match_rate": 0.8345864661654135
+      },
+      "status": "failed",
+      "gate_failures": [
+        "Lite 未通过原黄金区间",
+        "no_rep_count 与 Full 不一致",
+        "关节角平均差异超过 12°"
+      ]
+    },
+    {
+      "id": "skierg",
+      "action": "skierg",
+      "video": "HYROX视频/滑雪机.mp4",
+      "total_frames": 103,
+      "matched_pose_frames": 102,
+      "full": {
+        "observation": {
+          "case_id": "skierg",
+          "video": "HYROX视频/滑雪机.mp4",
+          "action": "skierg",
+          "total_frames": 103,
+          "pose_detected_frames": 102,
+          "pose_detected_rate": 0.9902912621359223,
+          "candidate_count": 1,
+          "pose_valid_rep_count": 0,
+          "no_rep_count": 0,
+          "unsure_count": 1,
+          "cycle_count": 0,
+          "rep_count": 0,
+          "final_phase": "return"
+        },
+        "golden_failures": [
+          "cycle_count=0 outside [1, 1]",
+          "rep_count=0 outside [1, 1]"
+        ],
+        "inference_p50_ms": 12.8085000324063,
+        "inference_p95_ms": 14.022200019098818,
+        "three_d_available_rate": 0.9902912621359223,
+        "step_event_count": 0
+      },
+      "lite": {
+        "observation": {
+          "case_id": "skierg",
+          "video": "HYROX视频/滑雪机.mp4",
+          "action": "skierg",
+          "total_frames": 103,
+          "pose_detected_frames": 102,
+          "pose_detected_rate": 0.9902912621359223,
+          "candidate_count": 1,
+          "pose_valid_rep_count": 1,
+          "no_rep_count": 0,
+          "unsure_count": 0,
+          "cycle_count": 1,
+          "rep_count": 1,
+          "final_phase": "return"
+        },
+        "golden_failures": [],
+        "inference_p50_ms": 8.520399976987392,
+        "inference_p95_ms": 9.490099968388677,
+        "three_d_available_rate": 0.9902912621359223,
+        "step_event_count": 0
+      },
+      "differences": {
+        "image_landmark_mean": 0.016005117078761996,
+        "image_landmark_p95": 0.0420971547294437,
+        "joint_angle_mean_deg": 7.946249520351757,
+        "joint_angle_p95_deg": 18.79698469588631,
+        "contact_status_match_rate": 1.0,
+        "foot_status_match_rate": 1.0,
+        "three_d_assist_status_match_rate": 0.8932038834951457
+      },
+      "status": "failed",
+      "gate_failures": [
+        "pose_valid_rep_count 与 Full 不一致",
+        "cycle_count 与 Full 不一致",
+        "rep_count 与 Full 不一致"
+      ]
+    },
+    {
+      "id": "burpee_broad_jump",
+      "action": "burpee_broad_jump",
+      "video": "HYROX视频/波比跳远.mp4",
+      "total_frames": 501,
+      "matched_pose_frames": 499,
+      "full": {
+        "observation": {
+          "case_id": "burpee_broad_jump",
+          "video": "HYROX视频/波比跳远.mp4",
+          "action": "burpee_broad_jump",
+          "total_frames": 501,
+          "pose_detected_frames": 499,
+          "pose_detected_rate": 0.9960079840319361,
+          "candidate_count": 3,
+          "pose_valid_rep_count": 0,
+          "no_rep_count": 0,
+          "unsure_count": 3,
+          "cycle_count": 0,
+          "rep_count": 0,
+          "final_phase": "unknown"
+        },
+        "golden_failures": [],
+        "inference_p50_ms": 12.606100004632026,
+        "inference_p95_ms": 13.93449999159202,
+        "three_d_available_rate": 0.9960079840319361,
+        "step_event_count": 0
+      },
+      "lite": {
+        "observation": {
+          "case_id": "burpee_broad_jump",
+          "video": "HYROX视频/波比跳远.mp4",
+          "action": "burpee_broad_jump",
+          "total_frames": 501,
+          "pose_detected_frames": 499,
+          "pose_detected_rate": 0.9960079840319361,
+          "candidate_count": 3,
+          "pose_valid_rep_count": 0,
+          "no_rep_count": 0,
+          "unsure_count": 3,
+          "cycle_count": 0,
+          "rep_count": 0,
+          "final_phase": "unknown"
+        },
+        "golden_failures": [],
+        "inference_p50_ms": 8.367799979168922,
+        "inference_p95_ms": 9.674600034486502,
+        "three_d_available_rate": 0.9960079840319361,
+        "step_event_count": 0
+      },
+      "differences": {
+        "image_landmark_mean": 0.028784494609077855,
+        "image_landmark_p95": 0.11092920225403784,
+        "joint_angle_mean_deg": 17.673399990085525,
+        "joint_angle_p95_deg": 67.52418080494323,
+        "contact_status_match_rate": 1.0,
+        "foot_status_match_rate": 1.0,
+        "three_d_assist_status_match_rate": 0.9221556886227545
+      },
+      "status": "failed",
+      "gate_failures": [
+        "关节角平均差异超过 12°"
+      ]
+    },
+    {
+      "id": "sled_push",
+      "action": "sled_push",
+      "video": "HYROX视频/推雪橇.mp4",
+      "total_frames": 247,
+      "matched_pose_frames": 247,
+      "full": {
+        "observation": {
+          "case_id": "sled_push",
+          "video": "HYROX视频/推雪橇.mp4",
+          "action": "sled_push",
+          "total_frames": 247,
+          "pose_detected_frames": 247,
+          "pose_detected_rate": 1.0,
+          "candidate_count": 5,
+          "pose_valid_rep_count": 5,
+          "no_rep_count": 0,
+          "unsure_count": 0,
+          "cycle_count": 5,
+          "rep_count": 5,
+          "final_phase": "drive"
+        },
+        "golden_failures": [],
+        "inference_p50_ms": 13.034300005529076,
+        "inference_p95_ms": 14.365000010002404,
+        "three_d_available_rate": 1.0,
+        "step_event_count": 0
+      },
+      "lite": {
+        "observation": {
+          "case_id": "sled_push",
+          "video": "HYROX视频/推雪橇.mp4",
+          "action": "sled_push",
+          "total_frames": 247,
+          "pose_detected_frames": 247,
+          "pose_detected_rate": 1.0,
+          "candidate_count": 8,
+          "pose_valid_rep_count": 6,
+          "no_rep_count": 0,
+          "unsure_count": 2,
+          "cycle_count": 6,
+          "rep_count": 6,
+          "final_phase": "drive"
+        },
+        "golden_failures": [
+          "candidate_count=8 outside [5, 5]",
+          "cycle_count=6 outside [5, 5]",
+          "rep_count=6 outside [5, 5]"
+        ],
+        "inference_p50_ms": 8.801199961453676,
+        "inference_p95_ms": 9.71930002560839,
+        "three_d_available_rate": 1.0,
+        "step_event_count": 0
+      },
+      "differences": {
+        "image_landmark_mean": 0.1289913477094887,
+        "image_landmark_p95": 0.5694008111265471,
+        "joint_angle_mean_deg": 19.49663579521337,
+        "joint_angle_p95_deg": 57.61379477165178,
+        "contact_status_match_rate": 1.0,
+        "foot_status_match_rate": 1.0,
+        "three_d_assist_status_match_rate": 0.4898785425101215
+      },
+      "status": "failed",
+      "gate_failures": [
+        "Lite 未通过原黄金区间",
+        "candidate_count 与 Full 不一致",
+        "pose_valid_rep_count 与 Full 不一致",
+        "cycle_count 与 Full 不一致",
+        "rep_count 与 Full 不一致",
+        "unsure_count 与 Full 相差超过 1",
+        "image landmarks 平均差异超过 0.08",
+        "关节角平均差异超过 12°"
+      ]
+    },
+    {
+      "id": "sled_pull",
+      "action": "sled_pull",
+      "video": "HYROX视频/拉雪橇.mp4",
+      "total_frames": 332,
+      "matched_pose_frames": 332,
+      "full": {
+        "observation": {
+          "case_id": "sled_pull",
+          "video": "HYROX视频/拉雪橇.mp4",
+          "action": "sled_pull",
+          "total_frames": 332,
+          "pose_detected_frames": 332,
+          "pose_detected_rate": 1.0,
+          "candidate_count": 4,
+          "pose_valid_rep_count": 1,
+          "no_rep_count": 0,
+          "unsure_count": 3,
+          "cycle_count": 1,
+          "rep_count": 1,
+          "final_phase": "recover"
+        },
+        "golden_failures": [
+          "cycle_count=1 outside [4, 4]",
+          "rep_count=1 outside [4, 4]"
+        ],
+        "inference_p50_ms": 12.917800020659342,
+        "inference_p95_ms": 14.177699980791658,
+        "three_d_available_rate": 1.0,
+        "step_event_count": 0
+      },
+      "lite": {
+        "observation": {
+          "case_id": "sled_pull",
+          "video": "HYROX视频/拉雪橇.mp4",
+          "action": "sled_pull",
+          "total_frames": 332,
+          "pose_detected_frames": 332,
+          "pose_detected_rate": 1.0,
+          "candidate_count": 5,
+          "pose_valid_rep_count": 0,
+          "no_rep_count": 0,
+          "unsure_count": 5,
+          "cycle_count": 0,
+          "rep_count": 0,
+          "final_phase": "recover"
+        },
+        "golden_failures": [
+          "candidate_count=5 outside [4, 4]",
+          "cycle_count=0 outside [4, 4]",
+          "rep_count=0 outside [4, 4]"
+        ],
+        "inference_p50_ms": 8.699749974766746,
+        "inference_p95_ms": 9.61130001815036,
+        "three_d_available_rate": 1.0,
+        "step_event_count": 0
+      },
+      "differences": {
+        "image_landmark_mean": 0.013229649054513693,
+        "image_landmark_p95": 0.04498626764656549,
+        "joint_angle_mean_deg": 13.123637031300255,
+        "joint_angle_p95_deg": 34.613144718851856,
+        "contact_status_match_rate": 1.0,
+        "foot_status_match_rate": 1.0,
+        "three_d_assist_status_match_rate": 0.8072289156626506
+      },
+      "status": "failed",
+      "gate_failures": [
+        "Lite 未通过原黄金区间",
+        "candidate_count 与 Full 不一致",
+        "pose_valid_rep_count 与 Full 不一致",
+        "cycle_count 与 Full 不一致",
+        "rep_count 与 Full 不一致",
+        "unsure_count 与 Full 相差超过 1",
+        "关节角平均差异超过 12°"
+      ]
+    },
+    {
+      "id": "wall_ball",
+      "action": "wall_ball",
+      "video": "HYROX视频/投掷药球.mp4",
+      "total_frames": 145,
+      "matched_pose_frames": 145,
+      "full": {
+        "observation": {
+          "case_id": "wall_ball",
+          "video": "HYROX视频/投掷药球.mp4",
+          "action": "wall_ball",
+          "total_frames": 145,
+          "pose_detected_frames": 145,
+          "pose_detected_rate": 1.0,
+          "candidate_count": 3,
+          "pose_valid_rep_count": 0,
+          "no_rep_count": 0,
+          "unsure_count": 3,
+          "cycle_count": 0,
+          "rep_count": 0,
+          "final_phase": "throw_extension"
+        },
+        "golden_failures": [],
+        "inference_p50_ms": 13.23059998685494,
+        "inference_p95_ms": 14.533300010953099,
+        "three_d_available_rate": 1.0,
+        "step_event_count": 0
+      },
+      "lite": {
+        "observation": {
+          "case_id": "wall_ball",
+          "video": "HYROX视频/投掷药球.mp4",
+          "action": "wall_ball",
+          "total_frames": 145,
+          "pose_detected_frames": 145,
+          "pose_detected_rate": 1.0,
+          "candidate_count": 2,
+          "pose_valid_rep_count": 0,
+          "no_rep_count": 0,
+          "unsure_count": 2,
+          "cycle_count": 0,
+          "rep_count": 0,
+          "final_phase": "drive"
+        },
+        "golden_failures": [
+          "candidate_count=2 outside [3, 3]",
+          "unsure_count=2 outside [3, 3]"
+        ],
+        "inference_p50_ms": 8.955499972216785,
+        "inference_p95_ms": 9.774100035429,
+        "three_d_available_rate": 1.0,
+        "step_event_count": 0
+      },
+      "differences": {
+        "image_landmark_mean": 0.016531421970628936,
+        "image_landmark_p95": 0.05356738689685285,
+        "joint_angle_mean_deg": 13.964214412339018,
+        "joint_angle_p95_deg": 51.205437911964,
+        "contact_status_match_rate": 0.993103448275862,
+        "foot_status_match_rate": 0.9434482758620689,
+        "three_d_assist_status_match_rate": 0.7655172413793103
+      },
+      "status": "failed",
+      "gate_failures": [
+        "Lite 未通过原黄金区间",
+        "candidate_count 与 Full 不一致",
+        "关节角平均差异超过 12°"
+      ]
+    },
+    {
+      "id": "rowing",
+      "action": "rowing",
+      "video": "HYROX视频/划船机.mp4",
+      "total_frames": 512,
+      "matched_pose_frames": 512,
+      "full": {
+        "observation": {
+          "case_id": "rowing",
+          "video": "HYROX视频/划船机.mp4",
+          "action": "rowing",
+          "total_frames": 512,
+          "pose_detected_frames": 512,
+          "pose_detected_rate": 1.0,
+          "candidate_count": 5,
+          "pose_valid_rep_count": 0,
+          "no_rep_count": 0,
+          "unsure_count": 5,
+          "cycle_count": 0,
+          "rep_count": 0,
+          "final_phase": "catch"
+        },
+        "golden_failures": [
+          "pose_valid_rep_count=0 outside [4, 4]",
+          "unsure_count=5 outside [1, 1]",
+          "cycle_count=0 outside [4, 4]",
+          "rep_count=0 outside [4, 4]"
+        ],
+        "inference_p50_ms": 13.350850029382855,
+        "inference_p95_ms": 14.75540001410991,
+        "three_d_available_rate": 1.0,
+        "step_event_count": 0
+      },
+      "lite": {
+        "observation": {
+          "case_id": "rowing",
+          "video": "HYROX视频/划船机.mp4",
+          "action": "rowing",
+          "total_frames": 512,
+          "pose_detected_frames": 512,
+          "pose_detected_rate": 1.0,
+          "candidate_count": 5,
+          "pose_valid_rep_count": 0,
+          "no_rep_count": 0,
+          "unsure_count": 5,
+          "cycle_count": 0,
+          "rep_count": 0,
+          "final_phase": "catch"
+        },
+        "golden_failures": [
+          "pose_valid_rep_count=0 outside [4, 4]",
+          "unsure_count=5 outside [1, 1]",
+          "cycle_count=0 outside [4, 4]",
+          "rep_count=0 outside [4, 4]"
+        ],
+        "inference_p50_ms": 9.146299998974428,
+        "inference_p95_ms": 10.037000000011176,
+        "three_d_available_rate": 1.0,
+        "step_event_count": 0
+      },
+      "differences": {
+        "image_landmark_mean": 0.016497268398669405,
+        "image_landmark_p95": 0.06007330497346559,
+        "joint_angle_mean_deg": 6.263296249103413,
+        "joint_angle_p95_deg": 13.78135094293836,
+        "contact_status_match_rate": 1.0,
+        "foot_status_match_rate": 1.0,
+        "three_d_assist_status_match_rate": 0.662109375
+      },
+      "status": "failed",
+      "gate_failures": [
+        "Lite 未通过原黄金区间"
+      ]
+    },
+    {
+      "id": "farmers_carry",
+      "action": "farmers_carry",
+      "video": "HYROX视频/农夫行走.mp4",
+      "total_frames": 297,
+      "matched_pose_frames": 296,
+      "full": {
+        "observation": {
+          "case_id": "farmers_carry",
+          "video": "HYROX视频/农夫行走.mp4",
+          "action": "farmers_carry",
+          "total_frames": 297,
+          "pose_detected_frames": 296,
+          "pose_detected_rate": 0.9966329966329966,
+          "candidate_count": 0,
+          "pose_valid_rep_count": 0,
+          "no_rep_count": 0,
+          "unsure_count": 0,
+          "cycle_count": 0,
+          "rep_count": 0,
+          "final_phase": "carrying"
+        },
+        "golden_failures": [],
+        "inference_p50_ms": 12.678700033575296,
+        "inference_p95_ms": 14.132700045593083,
+        "three_d_available_rate": 0.9966329966329966,
+        "step_event_count": 0
+      },
+      "lite": {
+        "observation": {
+          "case_id": "farmers_carry",
+          "video": "HYROX视频/农夫行走.mp4",
+          "action": "farmers_carry",
+          "total_frames": 297,
+          "pose_detected_frames": 296,
+          "pose_detected_rate": 0.9966329966329966,
+          "candidate_count": 0,
+          "pose_valid_rep_count": 0,
+          "no_rep_count": 0,
+          "unsure_count": 0,
+          "cycle_count": 0,
+          "rep_count": 0,
+          "final_phase": "carrying"
+        },
+        "golden_failures": [],
+        "inference_p50_ms": 8.507899998221546,
+        "inference_p95_ms": 9.51190001796931,
+        "three_d_available_rate": 0.9966329966329966,
+        "step_event_count": 0
+      },
+      "differences": {
+        "image_landmark_mean": 0.007139570949128025,
+        "image_landmark_p95": 0.019875580196143768,
+        "joint_angle_mean_deg": 9.11469791413209,
+        "joint_angle_p95_deg": 27.847507280174426,
+        "contact_status_match_rate": 1.0,
+        "foot_status_match_rate": 1.0,
+        "three_d_assist_status_match_rate": 0.9528619528619529
+      },
+      "status": "passed",
+      "gate_failures": []
+    }
+  ]
+}

@@ -7,6 +7,15 @@ development builds use the `X.Y.Z.devN` form.
 
 ### Added
 
+- Added browser camera track/settings diagnostics for actual presented FPS,
+  frame-interval P50/P95 and instability, low light, and duplicate frames.
+- Added `pose-camera-benchmark` for explicit on-device default/DSHOW/MSMF,
+  MJPG/YUY2 benchmarking and an exact configuration backend cache. Physical
+  sensor-to-photon values remain null unless externally measured.
+- Added an isolated browser `DisplayPosePredictor` for 0–45 ms
+  expected-display-time compensation with smoothed velocity, confidence and
+  stale-gap gates, body-scale displacement limits, reversal damping, and
+  support-foot constraints. Predicted landmarks remain display-only.
 - Added fingerprint-validated pose and hand-keypoint caches for all eight fixed
   web samples. Demo playback now performs zero model inference while offline
   golden validation continues to execute the real backends.
@@ -29,6 +38,14 @@ development builds use the `X.Y.Z.devN` form.
 
 ### Changed
 
+- Closed the local-first architecture boundary: browser workers send only raw
+  landmarks to Python HYROX analysis, constant-velocity predictions are Canvas
+  only, server fallback is configuration-controlled, and report protocol
+  whitelists reject prediction fields. Neural/temporal models and training
+  flows remain unimplemented.
+- Desktop camera startup now uses the device cache in `auto` mode and otherwise
+  tries the OpenCV default backend before safe platform fallbacks; DSHOW is no
+  longer permanently hard-coded.
 - Web angle overlays now show quality-gated MediaPipe world-landmark 3D joint
   angles and label them `3D`; unavailable or unreliable 3D measurements are
   omitted instead of being silently replaced by 2D display values. Bundled
@@ -57,6 +74,11 @@ development builds use the `X.Y.Z.devN` form.
 
 ### Performance
 
+- Reduced browser main-thread rendering work with fixed pose-coordinate
+  buffers, cached connections/fonts/video transforms, 12 FPS angle labels,
+  5 FPS metrics, 3 FPS statistics, and content-sensitive feedback DOM
+  updates. Latency audits now include render-loop, Canvas, and DOM P95 plus
+  Long Task phase attribution.
 - Realtime web results are now pushed as soon as inference completes. On the
   current 30-frame local protocol probe at a 640 px long edge and JPEG quality
   0.65, round-trip latency improved from about 58 ms to 18.7 ms p50 and 35.5 ms
@@ -71,10 +93,11 @@ development builds use the `X.Y.Z.devN` form.
 
 ### Validation
 
-- The current full suite passes 487 tests. End-to-end replay of the cached
-  133-frame lunge sample completed normally; 51 frames passed the strict 3D
-  display gate, and every displayed angle reported `source=3d`. Cache audit
-  also confirmed schema v2 and world-landmark payloads for all eight samples.
+- The current full suite passes 530 Python tests and 16 Node tests. Full-model
+  golden replay passes all 8/8 HYROX videos; Doctor, no-camera smoke,
+  compileall, text-format, diff, and package-build checks also pass. Real
+  camera backend and physical sensor-to-photon results remain device-site
+  acceptance work and are not synthesized by automated tests.
 
 ## [0.1.0.dev0] - 2026-07-20
 

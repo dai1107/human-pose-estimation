@@ -8,6 +8,6 @@ recursive-include configs *.yaml *.md
 recursive-include configs/sample_pose_cache *.json.gz
 recursive-include models *.task *.md
 recursive-include webui/templates *.html
-recursive-include webui/static *.js *.css
+recursive-include webui/static *.js *.mjs *.css *.wasm
 prune outputs
 prune .cache

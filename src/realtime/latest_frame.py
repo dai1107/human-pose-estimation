@@ -113,6 +113,9 @@ class LatestFrameCamera:
         consecutive_failures = 0
         try:
             while not self._stop_event.is_set():
+                # Keep the injected clock's historical one-call-per-frame
+                # contract; in production both clocks are perf_counter_ns.
+                capture_read_start_ns = time.perf_counter_ns()
                 ok, image = self._capture.read()
                 if not ok or image is None:
                     consecutive_failures += 1
@@ -127,8 +130,9 @@ class LatestFrameCamera:
 
                 # The capture timestamp is intentionally the first operation after
                 # a successful read so mirroring/encoding cannot change its meaning.
+                capture_read_end_ns = int(self._clock_ns())
                 capture_timestamp_ns = max(
-                    int(self._clock_ns()),
+                    capture_read_end_ns,
                     self._last_capture_timestamp_ns + 1,
                 )
                 self._last_capture_timestamp_ns = capture_timestamp_ns
@@ -143,6 +147,8 @@ class LatestFrameCamera:
                         source=self._source,
                         width=int(width),
                         height=int(height),
+                        capture_read_start_ns=capture_read_start_ns,
+                        capture_read_end_ns=capture_read_end_ns,
                     )
                     if (
                         self._latest is not None

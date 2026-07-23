@@ -4,6 +4,8 @@ import io
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from webui.app import _backend_plan, create_app
 
 
@@ -76,16 +78,84 @@ def test_web_home_and_options_are_available() -> None:
     assert options.json["realtime"]["jpeg_quality"] == 0.65
     assert options.json["realtime"]["max_pose_age_ms"] == 150
     assert options.json["realtime"]["hide_pose_after_ms"] == 300
+    assert options.json["realtime"]["rendering"] == {
+        "angle_text_fps": 12.0,
+        "metrics_fps": 5.0,
+        "stats_fps": 3.0,
+        "timing_sample_capacity": 240,
+    }
+    assert options.json["realtime"]["camera"] == {
+        "preferred_width": 640,
+        "preferred_height": 480,
+        "preferred_fps": 60.0,
+        "fallback_fps": 30.0,
+        "diagnostic_sample_fps": 5.0,
+        "low_light_luma": 55.0,
+        "fps_warning_ratio": 0.8,
+        "interval_anomaly_ratio": 1.8,
+        "duplicate_warning_ratio": 0.2,
+    }
+    assert options.json["realtime"]["local_first"] == {
+        "web_pipeline": "local_browser",
+        "desktop_pipeline": "local_device",
+        "server_pose_fallback": True,
+        "neural_prediction_enabled": False,
+    }
+    assert options.json["realtime"]["browser_pose"]["enabled"] is True
+    assert options.json["realtime"]["browser_pose"]["worker_url"] == "/static/workers/pose_worker.js"
+    assert options.json["realtime"]["browser_pose"]["model_url"] == "/assets/models/pose_landmarker_full.task"
+    assert options.json["realtime"]["browser_pose"]["model_urls"] == {
+        "lite": "/assets/models/pose_landmarker_lite.task",
+        "full": "/assets/models/pose_landmarker_full.task",
+    }
+    assert options.json["realtime"]["browser_pose"]["model_preference"] == "auto"
+    assert options.json["realtime"]["browser_pose"]["analysis_model"] == "full"
+    assert options.json["realtime"]["browser_pose"]["benchmark_duration_ms"] == 3000
+    assert options.json["realtime"]["browser_pose"]["lite_auto_approved"] is False
+    assert options.json["realtime"]["browser_pose"]["max_inference_ms"] == 100
+    assert options.json["realtime"]["browser_pose"]["slow_frame_limit"] == 12
+    assert options.json["realtime"]["browser_pose"]["analysis_smoothing"] == {
+        "profile": "responsive",
+        "prediction_enabled": False,
+    }
+    display = options.json["realtime"]["browser_pose"]["display_smoothing"]
+    assert display["profile"] == "ultra_responsive"
+    assert display["min_cutoff"] == pytest.approx(2.2)
+    assert display["beta"] == pytest.approx(0.12)
+    assert display["max_raw_weight"] == pytest.approx(0.45)
+    assert display["prediction_enabled"] is True
+    prediction = options.json["realtime"]["browser_pose"]["display_prediction"]
+    assert prediction["enabled"] is True
+    assert prediction["mode"] == "constant_velocity"
+    assert prediction["max_horizon_ms"] == pytest.approx(45)
+    assert prediction["maximum_body_scale_displacement"] == pytest.approx(0.06)
+    assert prediction["minimum_visibility"] == pytest.approx(0.70)
+    assert prediction["velocity_decay"] == pytest.approx(0.85)
+    assert prediction["disable_after_gap_ms"] == pytest.approx(100)
+    model = client.get(options.json["realtime"]["browser_pose"]["model_url"])
+    assert model.status_code == 200
+    assert model.mimetype == "application/octet-stream"
+    lite_model = client.get(options.json["realtime"]["browser_pose"]["model_urls"]["lite"])
+    assert lite_model.status_code == 200
+    assert lite_model.mimetype == "application/octet-stream"
 
 
-def test_browser_realtime_client_uses_single_in_flight_request_and_raf_drawing() -> None:
+def test_browser_realtime_client_uses_video_frame_callback_and_single_in_flight_request() -> None:
     source = Path("webui/static/app.js").read_text(encoding="utf-8")
 
     assert "requestInFlight: false" in source
-    assert "if (!ui.running || ui.requestInFlight) return;" in source
+    assert "if (ui.requestInFlight || ui.socket.bufferedAmount" in source
     assert "ui.requestInFlight = true;" in source
     assert "finishFrameRequest(frameId)" in source
-    assert "requestAnimationFrame(drawLoop)" in source
+    assert "video.requestVideoFrameCallback(onVideoFrame)" in source
+    assert "requestAnimationFrame(fallbackLoop)" in source
+    assert "scheduleNextCapture" not in source
+    assert source.index("renderPoseForVideoFrame(frameMeta, now)") < source.index("void captureLatestFrame(frameMeta)")
+    for field in (
+        "sessionId", "frameId", "presentedFrames", "mediaTime", "presentationTime",
+        "expectedDisplayTime", "captureTime", "width", "height",
+    ):
+        assert field in source
     assert "lastRenderedPoseFrameId" in source
     assert "result.session_id === ui.activeRealtimeSessionId" in source
     assert "result.run_id === ui.activeRealtimeRunId" in source
@@ -101,6 +171,52 @@ def test_browser_realtime_client_uses_single_in_flight_request_and_raf_drawing()
     assert 'ui.sourceMode === "camera" && ui.running && !ui.manualStop' in source
     assert '"sample-cache": "预计算示例结果"' in source
     assert "Math.round(angle.value)}° 3D" in source
+
+
+def test_browser_pose_worker_uses_latest_frame_slot_and_landmark_protocol() -> None:
+    source = Path("webui/static/app.js").read_text(encoding="utf-8")
+    worker = Path("webui/static/workers/pose_worker.js").read_text(encoding="utf-8")
+    display_filter = Path("webui/static/workers/display_pose_filter.mjs").read_text(encoding="utf-8")
+
+    assert "poseWorkerBusy: false" in source
+    assert "poseWorkerPending: null" in source
+    assert "closePoseTransfer(ui.poseWorkerPending)" in source
+    assert 'transferMode: "video-frame"' in source
+    assert 'transferMode: "image-bitmap"' in source
+    assert 'type: "pose_frame"' in source
+    assert "rawImageLandmarks" in source
+    assert "rawWorldLandmarks" in source
+    assert "canvas.toDataURL" not in source
+    assert 'type: "benchmark_complete"' in worker
+    assert 'type: "switch_model"' in source
+    assert "selectAutoModel" in worker
+    assert 'runningMode: "VIDEO"' in worker
+    assert "detectForVideo(input, timestampMs)" in worker
+    assert "outputSegmentationMasks: false" in worker
+    assert "DisplayPoseFilter" in worker
+    assert "new OneEuroFilter" in display_filter
+    assert "imageRawHistory" in display_filter
+    assert "worldRawHistory" in display_filter
+    assert "#rawWeight" in display_filter
+    assert "EXTREMITY_LANDMARKS" in display_filter
+    assert "CORE_LANDMARKS" in display_filter
+    assert "FACE_LANDMARKS" in display_filter
+    assert "rawImageLandmarks" in source
+    assert "message.imageLandmarks" in source
+    assert "display_filter: message.displayFilter" in source
+    assert "image_landmarks: serializeLocalLandmarks(message.rawImageLandmarks)" in source
+    assert "world_landmarks: serializeLocalLandmarks(message.rawWorldLandmarks)" in source
+    assert "image_landmarks: serializeLocalLandmarks(message.imageLandmarks)" not in source
+    assert "drawSkeleton(result, opacity, renderStart, prediction.landmarks)" in source
+    assert "ui.latestResult.keypoints = prediction" not in source
+    assert "prediction_horizon_ms" not in source
+    assert "prediction_point_count" not in source
+    assert "prediction_clamped_point_count" not in source
+    assert 'local_first?.server_pose_fallback !== false' in source
+    assert 'type: "camera_diagnostics"' in source
+    assert 'message_type == "camera_diagnostics"' in Path("webui/app.py").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_file_videos_analyze_every_frame_at_the_source_playback_rate() -> None:
@@ -233,7 +349,8 @@ def test_web_product_page_only_offers_mediapipe_pose() -> None:
 
     assert response.status_code == 200
     assert b'value="mediapipe"' in response.data
-    assert b'value="auto"' not in response.data
+    assert b'<select id="poseModelSelect">' in response.data
+    assert b'<option value="auto" selected>' in response.data
     assert b'value="yolo-mediapipe"' not in response.data
     assert b'value="yolo-pose"' not in response.data
     assert b'value="rtmw-wholebody"' not in response.data
@@ -314,6 +431,8 @@ def test_security_headers_and_cookie_attributes() -> None:
     assert response.headers["Permissions-Policy"] == "camera=(self), microphone=(), geolocation=()"
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+    assert "worker-src 'self' blob:" in response.headers["Content-Security-Policy"]
+    assert "'wasm-unsafe-eval'" in response.headers["Content-Security-Policy"]
     cookie = response.headers.get("Set-Cookie", "")
     assert "HttpOnly" in cookie
     assert "Secure" in cookie

@@ -9,6 +9,13 @@ import time
 
 import cv2
 
+from src.camera.backend_benchmark import (
+    DEFAULT_BACKEND_CACHE,
+    backend_api_code,
+    decode_fourcc,
+    select_cached_backend,
+    supported_backend_names,
+)
 from src.runtime_logging import AppError, ExitCode, InputSourceError
 
 LOGGER = logging.getLogger("pose.desktop")
@@ -26,45 +33,96 @@ def open_capture(args: argparse.Namespace) -> tuple[cv2.VideoCapture, str, float
         fps = capture.get(cv2.CAP_PROP_FPS)
         return capture, "video", fps if fps > 0 else 30.0
 
-    if sys.platform.startswith("win"):
-        capture = cv2.VideoCapture(args.camera, cv2.CAP_DSHOW)
-        if not capture.isOpened():
-            capture.release()
-            LOGGER.warning(
-                "Camera %s could not open with CAP_DSHOW; retrying the default OpenCV backend",
-                args.camera,
-            )
-            capture = cv2.VideoCapture(args.camera)
-    else:
-        capture = cv2.VideoCapture(args.camera)
+    fourcc = args.camera_fourcc.strip().upper()
+    if fourcc and len(fourcc) != 4:
+        raise AppError(
+            "CFG002",
+            "--camera-fourcc 必须是 4 个字符或空字符串",
+            exit_code=ExitCode.CONFIG_ERROR,
+        )
+    requested_api = str(getattr(args, "camera_api", "auto")).strip().lower()
+    if requested_api not in {"auto", "default", "dshow", "msmf"}:
+        raise AppError(
+            "CFG002",
+            "--camera-api 必须是 auto、default、dshow 或 msmf",
+            exit_code=ExitCode.CONFIG_ERROR,
+        )
+    supported = supported_backend_names()
+    if requested_api != "auto" and requested_api not in supported:
+        raise AppError(
+            "CFG002",
+            f"当前平台不支持摄像头后端 {requested_api}",
+            exit_code=ExitCode.CONFIG_ERROR,
+        )
+    cache_path = getattr(args, "camera_backend_cache", str(DEFAULT_BACKEND_CACHE))
+    cached_api = (
+        select_cached_backend(
+            cache_path,
+            camera_index=args.camera,
+            width=args.width,
+            height=args.height,
+            fps=args.camera_fps,
+            fourcc=fourcc,
+        )
+        if requested_api == "auto"
+        else None
+    )
+    primary_api = requested_api if requested_api != "auto" else (cached_api or "default")
+    candidates = list(dict.fromkeys((primary_api, "default", *supported)))
+    capture = None
+    selected_api = ""
+    for candidate in candidates:
+        api_code = backend_api_code(candidate)
+        candidate_capture = (
+            cv2.VideoCapture(args.camera)
+            if api_code is None
+            else cv2.VideoCapture(args.camera, api_code)
+        )
+        if candidate_capture.isOpened():
+            capture = candidate_capture
+            selected_api = candidate
+            break
+        candidate_capture.release()
+        LOGGER.warning(
+            "Camera %s could not open with backend %s",
+            args.camera,
+            candidate,
+        )
+    if capture is None:
+        raise InputSourceError(
+            f"无法打开摄像头 {args.camera}",
+            hint="检查设备占用、权限和摄像头编号，可运行 pose-camera-benchmark 复查后端",
+        )
     capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    if args.camera_fourcc.strip():
-        fourcc = args.camera_fourcc.strip().upper()
-        if len(fourcc) != 4:
-            capture.release()
-            raise AppError(
-                "CFG002",
-                "--camera-fourcc 必须是 4 个字符或空字符串",
-                exit_code=ExitCode.CONFIG_ERROR,
-            )
+    if fourcc:
         capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc))
     capture.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
     capture.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
     if args.camera_fps > 0:
         capture.set(cv2.CAP_PROP_FPS, args.camera_fps)
-    if not capture.isOpened():
-        capture.release()
-        raise InputSourceError(
-            f"无法打开摄像头 {args.camera}",
-            hint="检查设备占用、权限和摄像头编号，可用 doctor --camera 复查",
-        )
     fps = capture.get(cv2.CAP_PROP_FPS)
+    actual_width = capture.get(cv2.CAP_PROP_FRAME_WIDTH)
+    actual_height = capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    actual_fourcc = decode_fourcc(capture.get(cv2.CAP_PROP_FOURCC))
+    try:
+        reported_backend = capture.getBackendName()
+    except (AttributeError, cv2.error):
+        reported_backend = selected_api
     LOGGER.info(
-        "Camera %s opened (requested FPS: %g, reported FPS: %.1f, FourCC: %s)",
+        "Camera %s opened (selection=%s, backend=%s, requested=%dx%d@%g %s, "
+        "actual=%.0fx%.0f@%.1f %s, cache=%s)",
         args.camera,
+        selected_api,
+        reported_backend,
+        args.width,
+        args.height,
         args.camera_fps,
+        fourcc or "unchanged",
+        actual_width,
+        actual_height,
         fps if fps > 0 else 0,
-        args.camera_fourcc or "unchanged",
+        actual_fourcc or "unknown",
+        "hit" if cached_api else "miss",
     )
     return capture, "camera", fps if fps > 0 else 30.0
 

@@ -19,6 +19,8 @@ class CapturedFrame:
     source: str
     width: int
     height: int
+    capture_read_start_ns: int = 0
+    capture_read_end_ns: int = 0
 
 
 @dataclass(slots=True)

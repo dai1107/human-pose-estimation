@@ -177,11 +177,12 @@ def test_finite_inputs_do_not_generate_nan() -> None:
 
 def test_product_smoothing_config_drives_runtime_defaults() -> None:
     config = load_product_pose_config(Path("configs/product_pose.yaml"))
-    smoother = create_runtime_smoother(parse_args([]), config.realtime_smoothing)
+    smoother = create_runtime_smoother(parse_args([]), config.analysis_smoothing)
 
-    assert config.realtime_smoothing.profile == "responsive"
-    assert config.realtime_smoothing.max_gap_ms_before_reset == 250.0
-    assert set(config.realtime_smoothing.profiles) == {
+    assert config.analysis_smoothing.profile == "responsive"
+    assert config.analysis_smoothing.prediction_enabled is False
+    assert config.analysis_smoothing.max_gap_ms_before_reset == 250.0
+    assert set(config.analysis_smoothing.profiles) == {
         "stable",
         "balanced",
         "responsive",

@@ -1,3 +1,10 @@
+import { DisplayPosePredictor } from "./workers/display_pose_predictor.mjs";
+import {
+  DomUpdateScheduler,
+  RenderPerformanceMonitor,
+} from "./workers/render_performance.mjs";
+import { CameraDiagnostics } from "./workers/camera_diagnostics.mjs";
+
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
@@ -19,7 +26,6 @@ const ui = {
   },
   mediaStream: null,
   socket: null,
-  captureTimer: null,
   requestTimeout: null,
   drawAnimation: null,
   reconnectTimer: null,
@@ -52,7 +58,753 @@ const ui = {
   lastVoiceEventId: "",
   manualFloorPoints: [],
   floorCalibrationActive: false,
+  videoFrameCallbackId: null,
+  latestVideoFrameMeta: null,
+  lastPresentedFrames: 0,
+  presentedFrameSkipCount: 0,
+  rvfcLateFrameCount: 0,
+  rvfcLatenessMs: 0,
+  longTaskCount: 0,
+  longTaskDurationMs: 0,
+  longTaskObserver: null,
+  lastAuditedPoseFrameId: -1,
+  lastFallbackMediaTime: -1,
+  videoFrameIntervalMs: 1000 / 60,
+  poseRuntimeMode: "initializing",
+  poseWorker: null,
+  poseWorkerReadyPromise: null,
+  poseWorkerBusy: false,
+  poseWorkerPending: null,
+  poseWorkerFrameCreationBusy: false,
+  poseWorkerRequestedMeta: null,
+  poseWorkerLastCaptureAt: 0,
+  poseWorkerFailureCount: 0,
+  poseWorkerSlowFrameCount: 0,
+  poseWorkerDroppedFrames: 0,
+  poseWorkerTransferMode: "",
+  poseWorkerActiveModel: "full",
+  poseWorkerModelPreference: "auto",
+  poseWorkerBenchmarking: false,
+  poseWorkerBenchmarkReport: null,
+  poseWorkerBenchmarkSent: false,
+  poseWorkerBenchmarkLongTaskBaseline: 0,
+  poseWorkerModelSwitching: false,
+  latestAnalysisResult: null,
+  lastFeedbackSignature: "",
 };
+
+const displayPosePredictor = new DisplayPosePredictor();
+const domUpdateScheduler = new DomUpdateScheduler();
+const renderPerformance = new RenderPerformanceMonitor();
+const cameraDiagnostics = new CameraDiagnostics();
+const domNodeCache = new Map();
+
+const poseLandmarkNames = [
+  "nose", "left_eye_inner", "left_eye", "left_eye_outer", "right_eye_inner", "right_eye", "right_eye_outer",
+  "left_ear", "right_ear", "mouth_left", "mouth_right", "left_shoulder", "right_shoulder", "left_elbow",
+  "right_elbow", "left_wrist", "right_wrist", "left_pinky", "right_pinky", "left_index", "right_index",
+  "left_thumb", "right_thumb", "left_hip", "right_hip", "left_knee", "right_knee", "left_ankle",
+  "right_ankle", "left_heel", "right_heel", "left_foot_index", "right_foot_index",
+];
+const poseConnectionIndexes = [
+  [0,1],[1,2],[2,3],[3,7],[0,4],[4,5],[5,6],[6,8],[9,10],[11,12],[11,13],[13,15],[15,17],
+  [15,19],[15,21],[17,19],[12,14],[14,16],[16,18],[16,20],[16,22],[18,20],[11,23],[12,24],
+  [23,24],[23,25],[24,26],[25,27],[26,28],[27,29],[28,30],[29,31],[30,32],[27,31],[28,32],
+];
+const poseConnectionNames = poseConnectionIndexes.map(
+  ([start, end]) => [poseLandmarkNames[start], poseLandmarkNames[end]],
+);
+const poseNameToIndex = new Map(poseLandmarkNames.map((name, index) => [name, index]));
+const drawingCache = {
+  pointPresent: new Uint8Array(poseLandmarkNames.length),
+  pointX: new Float32Array(poseLandmarkNames.length),
+  pointY: new Float32Array(poseLandmarkNames.length),
+  pointVisibility: new Float32Array(poseLandmarkNames.length),
+  connectionSource: null,
+  connectionPairs: new Int16Array(128),
+  connectionCount: 0,
+  rectKey: "",
+  rect: { drawWidth: 0, drawHeight: 0, offsetX: 0, offsetY: 0 },
+  styleKey: "",
+  style: { lineWidth: 2, pointRadius: 3, font: "11px Inter, sans-serif" },
+  angleEntries: [],
+  angleCount: 0,
+  predictionContext: { action: "", phase: "", supportFootNames: [] },
+  performanceSnapshot: {
+    renderLoopP95Ms: 0,
+    canvasDrawP95Ms: 0,
+    domUpdateP95Ms: 0,
+    mainThreadLongTaskCount: 0,
+    mainThreadLongTaskTotalMs: 0,
+    longTaskPhases: {},
+  },
+};
+const cameraDiagnosticCache = {
+  canvas: null,
+  context: null,
+  previousLuma: new Uint8Array(32 * 18),
+  hasPreviousLuma: false,
+  lastSampleAt: 0,
+  lastReportAt: 0,
+};
+
+function cachedNode(selector) {
+  if (!domNodeCache.has(selector)) domNodeCache.set(selector, document.querySelector(selector));
+  return domNodeCache.get(selector);
+}
+
+function setTextIfChanged(selector, value) {
+  const node = cachedNode(selector);
+  const text = String(value);
+  if (node && node.textContent !== text) node.textContent = text;
+}
+
+function setClassIfChanged(selector, value) {
+  const node = cachedNode(selector);
+  if (node && node.className !== value) node.className = value;
+}
+
+function setHiddenIfChanged(selector, hidden) {
+  const node = cachedNode(selector);
+  if (node && node.hidden !== Boolean(hidden)) node.hidden = Boolean(hidden);
+}
+
+function setWidthIfChanged(selector, value) {
+  const node = cachedNode(selector);
+  const width = String(value);
+  if (node && node.style.width !== width) node.style.width = width;
+}
+
+function finiteNumber(value, fallback = null) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function deriveWebLatencies(timing) {
+  const delta = (end, start, signed = false) => {
+    const endValue = finiteNumber(timing[end]);
+    const startValue = finiteNumber(timing[start]);
+    if (endValue === null || startValue === null) return null;
+    const value = endValue - startValue;
+    return Math.round((signed ? value : Math.max(0, value)) * 1000) / 1000;
+  };
+  return {
+    capture_to_submit_ms: delta("socket_send_ms", "camera_frame_presented_ms"),
+    submit_to_result_ms: delta("client_result_receive_ms", "socket_send_ms"),
+    result_to_render_ms: delta("pose_render_start_ms", "client_result_receive_ms"),
+    render_to_expected_display_ms: delta("expected_display_time_ms", "pose_render_end_ms", true),
+    pose_age_at_render_ms: delta("pose_render_start_ms", "camera_frame_presented_ms"),
+    video_frame_age_at_render_ms: delta("pose_render_start_ms", "video_frame_presented_at_render_ms"),
+    pose_video_age_difference_ms: delta("video_frame_presented_at_render_ms", "camera_frame_presented_ms"),
+    render_time_ms: delta("pose_render_end_ms", "pose_render_start_ms"),
+    render_loop_p95_ms: finiteNumber(timing.render_loop_p95_ms),
+    canvas_draw_p95_ms: finiteNumber(timing.canvas_draw_p95_ms),
+    dom_update_p95_ms: finiteNumber(timing.dom_update_p95_ms),
+    main_thread_long_task_count: finiteNumber(timing.main_thread_long_task_count),
+    main_thread_long_task_total_ms: finiteNumber(timing.main_thread_long_task_duration_ms),
+    long_task_render_count: finiteNumber(timing.long_task_render_count),
+    long_task_dom_update_count: finiteNumber(timing.long_task_dom_update_count),
+    long_task_frame_copy_count: finiteNumber(timing.long_task_frame_copy_count),
+    long_task_encode_count: finiteNumber(timing.long_task_encode_count),
+    long_task_pose_transfer_count: finiteNumber(timing.long_task_pose_transfer_count),
+    long_task_other_count: finiteNumber(timing.long_task_other_count),
+  };
+}
+
+function timingForVideoFrame(frameMeta) {
+  return {
+    camera_frame_presented_ms: frameMeta.presentationTime,
+    expected_display_time_ms: frameMeta.expectedDisplayTime,
+    capture_time_ms: frameMeta.captureTime,
+    media_time_s: frameMeta.mediaTime,
+    presented_frames: frameMeta.presentedFrames,
+  };
+}
+
+function buildVideoFrameMeta(now, metadata = {}, fallback = false) {
+  const video = $("#localVideo");
+  const presentedFrames = finiteNumber(metadata.presentedFrames, ui.lastPresentedFrames + 1);
+  if (ui.lastPresentedFrames > 0 && presentedFrames > ui.lastPresentedFrames + 1) {
+    ui.presentedFrameSkipCount += presentedFrames - ui.lastPresentedFrames - 1;
+  }
+  const presentationTime = finiteNumber(metadata.presentationTime, now);
+  if (ui.latestVideoFrameMeta) {
+    const interval = presentationTime - ui.latestVideoFrameMeta.presentationTime;
+    if (interval > 0 && interval < 250) ui.videoFrameIntervalMs = ui.videoFrameIntervalMs * 0.8 + interval * 0.2;
+  }
+  ui.lastPresentedFrames = presentedFrames;
+  const expectedDisplayTime = finiteNumber(metadata.expectedDisplayTime, now);
+  const lateness = Math.max(0, performance.now() - expectedDisplayTime);
+  if (lateness >= Math.max(1, ui.videoFrameIntervalMs)) ui.rvfcLateFrameCount += 1;
+  ui.rvfcLatenessMs = lateness;
+  const frameId = ++ui.sequence;
+  return Object.freeze({
+    sessionId: ui.activeRealtimeSessionId || "preview",
+    frameId,
+    presentedFrames,
+    mediaTime: finiteNumber(metadata.mediaTime, video.currentTime),
+    presentationTime,
+    expectedDisplayTime,
+    captureTime: finiteNumber(metadata.captureTime),
+    processingDuration: finiteNumber(metadata.processingDuration, 0),
+    width: Math.max(0, Number(video.videoWidth || 0)),
+    height: Math.max(0, Number(video.videoHeight || 0)),
+    callbackSource: fallback ? "requestAnimationFrame" : "requestVideoFrameCallback",
+  });
+}
+
+function onPresentedVideoFrame(now, metadata = {}, fallback = false) {
+  if (!ui.mediaStream) return;
+  const frameMeta = buildVideoFrameMeta(now, metadata, fallback);
+  ui.latestVideoFrameMeta = frameMeta;
+  cameraDiagnostics.observeFrame(frameMeta.presentationTime);
+  sampleCameraDiagnostics(now);
+  if (!ui.running) return;
+  renderPoseForVideoFrame(frameMeta, now);
+  if (ui.poseRuntimeMode === "local") submitLocalPoseFrame(frameMeta);
+  else if (ui.poseRuntimeMode === "server") void captureLatestFrame(frameMeta);
+}
+
+function ensureCameraDiagnosticCanvas() {
+  if (cameraDiagnosticCache.canvas) return;
+  cameraDiagnosticCache.canvas = typeof OffscreenCanvas === "function"
+    ? new OffscreenCanvas(32, 18)
+    : document.createElement("canvas");
+  cameraDiagnosticCache.canvas.width = 32;
+  cameraDiagnosticCache.canvas.height = 18;
+  cameraDiagnosticCache.context = cameraDiagnosticCache.canvas.getContext(
+    "2d",
+    { alpha: false, willReadFrequently: true },
+  );
+}
+
+function cameraWarningText(warnings) {
+  const labels = {
+    fps_below_requested: "实际帧率低于请求值",
+    low_light: "画面偏暗，请增加照明",
+    frame_interval_unstable: "摄像头帧间隔不稳定",
+    duplicate_frames: "摄像头重复画面比例偏高",
+  };
+  return warnings.map(name => labels[name] || name).join("；");
+}
+
+function renderCameraDiagnostics(snapshot) {
+  const settings = snapshot.settings || {};
+  const actualFps = snapshot.actualPresentedFps || settings.frameRate || 0;
+  const specification = settings.width && settings.height
+    ? `${settings.width}×${settings.height}@${Number(actualFps).toFixed(1)}`
+    : "正在测量摄像头";
+  const warnings = cameraWarningText(snapshot.warnings || []);
+  setTextIfChanged(
+    "#cameraDiagnostic",
+    warnings ? `${specification} · ${warnings}` : `${specification} · 光照与帧间隔正常`,
+  );
+  const node = cachedNode("#cameraDiagnostic");
+  if (node) node.dataset.state = warnings ? "warning" : "healthy";
+}
+
+function sampleCameraDiagnostics(now) {
+  const config = ui.realtimeConfig.camera || {};
+  const interval = 1000 / Math.max(1, Number(config.diagnostic_sample_fps || 5));
+  if (now - cameraDiagnosticCache.lastSampleAt < interval) return;
+  cameraDiagnosticCache.lastSampleAt = now;
+  const video = cachedNode("#localVideo");
+  if (!video || video.readyState < 2 || !video.videoWidth) return;
+  ensureCameraDiagnosticCanvas();
+  const started = performance.now();
+  const context = cameraDiagnosticCache.context;
+  context.drawImage(video, 0, 0, 32, 18);
+  const pixels = context.getImageData(0, 0, 32, 18).data;
+  let luminanceTotal = 0;
+  let differenceTotal = 0;
+  for (let pixel = 0, sample = 0; pixel < pixels.length; pixel += 4, sample += 1) {
+    const luminance = Math.round(
+      pixels[pixel] * 0.2126
+      + pixels[pixel + 1] * 0.7152
+      + pixels[pixel + 2] * 0.0722,
+    );
+    luminanceTotal += luminance;
+    if (cameraDiagnosticCache.hasPreviousLuma) {
+      differenceTotal += Math.abs(luminance - cameraDiagnosticCache.previousLuma[sample]);
+    }
+    cameraDiagnosticCache.previousLuma[sample] = luminance;
+  }
+  const samples = cameraDiagnosticCache.previousLuma.length;
+  cameraDiagnostics.observeImage(
+    luminanceTotal / samples,
+    cameraDiagnosticCache.hasPreviousLuma && differenceTotal / samples < 1.5,
+  );
+  cameraDiagnosticCache.hasPreviousLuma = true;
+  const ended = performance.now();
+  renderPerformance.recordPhaseSpan("camera_diagnostics", started, ended);
+  const snapshot = cameraDiagnostics.snapshot();
+  renderCameraDiagnostics(snapshot);
+  if (now - cameraDiagnosticCache.lastReportAt >= 2000) {
+    cameraDiagnosticCache.lastReportAt = now;
+    sendSocket({ type: "camera_diagnostics", diagnostics: snapshot });
+  }
+}
+
+function startVideoFrameAudit() {
+  stopVideoFrameAudit();
+  const video = $("#localVideo");
+  ui.lastPresentedFrames = 0;
+  ui.presentedFrameSkipCount = 0;
+  ui.rvfcLateFrameCount = 0;
+  ui.rvfcLatenessMs = 0;
+  ui.lastFallbackMediaTime = -1;
+  ui.videoFrameIntervalMs = 1000 / Math.max(1, Number(ui.realtimeConfig.camera_fps || 60));
+  const onVideoFrame = (now, metadata = {}) => {
+    if (!ui.mediaStream) return;
+    onPresentedVideoFrame(now, metadata, false);
+    ui.videoFrameCallbackId = video.requestVideoFrameCallback(onVideoFrame);
+  };
+  if (typeof video.requestVideoFrameCallback === "function") {
+    ui.videoFrameCallbackId = video.requestVideoFrameCallback(onVideoFrame);
+  } else {
+    const fallbackLoop = now => {
+      if (!ui.mediaStream) return;
+      ui.drawAnimation = requestAnimationFrame(fallbackLoop);
+      if (video.readyState < 2 || video.currentTime === ui.lastFallbackMediaTime) return;
+      ui.lastFallbackMediaTime = video.currentTime;
+      onPresentedVideoFrame(now, {
+        mediaTime: video.currentTime,
+        presentationTime: now,
+        expectedDisplayTime: now,
+        presentedFrames: ui.lastPresentedFrames + 1,
+      }, true);
+    };
+    ui.drawAnimation = requestAnimationFrame(fallbackLoop);
+  }
+}
+
+function stopVideoFrameAudit() {
+  const video = $("#localVideo");
+  if (ui.videoFrameCallbackId !== null && typeof video.cancelVideoFrameCallback === "function") {
+    video.cancelVideoFrameCallback(ui.videoFrameCallbackId);
+  }
+  ui.videoFrameCallbackId = null;
+  if (ui.drawAnimation !== null) cancelAnimationFrame(ui.drawAnimation);
+  ui.drawAnimation = null;
+  ui.latestVideoFrameMeta = null;
+}
+
+function initializeMainThreadAudit() {
+  if (!("PerformanceObserver" in window)) return;
+  try {
+    ui.longTaskObserver = new PerformanceObserver(list => {
+      if (!ui.running) return;
+      for (const entry of list.getEntries()) {
+        ui.longTaskCount += 1;
+        ui.longTaskDurationMs += entry.duration;
+        renderPerformance.recordLongTask(entry.startTime, entry.duration);
+      }
+    });
+    ui.longTaskObserver.observe({ type: "longtask", buffered: true });
+  } catch (_) { /* Long Task API is optional. */ }
+}
+
+function setPoseRuntimeMode(mode, detail = "") {
+  ui.poseRuntimeMode = mode;
+  const badge = $("#poseModeBadge");
+  if (badge) {
+    const tier = ui.poseWorkerActiveModel === "lite" ? "Lite" : "Full";
+    badge.textContent = mode === "local"
+      ? ui.poseWorkerBenchmarking ? `本机模型基准 · ${tier}` : `本机实时姿态 · ${tier}`
+      : mode === "server"
+        ? "服务器兼容姿态"
+        : mode === "unavailable" ? "本机姿态不可用" : "正在准备本机姿态";
+    badge.title = detail;
+  }
+}
+
+function closePoseTransfer(item) {
+  try { item?.image?.close?.(); } catch (_) { /* Ignore already transferred frames. */ }
+}
+
+function activateServerPoseFallback(reason, notifyUser = true) {
+  const fallbackAllowed = ui.realtimeConfig.local_first?.server_pose_fallback !== false;
+  if (!fallbackAllowed) {
+    closePoseTransfer(ui.poseWorkerPending);
+    ui.poseWorkerPending = null;
+    ui.poseWorkerRequestedMeta = null;
+    ui.poseWorkerBusy = false;
+    try { ui.poseWorker?.terminate(); } catch (_) { /* Worker may already be gone. */ }
+    ui.poseWorker = null;
+    setPoseRuntimeMode("unavailable", reason);
+    if (notifyUser) {
+      toast(`本机姿态不可用，且当前配置禁止服务器姿态回退：${reason}`, true);
+    }
+    return false;
+  }
+  if (ui.poseRuntimeMode === "server" && ui.poseWorker === null) return;
+  closePoseTransfer(ui.poseWorkerPending);
+  ui.poseWorkerPending = null;
+  ui.poseWorkerRequestedMeta = null;
+  ui.poseWorkerBusy = false;
+  ui.poseWorkerSlowFrameCount = 0;
+  ui.poseWorkerBenchmarking = false;
+  ui.poseWorkerModelSwitching = false;
+  try { ui.poseWorker?.terminate(); } catch (_) { /* Worker may already be gone. */ }
+  ui.poseWorker = null;
+  setPoseRuntimeMode("server", reason);
+  if (notifyUser) toast(`本机姿态不可用，已切换服务器兼容姿态：${reason}`, true);
+  return true;
+}
+
+function dispatchPoseWorkerFrame(item) {
+  if (!item || !ui.running || ui.paused || !ui.poseWorker || ui.poseRuntimeMode !== "local") {
+    closePoseTransfer(item);
+    return;
+  }
+  ui.poseWorkerBusy = true;
+  ui.poseWorkerTransferMode = item.transferMode;
+  ui.poseWorker.postMessage({
+    type: "frame",
+    image: item.image,
+    frameMeta: item.frameMeta,
+    transferMode: item.transferMode,
+    copyStartMs: item.copyStartMs,
+    copyEndMs: item.copyEndMs,
+  }, [item.image]);
+}
+
+function queuePoseWorkerFrame(item) {
+  if (ui.poseWorkerBusy) {
+    if (ui.poseWorkerPending) ui.poseWorkerDroppedFrames += 1;
+    closePoseTransfer(ui.poseWorkerPending);
+    ui.poseWorkerPending = item;
+  } else {
+    dispatchPoseWorkerFrame(item);
+  }
+}
+
+async function createPoseTransfer(frameMeta) {
+  const video = $("#localVideo");
+  const copyStartMs = performance.now();
+  if ("VideoFrame" in window) {
+    try {
+      const image = new VideoFrame(video);
+      return { image, frameMeta, transferMode: "video-frame", copyStartMs, copyEndMs: performance.now() };
+    } catch (_) { /* Fall through to ImageBitmap. */ }
+  }
+  if (typeof createImageBitmap === "function") {
+    const image = await createImageBitmap(video);
+    return { image, frameMeta, transferMode: "image-bitmap", copyStartMs, copyEndMs: performance.now() };
+  }
+  throw new Error("浏览器不支持 VideoFrame 或 ImageBitmap 转移");
+}
+
+async function pumpPoseWorkerFrame() {
+  if (ui.poseWorkerFrameCreationBusy || !ui.poseWorkerRequestedMeta || ui.poseRuntimeMode !== "local") return;
+  ui.poseWorkerFrameCreationBusy = true;
+  const frameMeta = ui.poseWorkerRequestedMeta;
+  ui.poseWorkerRequestedMeta = null;
+  try {
+    const item = await createPoseTransfer(frameMeta);
+    renderPerformance.recordPhaseSpan("pose_transfer", item.copyStartMs, item.copyEndMs);
+    if (!ui.running || ui.paused || ui.poseRuntimeMode !== "local") {
+      closePoseTransfer(item);
+    } else if (ui.poseWorkerRequestedMeta && ui.poseWorkerRequestedMeta.frameId > frameMeta.frameId) {
+      ui.poseWorkerDroppedFrames += 1;
+      closePoseTransfer(item);
+    } else {
+      queuePoseWorkerFrame(item);
+    }
+  } catch (error) {
+    activateServerPoseFallback(error?.message || String(error));
+  } finally {
+    ui.poseWorkerFrameCreationBusy = false;
+    if (ui.poseWorkerRequestedMeta) void pumpPoseWorkerFrame();
+  }
+}
+
+function submitLocalPoseFrame(frameMeta) {
+  if (ui.poseRuntimeMode !== "local" || !ui.poseWorker || ui.paused) return;
+  const interval = 1000 / Math.max(1, Number(ui.realtimeConfig.target_fps || 30));
+  const now = performance.now();
+  if (now - ui.poseWorkerLastCaptureAt < interval) return;
+  ui.poseWorkerLastCaptureAt = now;
+  if (ui.poseWorkerRequestedMeta) ui.poseWorkerDroppedFrames += 1;
+  ui.poseWorkerRequestedMeta = frameMeta;
+  void pumpPoseWorkerFrame();
+}
+
+function visibleLocalPoseNames() {
+  const profile = selectedLandmarkProfile();
+  const face = new Set(poseLandmarkNames.slice(0, 11));
+  const upper = new Set(["left_shoulder","right_shoulder","left_elbow","right_elbow","left_wrist","right_wrist","left_pinky","right_pinky","left_index","right_index","left_thumb","right_thumb","left_hip","right_hip"]);
+  const lower = new Set(["left_hip","right_hip","left_knee","right_knee","left_ankle","right_ankle","left_heel","right_heel","left_foot_index","right_foot_index"]);
+  const fingerProxy = new Set(["left_pinky","right_pinky","left_index","right_index","left_thumb","right_thumb"]);
+  return new Set(poseLandmarkNames.filter(name => {
+    if (profile === "no-face" && face.has(name)) return false;
+    if (profile === "upper-body" && !upper.has(name)) return false;
+    if (profile === "lower-body" && !lower.has(name)) return false;
+    return $("#fingerToggle").checked || !fingerProxy.has(name);
+  }));
+}
+
+function serializeLocalLandmarks(landmarks) {
+  return (landmarks || []).map(point => ({
+    x: finiteNumber(point.x, 0), y: finiteNumber(point.y, 0), z: finiteNumber(point.z, 0),
+    visibility: finiteNumber(point.visibility, 1), presence: finiteNumber(point.presence, 1),
+  }));
+}
+
+function requestLiteModelDowngrade(reason) {
+  if (!ui.poseWorker || ui.poseWorkerModelSwitching || ui.poseWorkerActiveModel === "lite") return false;
+  const config = ui.realtimeConfig.browser_pose || {};
+  if (!config.model_urls?.lite || !config.lite_auto_approved) return false;
+  ui.poseWorkerModelSwitching = true;
+  ui.poseWorkerBenchmarking = false;
+  ui.poseWorkerRequestedMeta = null;
+  closePoseTransfer(ui.poseWorkerPending);
+  ui.poseWorkerPending = null;
+  setPoseRuntimeMode("initializing", reason);
+  ui.poseWorker.postMessage({ type: "switch_model", model: "lite", reason });
+  return true;
+}
+
+function handleLocalPoseResult(message) {
+  ui.poseWorkerBusy = false;
+  if (!ui.running || ui.paused || ui.poseRuntimeMode !== "local") {
+    closePoseTransfer(ui.poseWorkerPending);
+    ui.poseWorkerPending = null;
+    return;
+  }
+  ui.poseWorkerFailureCount = 0;
+  ui.poseWorkerActiveModel = message.model === "lite" ? "lite" : "full";
+  ui.poseWorkerBenchmarking = Boolean(message.benchmarking);
+  setPoseRuntimeMode("local", ui.poseWorkerBenchmarking ? "正在比较 Full 与 Lite" : "");
+  const config = ui.realtimeConfig.browser_pose || {};
+  const inferenceMs = finiteNumber(message.poseInferenceMs, 0);
+  const slowThresholdMs = ui.poseWorkerActiveModel === "full"
+    ? Number(config.full_overload_inference_ms || 50)
+    : Number(config.max_inference_ms || 100);
+  ui.poseWorkerSlowFrameCount = !ui.poseWorkerBenchmarking && inferenceMs > slowThresholdMs
+    ? ui.poseWorkerSlowFrameCount + 1
+    : 0;
+  if (ui.poseWorkerSlowFrameCount >= Number(config.slow_frame_limit || 12)) {
+    const reason = `${ui.poseWorkerActiveModel === "full" ? "Full" : "Lite"} 推理持续超过 ${slowThresholdMs} ms`;
+    if (ui.poseWorkerActiveModel === "full" && requestLiteModelDowngrade(reason)) {
+      toast(`设备持续过载，正在从 Full 降为 Lite：${reason}`, true);
+    } else {
+      activateServerPoseFallback(reason);
+    }
+    return;
+  }
+  const frameMeta = message.frameMeta;
+  const visible = visibleLocalPoseNames();
+  const keypoints = (message.imageLandmarks || []).map((point, index) => ({
+    name: poseLandmarkNames[index],
+    x: finiteNumber(point.x, 0), y: finiteNumber(point.y, 0), z: finiteNumber(point.z, 0),
+    visibility: Math.min(finiteNumber(point.visibility, 1), finiteNumber(point.presence, 1)),
+  })).filter(point => point.name && visible.has(point.name));
+  const connections = poseConnectionNames;
+  const analysis = ui.latestAnalysisResult || {};
+  const receivedAt = performance.now();
+  ui.latestResult = {
+    ...analysis,
+    type: "result",
+    session_id: ui.activeRealtimeSessionId,
+    run_id: ui.activeRealtimeRunId,
+    frame_id: frameMeta.frameId,
+    sequence: frameMeta.frameId,
+    frame_meta: frameMeta,
+    action: $("#actionSelect").value,
+    request_backend: $("#backendSelect").value,
+    pose_detected: keypoints.length > 0,
+    keypoints,
+    connections,
+    assessment: analysis.assessment || {},
+    floor_reference: analysis.floor_reference || {},
+    display_filter: message.displayFilter || {},
+    latency_timing: {
+      ...timingForVideoFrame(frameMeta),
+      frame_copy_start_ms: message.copyStartMs,
+      frame_copy_end_ms: message.copyEndMs,
+      local_pose_inference_ms: message.poseInferenceMs,
+      local_pose_dropped_frames: ui.poseWorkerDroppedFrames,
+      client_result_receive_ms: receivedAt,
+    },
+    metrics: {
+      ...(analysis.metrics || {}),
+      backend: `browser-mediapipe-${ui.poseWorkerActiveModel}`,
+      inference_ms: message.poseInferenceMs,
+      queue_dropped: ui.poseWorkerDroppedFrames,
+      display_raw_blend_weight: finiteNumber(message.displayFilter?.meanRawWeight, 0),
+      display_blended_point_count: Number(message.displayFilter?.blendedPointCount || 0),
+      fps: analysis.metrics?.fps || 0,
+    },
+  };
+  updateDisplayPredictionSource(ui.latestResult);
+  ui.lastResultAt = receivedAt;
+  $("#loadingOverlay").hidden = true;
+  if (domUpdateScheduler.due("local_metrics", receivedAt)) {
+    const tierLabel = ui.poseWorkerActiveModel === "lite" ? "Lite" : "Full";
+    setTextIfChanged("#backendMetric", `本机 MediaPipe ${tierLabel}${ui.poseWorkerBenchmarking ? " · 基准" : ""}`);
+    setTextIfChanged("#latencyMetric", Number(message.poseInferenceMs || 0).toFixed(1));
+    setTextIfChanged("#poseMetric", keypoints.length ? "已锁定人体" : "正在寻找人体");
+    setClassIfChanged("#poseMetric", keypoints.length ? "good" : "bad");
+  }
+  if (!ui.poseWorkerBenchmarking) {
+    ui.latestResult.latency_timing.socket_send_ms = performance.now();
+    const benchmarkReport = ui.poseWorkerBenchmarkSent ? null : ui.poseWorkerBenchmarkReport;
+    sendSocket({
+      type: "pose_frame",
+      session_id: ui.activeRealtimeSessionId,
+      run_id: ui.activeRealtimeRunId,
+      frame_id: frameMeta.frameId,
+      action: $("#actionSelect").value,
+      backend: $("#backendSelect").value,
+      capture_timestamp_ms: finiteNumber(frameMeta.captureTime, frameMeta.presentationTime),
+      presentation_timestamp_ms: frameMeta.presentationTime,
+      image_landmarks: serializeLocalLandmarks(message.rawImageLandmarks),
+      world_landmarks: serializeLocalLandmarks(message.rawWorldLandmarks),
+      pose_inference_ms: finiteNumber(message.poseInferenceMs, 0),
+      pose_model: ui.poseWorkerActiveModel,
+      pose_model_benchmark: benchmarkReport,
+      display_filter: message.displayFilter || {},
+      source: "browser_mediapipe",
+      frame_meta: frameMeta,
+      timing: ui.latestResult.latency_timing,
+    });
+    if (benchmarkReport) ui.poseWorkerBenchmarkSent = true;
+  }
+  const pending = ui.poseWorkerPending;
+  ui.poseWorkerPending = null;
+  if (pending) dispatchPoseWorkerFrame(pending);
+}
+
+function initializeBrowserPoseWorker() {
+  if (ui.poseWorkerReadyPromise) return ui.poseWorkerReadyPromise;
+  if ($("#poseRuntimeSelect")?.value === "server") {
+    activateServerPoseFallback("用户选择服务器兼容姿态", false);
+    return Promise.resolve(false);
+  }
+  const config = ui.realtimeConfig.browser_pose || {};
+  if (!config.enabled || !("Worker" in window)) {
+    activateServerPoseFallback("浏览器不支持本机 Worker 姿态", false);
+    return Promise.resolve(false);
+  }
+  setPoseRuntimeMode("initializing");
+  ui.poseWorkerReadyPromise = new Promise(resolve => {
+    let settled = false;
+    let worker;
+    try {
+      worker = new Worker(config.worker_url, { type: "module", name: "pose-landmarker" });
+    } catch (error) {
+      activateServerPoseFallback(error?.message || "无法创建本机姿态 Worker");
+      resolve(false);
+      return;
+    }
+    ui.poseWorker = worker;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      activateServerPoseFallback("本机模型初始化超时");
+      resolve(false);
+    }, Number(config.initialization_timeout_ms || 20000));
+    worker.onmessage = event => {
+      const message = event.data || {};
+      if (message.type === "ready") {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          ui.poseWorkerActiveModel = message.model === "lite" ? "lite" : "full";
+          ui.poseWorkerModelPreference = message.modelPreference || "auto";
+          ui.poseWorkerBenchmarking = Boolean(message.benchmarking);
+          ui.poseWorkerBenchmarkLongTaskBaseline = ui.longTaskCount;
+          setPoseRuntimeMode("local", ui.poseWorkerBenchmarking ? "正在进行 3 秒 Full/Lite 基准" : `MediaPipe Pose Landmarker · ${ui.poseWorkerActiveModel}`);
+          resolve(true);
+        }
+      } else if (message.type === "init_error") {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timeout);
+          activateServerPoseFallback(message.message || "本机模型加载失败");
+          resolve(false);
+        }
+      } else if (message.type === "result") {
+        handleLocalPoseResult(message);
+      } else if (message.type === "benchmark_progress") {
+        ui.poseWorkerActiveModel = message.nextModel === "lite" ? "lite" : "full";
+        ui.poseWorkerBenchmarking = true;
+        setPoseRuntimeMode("local", "Full 基准完成，正在测试 Lite");
+      } else if (message.type === "benchmark_complete") {
+        ui.poseWorkerActiveModel = message.selectedModel === "lite" ? "lite" : "full";
+        ui.poseWorkerBenchmarking = false;
+        ui.poseWorkerBenchmarkReport = {
+          ...message,
+          mainThreadLongTaskCount: Math.max(0, ui.longTaskCount - ui.poseWorkerBenchmarkLongTaskBaseline),
+        };
+        ui.poseWorkerBenchmarkSent = false;
+        setPoseRuntimeMode("local", message.reason || "自动基准完成");
+        const fullP95 = Number(message.stats?.full?.inferenceP95Ms || 0).toFixed(1);
+        const liteP95 = Number(message.stats?.lite?.inferenceP95Ms || 0).toFixed(1);
+        toast(`本机姿态基准完成：Full P95 ${fullP95} ms，Lite P95 ${liteP95} ms；已选择 ${ui.poseWorkerActiveModel === "lite" ? "Lite" : "Full"}`);
+      } else if (message.type === "model_changed") {
+        ui.poseWorkerActiveModel = message.model === "lite" ? "lite" : "full";
+        ui.poseWorkerModelSwitching = false;
+        ui.poseWorkerSlowFrameCount = 0;
+        setPoseRuntimeMode("local", message.reason || "姿态档位已切换");
+        toast(`本机姿态已切换为 ${ui.poseWorkerActiveModel === "lite" ? "Lite" : "Full"}`);
+      } else if (message.type === "model_change_error") {
+        ui.poseWorkerModelSwitching = false;
+        activateServerPoseFallback(message.message || "Lite 模型切换失败");
+      } else if (message.type === "frame_skipped") {
+        ui.poseWorkerBusy = false;
+      } else if (message.type === "frame_error") {
+        ui.poseWorkerBusy = false;
+        ui.poseWorkerFailureCount += 1;
+        if (ui.poseWorkerFailureCount >= 3) activateServerPoseFallback(message.message || "本机推理连续失败");
+        else if (ui.poseWorkerPending && ui.running && !ui.paused) {
+          const pending = ui.poseWorkerPending;
+          ui.poseWorkerPending = null;
+          dispatchPoseWorkerFrame(pending);
+        } else if (ui.poseWorkerPending) {
+          closePoseTransfer(ui.poseWorkerPending);
+          ui.poseWorkerPending = null;
+        }
+      }
+    };
+    worker.onerror = event => {
+      clearTimeout(timeout);
+      if (!settled) { settled = true; resolve(false); }
+      activateServerPoseFallback(event.message || "本机姿态 Worker 异常");
+    };
+    worker.postMessage({
+      type: "init",
+      wasmRoot: config.wasm_root,
+      modelUrls: config.model_urls || { full: config.model_url },
+      modelPreference: $("#poseModelSelect")?.value || config.model_preference || "auto",
+      benchmarkDurationMs: config.benchmark_duration_ms || 3000,
+      liteAutoApproved: Boolean(config.lite_auto_approved),
+      displaySmoothing: config.display_smoothing || {},
+    });
+  });
+  return ui.poseWorkerReadyPromise;
+}
+
+function restartBrowserPoseWorker() {
+  closePoseTransfer(ui.poseWorkerPending);
+  ui.poseWorkerPending = null;
+  ui.poseWorkerRequestedMeta = null;
+  try { ui.poseWorker?.terminate(); } catch (_) { /* Worker may already be gone. */ }
+  ui.poseWorker = null;
+  ui.poseWorkerReadyPromise = null;
+  ui.poseWorkerBusy = false;
+  ui.poseWorkerFailureCount = 0;
+  ui.poseWorkerSlowFrameCount = 0;
+  ui.poseWorkerDroppedFrames = 0;
+  ui.poseWorkerBenchmarking = false;
+  ui.poseWorkerBenchmarkReport = null;
+  ui.poseWorkerBenchmarkSent = false;
+  ui.poseWorkerModelSwitching = false;
+  displayPosePredictor.reset();
+  setPoseRuntimeMode("initializing");
+  if (ui.mediaStream && $("#poseRuntimeSelect")?.value !== "server") void initializeBrowserPoseWorker();
+}
 
 const phaseLabels = {
   idle: "等待开始", unknown: "识别中", ready: "准备就绪", no_pose: "未检测到姿态", low_visibility: "可见度不足",
@@ -102,6 +854,9 @@ const actionCameraTips = {
   },
 };
 const backendLabels = {
+  "browser-mediapipe": "本机 MediaPipe",
+  "browser-mediapipe-full": "本机 MediaPipe Full",
+  "browser-mediapipe-lite": "本机 MediaPipe Lite",
   "sample-cache": "预计算示例结果",
   "yolo-rtmw-wholebody": "YOLO + RTMW WholeBody",
   "yolo-guided-mediapipe-fallback": "YOLO + MediaPipe（RTMW 降级）",
@@ -209,6 +964,15 @@ async function loadOptions() {
     const options = await api("/api/options");
     ui.csrfToken = options.csrf_token;
     ui.realtimeConfig = options.realtime || ui.realtimeConfig;
+    domUpdateScheduler.configure(ui.realtimeConfig.rendering || {});
+    renderPerformance.configure(ui.realtimeConfig.rendering || {});
+    cameraDiagnostics.configure(ui.realtimeConfig.camera || {});
+    displayPosePredictor.configure(ui.realtimeConfig.browser_pose?.display_prediction || {});
+    const modelPreference = ui.realtimeConfig.browser_pose?.model_preference || "auto";
+    if (["auto", "lite", "full"].includes(modelPreference)) {
+      $("#poseModelSelect").value = modelPreference;
+      ui.poseWorkerModelPreference = modelPreference;
+    }
     ui.samplesByAction = new Map((options.samples || []).map(item => [item.action, item]));
     ui.standards = options.standards || {};
     ui.officialRules = options.official_rules || {};
@@ -258,17 +1022,13 @@ function renderStandards(action) {
 }
 
 function renderCameraTip(action) {
-  const node = $("#cameraTip");
-  if (!node) return;
   const tip = actionCameraTips[action] || actionCameraTips.none;
-  node.textContent = `推荐视角：${tip.view}；入镜范围：${tip.framing}。`;
+  setTextIfChanged("#cameraTip", `推荐视角：${tip.view}；入镜范围：${tip.framing}。`);
 }
 
 function setConnectionMetricForSource(mode = ui.sourceMode) {
-  const metric = $("#connectionMetric");
-  if (!metric) return;
-  metric.textContent = mode === "camera" ? "未连接" : "本机处理";
-  metric.className = "neutral";
+  setTextIfChanged("#connectionMetric", mode === "camera" ? "未连接" : "本机处理");
+  setClassIfChanged("#connectionMetric", "neutral");
 }
 
 function selectSource(mode) {
@@ -297,7 +1057,7 @@ function setRunning(running) {
   $("#pauseButton").disabled = !running;
   $("#recordButton").disabled = !running || !window.MediaRecorder;
   $("#screenshotButton").disabled = !running;
-  $$("#sourceTabs button, #videoFile, #backendSelect, #openCameraButton").forEach(node => { node.disabled = running; });
+  $$("#sourceTabs button, #videoFile, #backendSelect, #poseRuntimeSelect, #poseModelSelect, #openCameraButton").forEach(node => { node.disabled = running; });
   $("#switchCameraButton").disabled = !ui.mediaStream;
   $("#cameraDevice").disabled = !ui.mediaStream;
 }
@@ -309,6 +1069,13 @@ function setPermissionState(state, message) {
 }
 
 function stopMediaTracks() {
+  stopVideoFrameAudit();
+  displayPosePredictor.reset();
+  cameraDiagnostics.reset();
+  cameraDiagnosticCache.hasPreviousLuma = false;
+  cameraDiagnosticCache.lastSampleAt = 0;
+  cameraDiagnosticCache.lastReportAt = 0;
+  setTextIfChanged("#cameraDiagnostic", "开启摄像头后显示实际规格与硬件诊断");
   if (ui.mediaStream) ui.mediaStream.getTracks().forEach(track => track.stop());
   ui.mediaStream = null;
   const video = $("#localVideo");
@@ -323,25 +1090,68 @@ async function openCamera({ deviceId = "", facingMode = ui.facingMode } = {}) {
   }
   setPermissionState("requesting", "正在等待你确认浏览器摄像头权限…");
   stopMediaTracks();
-  const requestedCameraFps = ui.realtimeConfig.camera_fps || 60;
+  const cameraConfig = ui.realtimeConfig.camera || {};
+  const requestedCameraFps = cameraConfig.preferred_fps || ui.realtimeConfig.camera_fps || 60;
+  const fallbackCameraFps = cameraConfig.fallback_fps || 30;
+  const preferredWidth = cameraConfig.preferred_width || ui.realtimeConfig.frame_width || 640;
+  const preferredHeight = cameraConfig.preferred_height || ui.realtimeConfig.frame_height || 480;
   const videoConstraint = deviceId
-    ? { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: requestedCameraFps, max: requestedCameraFps } }
-    : { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: requestedCameraFps, max: requestedCameraFps } };
+    ? {
+        deviceId: { exact: deviceId },
+        width: { ideal: preferredWidth },
+        height: { ideal: preferredHeight },
+        frameRate: { ideal: requestedCameraFps, min: fallbackCameraFps },
+      }
+    : {
+        facingMode: { ideal: facingMode },
+        width: { ideal: preferredWidth },
+        height: { ideal: preferredHeight },
+        frameRate: { ideal: requestedCameraFps, min: fallbackCameraFps },
+      };
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraint, audio: false });
+    } catch (error) {
+      if (error.name !== "OverconstrainedError") throw error;
+      const relaxedConstraint = deviceId
+        ? {
+            deviceId: { exact: deviceId },
+            width: { ideal: preferredWidth },
+            height: { ideal: preferredHeight },
+            frameRate: { ideal: fallbackCameraFps },
+          }
+        : {
+            facingMode: { ideal: facingMode },
+            width: { ideal: preferredWidth },
+            height: { ideal: preferredHeight },
+            frameRate: { ideal: fallbackCameraFps },
+          };
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: relaxedConstraint,
+        audio: false,
+      });
+      toast(`摄像头不支持首选 ${requestedCameraFps} FPS，已明确回退到 ${fallbackCameraFps} FPS`);
+    }
     ui.mediaStream = stream;
     const video = $("#localVideo");
     video.srcObject = stream;
     video.muted = true;
     video.playsInline = true;
     await video.play();
+    startVideoFrameAudit();
+    void initializeBrowserPoseWorker();
     video.hidden = false;
     video.classList.toggle("mirrored", $("#mirrorToggle").checked);
     $("#streamImage").hidden = true;
     $("#emptyStage").hidden = true;
     $("#videoBadges").hidden = false;
-    $("#sourceBadge").textContent = stream.getVideoTracks()[0]?.label || "本机摄像头";
-    const actualFps = Number(stream.getVideoTracks()[0]?.getSettings().frameRate || 0);
+    const track = stream.getVideoTracks()[0];
+    const settings = track?.getSettings() || {};
+    cameraDiagnostics.setSettings(settings);
+    renderCameraDiagnostics(cameraDiagnostics.snapshot());
+    $("#sourceBadge").textContent = track?.label || "本机摄像头";
+    const actualFps = Number(settings.frameRate || 0);
     $("#captureMetric").textContent = actualFps > 0 ? `${actualFps.toFixed(0)} FPS` : "设备自适应";
     $("#openCameraButton").textContent = "关闭摄像头";
     $("#switchCameraButton").disabled = false;
@@ -507,28 +1317,20 @@ function scheduleReconnect() {
 function startCaptureLoop() {
   stopCaptureLoop();
   ui.captureFps = ui.realtimeConfig.target_fps || 30;
-  scheduleNextCapture(0);
+  ui.longTaskCount = 0;
+  ui.longTaskDurationMs = 0;
+  ui.lastAuditedPoseFrameId = -1;
+  domUpdateScheduler.reset();
+  renderPerformance.reset();
 }
 
-function scheduleNextCapture(delay = 0) {
-  clearTimeout(ui.captureTimer);
-  if (!ui.running || ui.requestInFlight) return;
-  const interval = Math.max(34, Math.ceil(1000 / ui.captureFps));
-  const rateDelay = Math.max(0, interval - (performance.now() - ui.lastFrameSentAt));
-  ui.captureTimer = setTimeout(captureLatestFrame, Math.max(0, delay, rateDelay));
-}
-
-async function captureLatestFrame() {
-  ui.captureTimer = null;
-  const interval = Math.max(34, Math.ceil(1000 / ui.captureFps));
+async function captureLatestFrame(frameMeta) {
+  const interval = 1000 / Math.max(1, ui.captureFps);
   if (!ui.running || !ui.mediaStream || ui.paused || ui.socket?.readyState !== WebSocket.OPEN) {
-    scheduleNextCapture(interval);
     return;
   }
-  if (ui.requestInFlight || ui.socket.bufferedAmount > 1024 * 1024) {
-    scheduleNextCapture(interval);
-    return;
-  }
+  if (!frameMeta || performance.now() - ui.lastFrameSentAt < interval) return;
+  if (ui.requestInFlight || ui.socket.bufferedAmount > 1024 * 1024) return;
   ui.requestInFlight = true;
   const video = $("#localVideo");
   if (video.readyState < 2 || video.videoWidth <= 0) {
@@ -541,9 +1343,16 @@ async function captureLatestFrame() {
   canvas.width = Math.max(2, Math.round(video.videoWidth * scale));
   canvas.height = Math.max(2, Math.round(video.videoHeight * scale));
   const clientCaptureMs = performance.now();
+  const sourceFrameMeta = timingForVideoFrame(frameMeta);
+  const frameCopyStartMs = performance.now();
   canvas.getContext("2d", { alpha: false }).drawImage(video, 0, 0, canvas.width, canvas.height);
+  const frameCopyEndMs = performance.now();
+  renderPerformance.recordPhaseSpan("frame_copy", frameCopyStartMs, frameCopyEndMs);
+  const encodeStartMs = performance.now();
   const jpegQuality = Number(ui.realtimeConfig.jpeg_quality ?? 0.65);
   const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", jpegQuality));
+  const encodeEndMs = performance.now();
+  renderPerformance.recordPhaseSpan("encode", encodeStartMs, encodeEndMs);
   if (!ui.running || ui.socket?.readyState !== WebSocket.OPEN) {
     finishFrameRequest();
     return;
@@ -552,7 +1361,21 @@ async function captureLatestFrame() {
     finishFrameRequest();
     return;
   }
-  const frameId = ++ui.sequence;
+  const image = new Uint8Array(await blob.arrayBuffer());
+  if (!ui.running || ui.socket?.readyState !== WebSocket.OPEN) {
+    finishFrameRequest();
+    return;
+  }
+  const frameId = frameMeta.frameId;
+  const socketSendMs = performance.now();
+  const timing = {
+    ...sourceFrameMeta,
+    frame_copy_start_ms: frameCopyStartMs,
+    frame_copy_end_ms: frameCopyEndMs,
+    encode_start_ms: encodeStartMs,
+    encode_end_ms: encodeEndMs,
+    socket_send_ms: socketSendMs,
+  };
   const metadata = new TextEncoder().encode(JSON.stringify({
     session_id: ui.activeRealtimeSessionId,
     run_id: ui.activeRealtimeRunId,
@@ -560,12 +1383,9 @@ async function captureLatestFrame() {
     client_capture_ms: clientCaptureMs,
     action: $("#actionSelect").value,
     backend: $("#backendSelect").value,
+    frame_meta: frameMeta,
+    timing,
   }));
-  const image = new Uint8Array(await blob.arrayBuffer());
-  if (!ui.running || ui.socket?.readyState !== WebSocket.OPEN) {
-    finishFrameRequest();
-    return;
-  }
   const packet = new Uint8Array(8 + metadata.length + image.length);
   packet.set([0x50, 0x53, 0x56, 0x32], 0);
   new DataView(packet.buffer).setUint32(4, metadata.length, false);
@@ -575,7 +1395,7 @@ async function captureLatestFrame() {
   ui.lastFrameSentAt = sentAt;
   ui.inFlightFrameId = frameId;
   ui.pendingFrames.clear();
-  ui.pendingFrames.set(frameId, { sentAt, captureMs: clientCaptureMs });
+  ui.pendingFrames.set(frameId, { sentAt, captureMs: clientCaptureMs, timing, frameMeta });
   try {
     ui.socket.send(packet.buffer);
   } catch (_) {
@@ -592,7 +1412,6 @@ async function captureLatestFrame() {
     ui.staleResultCount += 1;
     $("#connectionMetric").textContent = "请求超时 · 正在恢复";
     $("#connectionMetric").className = "bad";
-    scheduleNextCapture(0);
   }, Math.max(1000, Number(ui.realtimeConfig.request_timeout_ms || 3000)));
 }
 
@@ -603,17 +1422,17 @@ function finishFrameRequest(frameId = null) {
   if (ui.inFlightFrameId >= 0) ui.pendingFrames.delete(ui.inFlightFrameId);
   ui.requestInFlight = false;
   ui.inFlightFrameId = -1;
-  scheduleNextCapture(0);
 }
 
 function stopCaptureLoop() {
-  clearTimeout(ui.captureTimer);
   clearTimeout(ui.requestTimeout);
-  ui.captureTimer = null;
   ui.requestTimeout = null;
   ui.requestInFlight = false;
   ui.inFlightFrameId = -1;
   ui.pendingFrames.clear();
+  ui.poseWorkerRequestedMeta = null;
+  closePoseTransfer(ui.poseWorkerPending);
+  ui.poseWorkerPending = null;
 }
 
 function handleRealtimeResult(result) {
@@ -643,8 +1462,27 @@ function handleRealtimeResult(result) {
     return;
   }
   ui.lastRenderedPoseFrameId = frameId;
-  ui.latestResult = { ...result, frame_id: frameId, client_capture_ms: captureMs };
-  ui.lastResultAt = receivedAt;
+  const isLocalAnalysis = ui.poseRuntimeMode === "local" && result.source === "browser_mediapipe";
+  if (isLocalAnalysis) {
+    ui.latestAnalysisResult = result;
+    if (ui.latestResult) {
+      ui.latestResult = {
+        ...ui.latestResult,
+        assessment: result.assessment || {},
+        floor_reference: result.floor_reference || {},
+      };
+    }
+  } else {
+    ui.latestResult = {
+      ...result,
+      frame_id: frameId,
+      frame_meta: result.frame_meta || pending?.frameMeta || null,
+      client_capture_ms: captureMs,
+      latency_timing: { ...(result.latency_timing || pending?.timing || {}), client_result_receive_ms: receivedAt },
+    };
+    ui.lastResultAt = receivedAt;
+    updateDisplayPredictionSource(ui.latestResult);
+  }
   const roundTrip = pending ? receivedAt - pending.sentAt : result.metrics.server_ms;
   let quality = "流畅";
   let qualityClass = "good";
@@ -652,8 +1490,15 @@ function handleRealtimeResult(result) {
   else if (roundTrip > 250) { quality = "一般"; qualityClass = "neutral"; }
   if (roundTrip > 500) ui.captureFps = Math.max(15, ui.captureFps - 2);
   else if (roundTrip < 200 && result.sequence % 30 === 0) ui.captureFps = Math.min(ui.realtimeConfig.target_fps || 30, ui.captureFps + 1);
-  $("#connectionMetric").textContent = `${quality} · RTT ${Math.round(roundTrip)} ms · 姿态 ${Math.round(poseAge)} ms`;
-  $("#connectionMetric").className = qualityClass;
+  if (domUpdateScheduler.due("connection_metrics", receivedAt)) {
+    setTextIfChanged(
+      "#connectionMetric",
+      isLocalAnalysis
+        ? `本机姿态 · 规则 ${Math.round(roundTrip)} ms`
+        : `${quality} · RTT ${Math.round(roundTrip)} ms · 姿态 ${Math.round(poseAge)} ms`,
+    );
+    setClassIfChanged("#connectionMetric", qualityClass);
+  }
   $("#loadingOverlay").hidden = true;
   updateState({
     running: true,
@@ -699,107 +1544,282 @@ function clearOverlay() {
   canvas.hidden = true;
 }
 
-function startPoseDrawLoop() {
-  if (ui.drawAnimation !== null) return;
-  const drawLoop = now => {
-    ui.drawAnimation = requestAnimationFrame(drawLoop);
-    if (!ui.mediaStream || !ui.running) return;
-    const result = ui.latestResult;
-    const contextIsCurrent = Boolean(
-      result
-      && result.session_id === ui.activeRealtimeSessionId
-      && result.run_id === ui.activeRealtimeRunId
-      && result.action === $("#actionSelect").value
-      && result.request_backend === $("#backendSelect").value
-    );
-    // Pipeline age decides whether a result is safe to accept.  Once accepted,
-    // keep it visible based on when it reached the browser; otherwise normal
-    // inference latency consumes most of the display lifetime and makes the
-    // skeleton repeatedly fade out between consecutive results.
-    const displayAge = ui.lastResultAt > 0 ? Math.max(0, now - ui.lastResultAt) : Infinity;
-    const maxAge = Number(ui.realtimeConfig.max_pose_age_ms || 150);
-    const hideAfter = Math.max(maxAge, Number(ui.realtimeConfig.hide_pose_after_ms || 300));
-    if (!contextIsCurrent || displayAge > hideAfter) {
-      if (ui.floorCalibrationActive || ui.manualFloorPoints.length) {
-        drawSkeleton({ keypoints: [], connections: [], assessment: {}, floor_reference: {} }, 1);
-      } else {
-        const canvas = $("#overlayCanvas");
-        canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
-        canvas.hidden = true;
-      }
-      return;
+function displayPredictionIdentity(result) {
+  return [
+    result?.session_id || "",
+    result?.run_id || "",
+    result?.action || "",
+    result?.metrics?.backend || result?.request_backend || "",
+  ].join("|");
+}
+
+function updateDisplayPredictionSource(result) {
+  const frameMeta = result?.frame_meta || {};
+  const rawCaptureTimestamp = frameMeta.captureTime;
+  const captureTimestamp = rawCaptureTimestamp === null || rawCaptureTimestamp === undefined
+    ? null
+    : finiteNumber(rawCaptureTimestamp);
+  const sourceTimestamp = captureTimestamp ?? finiteNumber(frameMeta.presentationTime);
+  if (!result?.pose_detected || !Array.isArray(result.keypoints) || sourceTimestamp === null) {
+    displayPosePredictor.reset(displayPredictionIdentity(result));
+    return;
+  }
+  displayPosePredictor.update(
+    result.keypoints,
+    sourceTimestamp,
+    displayPredictionIdentity(result),
+  );
+}
+
+function renderPoseForVideoFrame(currentVideoFrame, now = performance.now()) {
+  const started = performance.now();
+  try {
+    return renderPoseForVideoFrameCore(currentVideoFrame, now);
+  } finally {
+    const ended = performance.now();
+    renderPerformance.record("render_loop_ms", ended - started);
+    renderPerformance.recordPhaseSpan("render", started, ended);
+  }
+}
+
+function renderPoseForVideoFrameCore(currentVideoFrame, now = performance.now()) {
+  if (!ui.mediaStream || !ui.running) return;
+  const result = ui.latestResult;
+  const actionSelect = cachedNode("#actionSelect");
+  const backendSelect = cachedNode("#backendSelect");
+  const contextIsCurrent = Boolean(
+    result
+    && result.session_id === ui.activeRealtimeSessionId
+    && result.run_id === ui.activeRealtimeRunId
+    && result.action === actionSelect.value
+    && result.request_backend === backendSelect.value
+  );
+  const displayAge = ui.lastResultAt > 0 ? Math.max(0, now - ui.lastResultAt) : Infinity;
+  const maxAge = Number(ui.realtimeConfig.max_pose_age_ms || 150);
+  const hideAfter = Math.max(maxAge, Number(ui.realtimeConfig.hide_pose_after_ms || 300));
+  if (!contextIsCurrent || displayAge > hideAfter) {
+    if (ui.floorCalibrationActive || ui.manualFloorPoints.length) {
+      drawSkeleton({ keypoints: [], connections: [], assessment: {}, floor_reference: {} }, 1);
+    } else {
+      const canvas = cachedNode("#overlayCanvas");
+      canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+      canvas.hidden = true;
     }
-    const fadeAfter = Math.max(maxAge, hideAfter * 0.8);
-    const opacity = displayAge <= fadeAfter
-      ? 1
-      : Math.max(0, 1 - (displayAge - fadeAfter) / Math.max(1, hideAfter - fadeAfter));
-    drawSkeleton(result, opacity);
-  };
-  ui.drawAnimation = requestAnimationFrame(drawLoop);
+    return;
+  }
+  const fadeAfter = Math.max(maxAge, hideAfter * 0.8);
+  const opacity = displayAge <= fadeAfter
+    ? 1
+    : Math.max(0, 1 - (displayAge - fadeAfter) / Math.max(1, hideAfter - fadeAfter));
+  drawingCache.predictionContext.action = result.action;
+  drawingCache.predictionContext.phase = result.assessment?.phase || result.phase || "";
+  drawingCache.predictionContext.supportFootNames = result.assessment?.support_foot_names || [];
+  const prediction = displayPosePredictor.predict(
+    finiteNumber(currentVideoFrame.expectedDisplayTime, now),
+    drawingCache.predictionContext,
+  );
+  const renderStart = performance.now();
+  drawSkeleton(result, opacity, renderStart, prediction.landmarks);
+  const renderEnd = performance.now();
+  if (result.frame_id > ui.lastAuditedPoseFrameId) {
+    if (domUpdateScheduler.due("performance_snapshot", renderStart)) {
+      drawingCache.performanceSnapshot = renderPerformance.snapshot();
+    }
+    const renderMetrics = drawingCache.performanceSnapshot;
+    const timing = {
+      ...(result.latency_timing || {}),
+      pose_render_start_ms: renderStart,
+      pose_render_end_ms: renderEnd,
+      expected_display_time_ms: finiteNumber(currentVideoFrame.expectedDisplayTime, renderEnd),
+      video_frame_presented_at_render_ms: finiteNumber(currentVideoFrame.presentationTime, renderStart),
+      source_video_frame_id: finiteNumber(result.frame_meta?.frameId, result.frame_id),
+      current_video_frame_id: finiteNumber(currentVideoFrame.frameId, 0),
+      current_video_presented_frames: finiteNumber(currentVideoFrame.presentedFrames, 0),
+      rvfc_lateness_ms: ui.rvfcLatenessMs,
+      rvfc_late_frame_count: ui.rvfcLateFrameCount,
+      presented_frame_skip_count: ui.presentedFrameSkipCount,
+      main_thread_long_task_count: ui.longTaskCount,
+      main_thread_long_task_duration_ms: Math.round(ui.longTaskDurationMs * 1000) / 1000,
+      render_loop_p95_ms: renderMetrics.renderLoopP95Ms,
+      canvas_draw_p95_ms: renderMetrics.canvasDrawP95Ms,
+      dom_update_p95_ms: renderMetrics.domUpdateP95Ms,
+      long_task_render_count: Number(renderMetrics.longTaskPhases.render || 0),
+      long_task_dom_update_count: Number(renderMetrics.longTaskPhases.dom_update || 0),
+      long_task_frame_copy_count: Number(renderMetrics.longTaskPhases.frame_copy || 0),
+      long_task_encode_count: Number(renderMetrics.longTaskPhases.encode || 0),
+      long_task_pose_transfer_count: Number(renderMetrics.longTaskPhases.pose_transfer || 0),
+      long_task_other_count: Number(renderMetrics.longTaskPhases.other || 0),
+    };
+    result.latency_timing = timing;
+    result.latency = deriveWebLatencies(timing);
+    ui.lastAuditedPoseFrameId = result.frame_id;
+    sendSocket({ type: "latency_audit", frame_id: result.frame_id, timing });
+  }
 }
 
-function stopPoseDrawLoop() {
-  if (ui.drawAnimation !== null) cancelAnimationFrame(ui.drawAnimation);
-  ui.drawAnimation = null;
+// Drawing is driven by the camera frame callback.  These lifecycle functions
+// remain as compatibility hooks for the existing start/stop flow.
+function startPoseDrawLoop() {}
+function stopPoseDrawLoop() {}
+
+function drawSkeleton(result, opacity = 1, now = performance.now(), displayLandmarks = null) {
+  const started = performance.now();
+  try {
+    return drawSkeletonCore(result, opacity, now, displayLandmarks);
+  } finally {
+    const ended = performance.now();
+    renderPerformance.record("canvas_draw_ms", ended - started);
+    renderPerformance.recordPhaseSpan("canvas_draw", started, ended);
+  }
 }
 
-function drawSkeleton(result, opacity = 1) {
-  const video = $("#localVideo");
-  const canvas = $("#overlayCanvas");
+function drawSkeletonCore(result, opacity = 1, now = performance.now(), displayLandmarks = null) {
+  const video = cachedNode("#localVideo");
+  const canvas = cachedNode("#overlayCanvas");
   if (!ui.mediaStream || !video.videoWidth || !result) return;
   resizeOverlayIfNeeded();
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
-  const { drawWidth, drawHeight, offsetX, offsetY } = videoContentRect(canvas, video);
-  const mirrored = $("#mirrorToggle").checked;
-  const points = new Map((result.keypoints || []).map(point => [point.name, point]));
-  const xy = point => [offsetX + (mirrored ? 1 - point.x : point.x) * drawWidth, offsetY + point.y * drawHeight];
+  const contentRect = cachedVideoContentRect(canvas, video);
+  const { drawWidth, drawHeight, offsetX, offsetY } = contentRect;
+  const mirrored = cachedNode("#mirrorToggle").checked;
+  drawingCache.pointPresent.fill(0);
+  for (const point of displayLandmarks || result.keypoints || []) {
+    const index = poseNameToIndex.get(point.name);
+    if (index === undefined) continue;
+    drawingCache.pointPresent[index] = 1;
+    drawingCache.pointX[index] = offsetX + (mirrored ? 1 - point.x : point.x) * drawWidth;
+    drawingCache.pointY[index] = offsetY + point.y * drawHeight;
+    drawingCache.pointVisibility[index] = Number(point.visibility || 0);
+  }
+  if (drawingCache.connectionSource !== result.connections) {
+    drawingCache.connectionSource = result.connections;
+    drawingCache.connectionCount = 0;
+    const connections = result.connections?.length
+      ? result.connections
+      : poseConnectionNames;
+    for (const [startName, endName] of connections) {
+      const start = poseNameToIndex.get(startName);
+      const end = poseNameToIndex.get(endName);
+      if (
+        start === undefined
+        || end === undefined
+        || drawingCache.connectionCount * 2 + 1 >= drawingCache.connectionPairs.length
+      ) {
+        continue;
+      }
+      const offset = drawingCache.connectionCount * 2;
+      drawingCache.connectionPairs[offset] = start;
+      drawingCache.connectionPairs[offset + 1] = end;
+      drawingCache.connectionCount += 1;
+    }
+  }
+  const styleKey = String(canvas.width);
+  if (drawingCache.styleKey !== styleKey) {
+    drawingCache.styleKey = styleKey;
+    drawingCache.style.lineWidth = Math.max(2, canvas.width / 430);
+    drawingCache.style.pointRadius = Math.max(3, canvas.width / 260);
+    drawingCache.style.font = `${Math.max(11, canvas.width / 70)}px Inter, sans-serif`;
+  }
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-  ctx.lineWidth = Math.max(2, canvas.width / 430);
+  ctx.lineWidth = drawingCache.style.lineWidth;
   const formStatus = result.assessment?.status || "unknown";
   const formColor = formStatus === "bad"
     ? "rgba(244, 62, 54, .96)"
     : formStatus === "good" ? "rgba(72, 222, 116, .96)" : "rgba(244, 190, 67, .94)";
   ctx.strokeStyle = formColor;
-  for (const [startName, endName] of result.connections || []) {
-    const start = points.get(startName);
-    const end = points.get(endName);
-    if (!start || !end || start.visibility < 0.2 || end.visibility < 0.2) continue;
-    const [x1, y1] = xy(start);
-    const [x2, y2] = xy(end);
-    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-  }
-  for (const point of points.values()) {
-    if (point.visibility < 0.2) continue;
-    const [x, y] = xy(point);
+  for (let connectionIndex = 0; connectionIndex < drawingCache.connectionCount; connectionIndex += 1) {
+    const offset = connectionIndex * 2;
+    const start = drawingCache.connectionPairs[offset];
+    const end = drawingCache.connectionPairs[offset + 1];
+    if (
+      !drawingCache.pointPresent[start]
+      || !drawingCache.pointPresent[end]
+      || drawingCache.pointVisibility[start] < 0.2
+      || drawingCache.pointVisibility[end] < 0.2
+    ) {
+      continue;
+    }
     ctx.beginPath();
-    ctx.arc(x, y, Math.max(3, canvas.width / 260), 0, Math.PI * 2);
-    ctx.fillStyle = point.visibility >= 0.55 ? formColor : "#f0a023";
+    ctx.moveTo(drawingCache.pointX[start], drawingCache.pointY[start]);
+    ctx.lineTo(drawingCache.pointX[end], drawingCache.pointY[end]);
+    ctx.stroke();
+  }
+  for (let index = 0; index < poseLandmarkNames.length; index += 1) {
+    if (!drawingCache.pointPresent[index] || drawingCache.pointVisibility[index] < 0.2) continue;
+    ctx.beginPath();
+    ctx.arc(
+      drawingCache.pointX[index],
+      drawingCache.pointY[index],
+      drawingCache.style.pointRadius,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fillStyle = drawingCache.pointVisibility[index] >= 0.55 ? formColor : "#f0a023";
     ctx.fill();
     ctx.lineWidth = 1.5;
     ctx.strokeStyle = "rgba(255,255,255,.9)";
     ctx.stroke();
   }
-  ctx.font = `${Math.max(11, canvas.width / 70)}px Inter, sans-serif`;
+  if (domUpdateScheduler.due("angles", now)) updateAngleDrawingCache(result.assessment?.angles || []);
+  ctx.font = drawingCache.style.font;
   ctx.textBaseline = "bottom";
-  for (const angle of result.assessment?.angles || []) {
-    const point = points.get(angle.anchor);
-    if (!point || point.visibility < 0.2) continue;
-    const [x, y] = xy(point);
-    const label = `${angle.label} ${Math.round(angle.value)}° 3D`;
-    const color = angle.status === "bad" ? "#ff5b50" : angle.status === "good" ? "#59e481" : "#f5f5ef";
-    const width = ctx.measureText(label).width;
+  for (let angleIndex = 0; angleIndex < drawingCache.angleCount; angleIndex += 1) {
+    const angle = drawingCache.angleEntries[angleIndex];
+    const anchor = angle.anchorIndex;
+    if (!drawingCache.pointPresent[anchor] || drawingCache.pointVisibility[anchor] < 0.2) continue;
+    const x = drawingCache.pointX[anchor];
+    const y = drawingCache.pointY[anchor];
+    const width = ctx.measureText(angle.label).width;
     ctx.fillStyle = "rgba(20,20,18,.72)";
     ctx.fillRect(x + 6, y - 22, width + 10, 20);
-    ctx.fillStyle = color;
-    ctx.fillText(label, x + 11, y - 5);
+    ctx.fillStyle = angle.color;
+    ctx.fillText(angle.label, x + 11, y - 5);
   }
-  drawFloorReferenceOverlay(ctx, { drawWidth, drawHeight, offsetX, offsetY }, result.floor_reference);
+  drawFloorReferenceOverlay(ctx, contentRect, result.floor_reference);
   ctx.restore();
   canvas.hidden = false;
+}
+
+function updateAngleDrawingCache(angles) {
+  drawingCache.angleCount = 0;
+  for (const angle of angles) {
+    const anchorIndex = poseNameToIndex.get(angle.anchor);
+    if (anchorIndex === undefined) continue;
+    const index = drawingCache.angleCount;
+    const entry = drawingCache.angleEntries[index] || {};
+    entry.anchorIndex = anchorIndex;
+    entry.label = `${angle.label} ${Math.round(angle.value)}° 3D`;
+    entry.color = angle.status === "bad"
+      ? "#ff5b50"
+      : angle.status === "good" ? "#59e481" : "#f5f5ef";
+    drawingCache.angleEntries[index] = entry;
+    drawingCache.angleCount += 1;
+  }
+}
+
+function cachedVideoContentRect(canvas, video) {
+  const key = `${canvas.width}:${canvas.height}:${video.videoWidth}:${video.videoHeight}`;
+  if (drawingCache.rectKey === key) return drawingCache.rect;
+  drawingCache.rectKey = key;
+  const stageRatio = canvas.width / canvas.height;
+  const videoRatio = video.videoWidth / video.videoHeight;
+  const rect = drawingCache.rect;
+  rect.drawWidth = canvas.width;
+  rect.drawHeight = canvas.height;
+  rect.offsetX = 0;
+  rect.offsetY = 0;
+  if (videoRatio > stageRatio) {
+    rect.drawHeight = canvas.width / videoRatio;
+    rect.offsetY = (canvas.height - rect.drawHeight) / 2;
+  } else {
+    rect.drawWidth = canvas.height * videoRatio;
+    rect.offsetX = (canvas.width - rect.drawWidth) / 2;
+  }
+  return rect;
 }
 
 function videoContentRect(canvas, video) {
@@ -820,32 +1840,38 @@ function videoContentRect(canvas, video) {
 }
 
 function drawFloorReferenceOverlay(ctx, rect, floorReference) {
-  const mirrored = $("#mirrorToggle").checked;
-  const backendToCanvas = point => [
-    rect.offsetX + (mirrored ? 1 - point[0] : point[0]) * rect.drawWidth,
-    rect.offsetY + point[1] * rect.drawHeight,
-  ];
-  let points = null;
+  const mirrored = cachedNode("#mirrorToggle").checked;
   const line = floorReference?.line;
-  if (ui.floorCalibrationActive && ui.manualFloorPoints.length) points = ui.manualFloorPoints;
-  else if (line) points = [[line.x1, line.y1], [line.x2, line.y2]];
-  else if (ui.manualFloorPoints.length) points = ui.manualFloorPoints;
-  if (!points?.length) return;
+  const manual = ui.manualFloorPoints;
+  const useManual = (ui.floorCalibrationActive && manual.length) || (!line && manual.length);
+  const pointCount = useManual ? manual.length : line ? 2 : 0;
+  if (!pointCount) return;
 
-  const canvasPoints = points.map(backendToCanvas);
   ctx.save();
   ctx.strokeStyle = floorReference?.status === "UNSURE" ? "#f0a023" : "#c9ff38";
   ctx.fillStyle = ctx.strokeStyle;
   ctx.lineWidth = Math.max(2, ctx.canvas.width / 360);
   ctx.setLineDash([10, 7]);
-  if (canvasPoints.length === 2) {
+  if (pointCount === 2) {
+    const firstSourceX = useManual ? manual[0][0] : line.x1;
+    const firstSourceY = useManual ? manual[0][1] : line.y1;
+    const secondSourceX = useManual ? manual[1][0] : line.x2;
+    const secondSourceY = useManual ? manual[1][1] : line.y2;
+    const firstX = rect.offsetX + (mirrored ? 1 - firstSourceX : firstSourceX) * rect.drawWidth;
+    const firstY = rect.offsetY + firstSourceY * rect.drawHeight;
+    const secondX = rect.offsetX + (mirrored ? 1 - secondSourceX : secondSourceX) * rect.drawWidth;
+    const secondY = rect.offsetY + secondSourceY * rect.drawHeight;
     ctx.beginPath();
-    ctx.moveTo(...canvasPoints[0]);
-    ctx.lineTo(...canvasPoints[1]);
+    ctx.moveTo(firstX, firstY);
+    ctx.lineTo(secondX, secondY);
     ctx.stroke();
   }
   ctx.setLineDash([]);
-  for (const [x, y] of canvasPoints) {
+  for (let index = 0; index < pointCount; index += 1) {
+    const pointX = useManual ? manual[index][0] : index === 0 ? line.x1 : line.x2;
+    const pointY = useManual ? manual[index][1] : index === 0 ? line.y1 : line.y2;
+    const x = rect.offsetX + (mirrored ? 1 - pointX : pointX) * rect.drawWidth;
+    const y = rect.offsetY + pointY * rect.drawHeight;
     ctx.beginPath();
     ctx.arc(x, y, Math.max(5, ctx.canvas.width / 180), 0, Math.PI * 2);
     ctx.fill();
@@ -854,17 +1880,19 @@ function drawFloorReferenceOverlay(ctx, rect, floorReference) {
 }
 
 function renderFloorCalibrationStatus(floorReference) {
-  const status = $("#floorCalibrationStatus");
+  const status = cachedNode("#floorCalibrationStatus");
   if (!status || ui.floorCalibrationActive) return;
+  let text;
   if (ui.manualFloorPoints.length === 2) {
-    status.textContent = floorReference?.status === "UNSURE"
+    text = floorReference?.status === "UNSURE"
       ? "手动线已设置，但当前人体或脚部参考不可靠"
       : "手动地板线已启用";
   } else if (floorReference?.status === "READY") {
-    status.textContent = `自动地板线已就绪 · 置信度 ${Math.round(Number(floorReference.confidence || 0) * 100)}%`;
+    text = `自动地板线已就绪 · 置信度 ${Math.round(Number(floorReference.confidence || 0) * 100)}%`;
   } else {
-    status.textContent = "正在自动估计；请站直并保持双脚完整可见";
+    text = "正在自动估计；请站直并保持双脚完整可见";
   }
+  if (status.textContent !== text) status.textContent = text;
 }
 
 function beginFloorCalibration() {
@@ -976,13 +2004,23 @@ async function startAnalysis() {
     ui.manualStop = false;
     if (ui.sourceMode === "camera") {
       ui.latestResult = null;
+      ui.latestAnalysisResult = null;
+      displayPosePredictor.reset();
       ui.lastResultAt = 0;
       ui.lastRenderedPoseFrameId = -1;
       ui.lastDiscardedFrameId = -1;
       ui.staleResultCount = 0;
       ui.activeRealtimeSessionId = "";
       ui.activeRealtimeRunId = "";
+      ui.poseWorkerLastCaptureAt = 0;
+      ui.poseWorkerFailureCount = 0;
+      ui.poseWorkerSlowFrameCount = 0;
+      ui.poseWorkerDroppedFrames = 0;
+      ui.poseWorkerBenchmarkSent = false;
+      ui.poseWorker?.postMessage({ type: "reset" });
       if (!ui.mediaStream) await openCamera();
+      $("#loadingOverlay").hidden = false;
+      await initializeBrowserPoseWorker();
       setRunning(true);
       $("#loadingOverlay").hidden = false;
       $("#videoBadges").hidden = false;
@@ -1072,7 +2110,10 @@ async function updateLiveSetting(key, value) {
   }
   if (["action", "backend"].includes(key)) {
     ui.latestResult = null;
+    ui.latestAnalysisResult = null;
     ui.lastRenderedPoseFrameId = -1;
+    ui.poseWorker?.postMessage({ type: "reset" });
+    displayPosePredictor.reset();
   }
   if (!ui.running) return;
   try {
@@ -1083,7 +2124,12 @@ async function updateLiveSetting(key, value) {
 
 async function togglePause() {
   ui.paused = !ui.paused;
-  if (ui.paused) cancelVoiceFeedback();
+  if (ui.paused) {
+    cancelVoiceFeedback();
+    ui.poseWorkerRequestedMeta = null;
+    closePoseTransfer(ui.poseWorkerPending);
+    ui.poseWorkerPending = null;
+  }
   try {
     await updateLiveSetting("paused", ui.paused);
     $("#pauseButton").classList.toggle("active", ui.paused);
@@ -1247,37 +2293,68 @@ async function pollState() {
 }
 
 function updateState(state) {
-  const isStarting = state.status === "starting";
-  $("#loadingOverlay").hidden = !isStarting;
-  $("#topStatus").textContent = state.error || state.status_text || "系统就绪";
-  $("#statusDot").className = `status-dot${state.status === "running" ? " live" : state.status === "error" ? " error" : ""}`;
-  $("#stageTitle").textContent = state.running || state.status === "completed" ? `${state.action_label || "动作"} · ${state.source_name}` : "准备开始训练分析";
-  $("#sourceBadge").textContent = state.source_name || "本机画面";
-  $("#backendMetric").textContent = backendLabels[state.backend] || state.backend || "—";
-  $("#fpsMetric").textContent = Number(state.fps || 0).toFixed(1);
-  $("#latencyMetric").textContent = Number(state.inference_ms || 0).toFixed(1);
-  $("#poseMetric").textContent = state.pose_detected ? "已锁定人体" : state.running ? "正在寻找人体" : "等待画面";
-  $("#poseMetric").className = state.pose_detected ? "good" : state.running ? "bad" : "neutral";
-  if (ui.sourceMode !== "camera" && state.source_mode !== "browser-camera") {
-    setConnectionMetricForSource(ui.sourceMode);
+  const started = performance.now();
+  try {
+    const isStarting = state.status === "starting";
+    setHiddenIfChanged("#loadingOverlay", !isStarting);
+    setTextIfChanged("#topStatus", state.error || state.status_text || "系统就绪");
+    setClassIfChanged(
+      "#statusDot",
+      `status-dot${state.status === "running" ? " live" : state.status === "error" ? " error" : ""}`,
+    );
+    setTextIfChanged(
+      "#stageTitle",
+      state.running || state.status === "completed"
+        ? `${state.action_label || "动作"} · ${state.source_name}`
+        : "准备开始训练分析",
+    );
+    setTextIfChanged("#sourceBadge", state.source_name || "本机画面");
+
+    const now = performance.now();
+    if (domUpdateScheduler.due("state_metrics", now)) {
+      setTextIfChanged("#backendMetric", backendLabels[state.backend] || state.backend || "—");
+      setTextIfChanged("#fpsMetric", Number(state.fps || 0).toFixed(1));
+      setTextIfChanged("#latencyMetric", Number(state.inference_ms || 0).toFixed(1));
+      setTextIfChanged(
+        "#poseMetric",
+        state.pose_detected ? "已锁定人体" : state.running ? "正在寻找人体" : "等待画面",
+      );
+      setClassIfChanged(
+        "#poseMetric",
+        state.pose_detected ? "good" : state.running ? "bad" : "neutral",
+      );
+    }
+    if (ui.sourceMode !== "camera" && state.source_mode !== "browser-camera") {
+      setConnectionMetricForSource(ui.sourceMode);
+    }
+
+    const candidateCount = state.candidate_count ?? state.reps ?? 0;
+    if (domUpdateScheduler.due("state_stats", now)) {
+      setTextIfChanged("#repCount", candidateCount);
+      setTextIfChanged("#poseValidRepCount", state.pose_valid_rep_count ?? state.reps ?? 0);
+      setTextIfChanged("#noRepCount", state.no_rep_count ?? 0);
+      setTextIfChanged("#unsureCount", state.unsure_count ?? 0);
+      renderFloorCalibrationStatus(state.floor_reference);
+      setTextIfChanged("#videoRepCount", candidateCount);
+      setHiddenIfChanged("#videoRepBadge", !(state.running || state.status === "completed"));
+      setWidthIfChanged(
+        "#phaseIndicator",
+        state.pose_detected ? `${Math.min(100, 18 + ((state.frame_index || 0) % 5) * 19)}%` : "8%",
+      );
+      setWidthIfChanged("#progressBar", `${state.progress || 0}%`);
+    }
+    setTextIfChanged("#actionLabel", state.action_label || "动作指导关闭");
+    const phase = state.phase || "idle";
+    setTextIfChanged("#phaseValue", phaseLabels[phase] || phase.replaceAll("_", " "));
+    renderCameraTip(state.action);
+    speakVoiceFeedback(state.voice_feedback);
+    renderFeedback(state.feedback || [], state.pose_detected, state.running);
+    ui.lastStatus = state.status;
+  } finally {
+    const ended = performance.now();
+    renderPerformance.record("dom_update_ms", ended - started);
+    renderPerformance.recordPhaseSpan("dom_update", started, ended);
   }
-  const candidateCount = state.candidate_count ?? state.reps ?? 0;
-  $("#repCount").textContent = candidateCount;
-  $("#poseValidRepCount").textContent = state.pose_valid_rep_count ?? state.reps ?? 0;
-  $("#noRepCount").textContent = state.no_rep_count ?? 0;
-  $("#unsureCount").textContent = state.unsure_count ?? 0;
-  renderFloorCalibrationStatus(state.floor_reference);
-  $("#videoRepCount").textContent = candidateCount;
-  $("#videoRepBadge").hidden = !(state.running || state.status === "completed");
-  $("#actionLabel").textContent = state.action_label || "动作指导关闭";
-  const phase = state.phase || "idle";
-  $("#phaseValue").textContent = phaseLabels[phase] || phase.replaceAll("_", " ");
-  $("#phaseIndicator").style.width = state.pose_detected ? `${Math.min(100, 18 + ((state.frame_index || 0) % 5) * 19)}%` : "8%";
-  $("#progressBar").style.width = `${state.progress || 0}%`;
-  renderCameraTip(state.action);
-  speakVoiceFeedback(state.voice_feedback);
-  renderFeedback(state.feedback || [], state.pose_detected, state.running);
-  ui.lastStatus = state.status;
 }
 
 function escapeHtml(value) {
@@ -1286,6 +2363,10 @@ function escapeHtml(value) {
 
 function renderFeedback(items, poseDetected, running) {
   const list = $("#feedbackList");
+  let signature = `${Number(running)}:${Number(poseDetected)}`;
+  for (const item of items) signature += `|${item.level}:${item.text}`;
+  if (signature === ui.lastFeedbackSignature) return;
+  ui.lastFeedbackSignature = signature;
   if (items.length) {
     list.innerHTML = items.map(item => `<div class="feedback-item ${escapeHtml(item.level)}"><strong>${item.level === "warn" ? "调整建议" : item.level === "error" ? "需要注意" : "动作提示"}</strong><p>${escapeHtml(item.text)}</p></div>`).join("");
   } else if (running && poseDetected) {
@@ -1295,7 +2376,7 @@ function renderFeedback(items, poseDetected, running) {
   } else {
     list.innerHTML = `<div class="feedback-empty"><span>✓</span><p>开始后，这里会显示动作质量与调整建议。</p></div>`;
   }
-  $("#feedbackTime").textContent = running ? "实时更新" : "等待分析";
+  setTextIfChanged("#feedbackTime", running ? "实时更新" : "等待分析");
 }
 
 async function deleteCurrentSession() {
@@ -1332,7 +2413,28 @@ $("#actionSelect").addEventListener("change", event => { resetVoiceSession(); re
 $("#viewSelect").addEventListener("change", event => updateLiveSetting("camera_view", event.target.value));
 $("#sensitivitySelect").addEventListener("change", event => updateLiveSetting("sensitivity", event.target.value));
 $("#profileSelect").addEventListener("change", () => updateLiveSetting("landmark_profile", selectedLandmarkProfile()));
-$("#fingerToggle").addEventListener("change", event => updateLiveSetting("show_fingers", event.target.checked));
+$("#poseRuntimeSelect").addEventListener("change", event => {
+  if (event.target.value === "server") {
+    activateServerPoseFallback("用户选择服务器兼容姿态", false);
+    toast("已选择服务器兼容姿态");
+    return;
+  }
+  restartBrowserPoseWorker();
+});
+$("#poseModelSelect").addEventListener("change", event => {
+  ui.poseWorkerModelPreference = event.target.value;
+  if ($("#poseRuntimeSelect").value === "server") {
+    toast("本机姿态档位将在切换到本机运行时生效");
+    return;
+  }
+  restartBrowserPoseWorker();
+});
+$("#fingerToggle").addEventListener("change", event => {
+  if (event.target.checked && ui.poseRuntimeMode === "local") {
+    activateServerPoseFallback("手指关键点需要服务器兼容姿态");
+  }
+  updateLiveSetting("show_fingers", event.target.checked);
+});
 $("#faceToggle").addEventListener("change", () => updateLiveSetting("landmark_profile", selectedLandmarkProfile()));
 $("#mirrorToggle").addEventListener("change", event => updateLiveSetting("mirror", event.target.checked));
 window.addEventListener("resize", resizeOverlay);
@@ -1349,4 +2451,5 @@ window.addEventListener("pagehide", () => {
 document.addEventListener("visibilitychange", () => { if (document.hidden && ui.mediaStream) stopAnalysis(); });
 
 initializeVoiceFeedback();
+initializeMainThreadAudit();
 loadOptions();

@@ -70,6 +70,8 @@ def make_v2_packet(
     client_capture_ms: float = 1234.5,
     width: int = 320,
     height: int = 240,
+    timing: dict[str, float] | None = None,
+    frame_meta: dict[str, object] | None = None,
 ) -> bytes:
     jpeg = make_packet(frame_id, width=width, height=height)[4:]
     metadata = json.dumps(
@@ -80,6 +82,8 @@ def make_v2_packet(
             "client_capture_ms": client_capture_ms,
             "action": action,
             "backend": backend,
+            "timing": timing or {},
+            "frame_meta": frame_meta or {},
         },
         separators=(",", ":"),
     ).encode("utf-8")
@@ -93,6 +97,90 @@ def wait_for_result(session: RealtimePoseSession, timeout: float = 2.0) -> dict[
         if result is not None:
             return result
     raise AssertionError("realtime result was not published")
+
+
+def make_browser_pose_payload(
+    *, session_id: str, run_id: str, frame_id: int = 1
+) -> dict[str, object]:
+    landmarks = [
+        {"x": 0.25 + index * 0.01, "y": 0.3 + index * 0.005, "z": 0.01, "visibility": 0.95, "presence": 0.9}
+        for index in range(33)
+    ]
+    world = [
+        {"x": index * 0.01, "y": index * 0.005, "z": index * 0.002, "visibility": 0.95, "presence": 0.9}
+        for index in range(33)
+    ]
+    return {
+        "type": "pose_frame",
+        "session_id": session_id,
+        "run_id": run_id,
+        "frame_id": frame_id,
+        "action": "none",
+        "backend": "mediapipe",
+        "capture_timestamp_ms": 1000.0 + frame_id,
+        "presentation_timestamp_ms": 1001.0 + frame_id,
+        "image_landmarks": landmarks,
+        "world_landmarks": world,
+        "pose_inference_ms": 8.25,
+        "pose_model": "full",
+        "pose_model_benchmark": {
+            "selectedModel": "full",
+            "reason": "Full P95 不超过 20 ms",
+            "mainThreadLongTaskCount": 0,
+            "stats": {
+                "full": {"samples": 45, "inferenceP50Ms": 14.0, "inferenceP95Ms": 18.0, "poseFps": 30.0, "detectionRate": 1.0},
+                "lite": {"samples": 45, "inferenceP50Ms": 9.0, "inferenceP95Ms": 12.0, "poseFps": 30.0, "detectionRate": 1.0},
+            },
+        },
+        "display_filter": {
+            "profile": "ultra_responsive",
+            "predictionEnabled": True,
+            "rawBlendEnabled": True,
+            "blendedPointCount": 12,
+            "meanRawWeight": 0.18,
+            "maxRawWeight": 0.42,
+        },
+        "source": "browser_mediapipe",
+        "frame_meta": {
+            "sessionId": session_id,
+            "frameId": frame_id,
+            "presentedFrames": frame_id,
+            "mediaTime": frame_id / 30,
+            "presentationTime": 1001.0 + frame_id,
+            "expectedDisplayTime": 1008.0 + frame_id,
+            "captureTime": 1000.0 + frame_id,
+            "processingDuration": 0.001,
+            "width": 640,
+            "height": 480,
+            "callbackSource": "requestVideoFrameCallback",
+        },
+        "timing": {"camera_frame_presented_ms": 1001.0 + frame_id},
+    }
+
+
+def make_camera_diagnostics_payload() -> dict[str, object]:
+    return {
+        "type": "camera_diagnostics",
+        "diagnostics": {
+            "settings": {
+                "width": 640,
+                "height": 480,
+                "frameRate": 59.94,
+                "deviceId": "camera-device-token",
+                "resizeMode": "none",
+                "facingMode": "user",
+            },
+            "requestedFps": 60,
+            "actualPresentedFps": 58.7,
+            "frameIntervalP50Ms": 16.9,
+            "frameIntervalP95Ms": 22.4,
+            "frameIntervalAnomalyRatio": 0.03,
+            "brightnessMean": 102.5,
+            "duplicateFrameRatio": 0.02,
+            "sampleCount": 40,
+            "warnings": [],
+        },
+    }
 
 
 def test_latest_frame_queue_discards_stale_frame() -> None:
@@ -179,6 +267,19 @@ def test_frame_protocol_v2_restores_request_identity_and_capture_time() -> None:
             run_id="run-7",
             action="lunge",
             client_capture_ms=9876.25,
+            frame_meta={
+                "sessionId": "session-42",
+                "frameId": 42,
+                "presentedFrames": 50,
+                "mediaTime": 1.25,
+                "presentationTime": 9870.0,
+                "expectedDisplayTime": 9876.0,
+                "captureTime": 9860.0,
+                "processingDuration": 0.002,
+                "width": 640,
+                "height": 480,
+                "callbackSource": "requestVideoFrameCallback",
+            },
         )
     )
 
@@ -189,6 +290,8 @@ def test_frame_protocol_v2_restores_request_identity_and_capture_time() -> None:
     assert request.action == "lunge"
     assert request.backend == "mediapipe"
     assert request.client_capture_ms == pytest.approx(9876.25)
+    assert request.frame_meta["frameId"] == 42
+    assert request.frame_meta["presentedFrames"] == 50
     assert request.jpeg.startswith(b"\xff\xd8\xff")
 
 
@@ -206,6 +309,21 @@ def test_frame_protocol_v2_requires_complete_context_identity() -> None:
     packet = b"PSV2" + struct.pack(">I", len(metadata)) + metadata + jpeg
 
     with pytest.raises(RealtimeProtocolError, match="session_id"):
+        unpack_frame_request(packet)
+
+
+def test_frame_protocol_rejects_mismatched_video_frame_identity() -> None:
+    packet = make_v2_packet(
+        3,
+        session_id="identity",
+        run_id="run",
+        frame_meta={
+            "sessionId": "identity",
+            "frameId": 2,
+            "callbackSource": "requestVideoFrameCallback",
+        },
+    )
+    with pytest.raises(RealtimeProtocolError, match="frameId"):
         unpack_frame_request(packet)
 
 
@@ -241,6 +359,203 @@ def test_realtime_session_returns_pose_json_and_downloadable_reports() -> None:
 
     session.stop()
     assert backend.closed is True
+
+
+def test_browser_pose_frame_runs_rules_without_server_pose_inference() -> None:
+    backend_factory_calls: list[tuple[str, str]] = []
+
+    def forbidden_backend_factory(backend: str, action: str):
+        backend_factory_calls.append((backend, action))
+        raise AssertionError("server pose backend must not run for browser landmarks")
+
+    session = RealtimePoseSession(
+        "browser-local-session",
+        backend_factory=forbidden_backend_factory,
+        max_receive_fps=1000,
+    )
+    session.mark_connected()
+    state = session.start({"action": "none", "backend": "mediapipe"})
+
+    assert session.submit_pose_frame(make_browser_pose_payload(
+        session_id="browser-local-session",
+        run_id=state["run_id"],
+    )) is True
+    result = wait_for_result(session)
+
+    assert backend_factory_calls == []
+    assert result["source"] == "browser_mediapipe"
+    assert result["metrics"]["backend"] == "browser-mediapipe-full"
+    assert result["metrics"]["inference_ms"] == pytest.approx(8.2, abs=0.1)
+    assert result["frame_meta"]["frameId"] == 1
+    assert result["pose_detected"] is True
+    assert len(result["keypoints"]) == 27  # six finger proxy points hidden by default
+    assert result["three_d_kinematics"]["world_landmark_count"] == 33
+    assert result["pose_model_benchmark"]["selected_model"] == "full"
+    assert result["display_filter"]["profile"] == "ultra_responsive"
+    assert result["display_filter"]["prediction_enabled"] is True
+    session.stop()
+
+
+def test_browser_pose_frame_rejects_stale_identity() -> None:
+    session = RealtimePoseSession(
+        "browser-identity-session",
+        backend_factory=lambda *_: (FakePoseBackend(), "fake"),
+        max_receive_fps=1000,
+    )
+    session.mark_connected()
+    state = session.start({"action": "none", "backend": "mediapipe"})
+    payload = make_browser_pose_payload(session_id="wrong-session", run_id=state["run_id"])
+    with pytest.raises(RealtimeProtocolError, match="会话"):
+        session.submit_pose_frame(payload)
+    session.stop()
+
+
+def test_browser_pose_frame_rejects_unknown_model_tier() -> None:
+    session = RealtimePoseSession(
+        "browser-model-tier",
+        backend_factory=lambda *_: (FakePoseBackend(), "fake"),
+        max_receive_fps=1000,
+    )
+    session.mark_connected()
+    started = session.start({"action": "none", "backend": "mediapipe"})
+    payload = make_browser_pose_payload(
+        session_id=session.session_id,
+        run_id=str(started["run_id"]),
+    )
+    payload["pose_model"] = "heavy"
+
+    with pytest.raises(RealtimeProtocolError, match="模型档位"):
+        session.submit_pose_frame(payload)
+
+    session.stop()
+
+
+def test_browser_pose_frame_rejects_display_prediction_protocol_fields() -> None:
+    session = RealtimePoseSession(
+        "prediction-isolation",
+        backend_factory=lambda *_: (FakePoseBackend(), "fake"),
+        max_receive_fps=1000,
+    )
+    started = session.start({"action": "none", "backend": "mediapipe"})
+    payload = make_browser_pose_payload(
+        session_id=session.session_id,
+        run_id=str(started["run_id"]),
+    )
+    payload["predicted_landmarks"] = payload["image_landmarks"]
+
+    with pytest.raises(RealtimeProtocolError, match="显示预测"):
+        session.submit_pose_frame(payload)
+
+    assert session.report()["summary"]["processed_frames"] == 0
+    session.stop()
+
+
+def test_web_latency_timeline_round_trips_into_downloadable_report() -> None:
+    session = RealtimePoseSession(
+        "latency-session",
+        backend_factory=lambda _requested, _action: (FakePoseBackend(), "fake"),
+        max_receive_fps=1000,
+    )
+    session.mark_connected()
+    state = session.start({"action": "none", "backend": "mediapipe"})
+    assert session.submit(make_v2_packet(
+        1,
+        session_id="latency-session",
+        run_id=state["run_id"],
+        timing={
+            "camera_frame_presented_ms": 100.0,
+            "frame_copy_start_ms": 101.0,
+            "frame_copy_end_ms": 102.0,
+            "encode_start_ms": 102.0,
+            "encode_end_ms": 104.0,
+            "socket_send_ms": 105.0,
+            "expected_display_time_ms": 133.0,
+        },
+        frame_meta={
+            "sessionId": "latency-session",
+            "frameId": 1,
+            "presentedFrames": 8,
+            "mediaTime": 0.25,
+            "presentationTime": 100.0,
+            "expectedDisplayTime": 108.0,
+            "captureTime": 98.0,
+            "processingDuration": 0.001,
+            "width": 640,
+            "height": 480,
+            "callbackSource": "requestVideoFrameCallback",
+        },
+    ))
+    result = wait_for_result(session)
+    assert result["frame_meta"]["frameId"] == 1
+    timing = dict(result["latency_timing"])
+    assert "server_receive_ms" in timing
+    assert "inference_start_ms" in timing
+    assert "inference_end_ms" in timing
+    timing.update({
+        "socket_result_send_ms": timing["inference_end_ms"] + 1.0,
+        "client_result_receive_ms": 125.0,
+        "pose_render_start_ms": 127.0,
+        "pose_render_end_ms": 129.0,
+        "expected_display_time_ms": 133.0,
+        "video_frame_presented_at_render_ms": 120.0,
+    })
+    assert session.record_latency_audit({"frame_id": 1, "timing": timing}) is True
+    report = session.report()
+    assert report["summary"]["latency_audit"]["sample_count"] == 1
+    assert report["frames"][0]["latency"]["pose_video_age_difference_ms"] == 20.0
+    assert "pose_video_age_difference_ms" in session.report_csv()
+    with pytest.raises(RealtimeProtocolError, match="未知字段"):
+        session.record_latency_audit(
+            {
+                "frame_id": 1,
+                "timing": {
+                    **timing,
+                    "predicted_landmarks": 33,
+                },
+            }
+        )
+    session.stop()
+
+
+def test_camera_diagnostics_are_bounded_and_included_in_report_summary() -> None:
+    session = RealtimePoseSession("camera-diagnostics-session")
+    session.start({"action": "none"})
+
+    assert session.record_camera_diagnostics(make_camera_diagnostics_payload()) is True
+    diagnostics = session.report()["summary"]["camera_diagnostics"]
+    assert diagnostics["settings"] == {
+        "width": 640,
+        "height": 480,
+        "frameRate": 59.94,
+        "deviceId": "camera-device-token",
+        "resizeMode": "none",
+        "facingMode": "user",
+    }
+    assert diagnostics["actualPresentedFps"] == pytest.approx(58.7)
+    assert diagnostics["sampleCount"] == 40
+    assert diagnostics["warnings"] == []
+
+    invalid_payloads = []
+    invalid_ratio = make_camera_diagnostics_payload()
+    invalid_ratio["diagnostics"]["duplicateFrameRatio"] = 1.01  # type: ignore[index]
+    invalid_payloads.append(invalid_ratio)
+    unknown_warning = make_camera_diagnostics_payload()
+    unknown_warning["diagnostics"]["warnings"] = ["run_neural_predictor"]  # type: ignore[index]
+    invalid_payloads.append(unknown_warning)
+    long_device_id = make_camera_diagnostics_payload()
+    long_device_id["diagnostics"]["settings"]["deviceId"] = "x" * 257  # type: ignore[index]
+    invalid_payloads.append(long_device_id)
+    nested_unknown = make_camera_diagnostics_payload()
+    nested_unknown["diagnostics"]["settings"]["capabilities"] = {}  # type: ignore[index]
+    invalid_payloads.append(nested_unknown)
+
+    for payload in invalid_payloads:
+        with pytest.raises(RealtimeProtocolError, match="摄像头"):
+            session.record_camera_diagnostics(payload)
+
+    session.clear_results()
+    assert session.report()["summary"]["camera_diagnostics"] == {}
+    session.stop()
 
 
 def test_realtime_session_rejects_stale_v2_session_run_action_backend_and_frame() -> None:
