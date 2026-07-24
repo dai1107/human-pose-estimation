@@ -1,0 +1,2225 @@
+{
+  "schema_version": 1,
+  "artifact_type": "phone_rgb_data_baseline_v1",
+  "generated_at": "2026-07-24T11:39:42.090279+00:00",
+  "pipeline": "decoded phone RGB -> MediaPipe -> existing smoothing -> existing action-specific rules",
+  "model": {
+    "path": "C:/Users/dell/Desktop/pose estimation/models/pose_landmarker_full.task",
+    "sha256": "4eaa5eb7a98365221087693fcc286334cf0858e2eb6e15b506aa4a7ecdcec4ad"
+  },
+  "smoothing": {
+    "mode": "one-euro",
+    "max_missing_frames": 5,
+    "occlusion_guard": true
+  },
+  "frame_stride": 1,
+  "summary": {
+    "record_count": 30,
+    "source_frame_count": 15515,
+    "analyzed_frame_count": 15515,
+    "raw_pose_detected_frames": 15012,
+    "raw_pose_detection_rate": 0.9675797615211086,
+    "full_body_visible_frames": 3906,
+    "full_body_visible_rate": 0.2517563648082501,
+    "pose_inference_ms": {
+      "p50": 14.763799990760162,
+      "p95": 18.762929999502376,
+      "mean": 15.233896332616045
+    },
+    "pose_and_rule_pipeline_ms": {
+      "p50": 16.750000009778887,
+      "p95": 21.119540007202882,
+      "mean": 17.197649274879588
+    },
+    "target_locked_record_count": 0,
+    "accuracy_computed": false
+  },
+  "records": [
+    {
+      "record_id": "phone_burpee_broad_jump_001",
+      "source_filename": "波比跳-双脚不同步-正前方-1.mp4",
+      "action": "burpee_broad_jump",
+      "camera_view": "front",
+      "source_frame_count": 382,
+      "analyzed_frame_count": 382,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 374,
+      "raw_pose_detection_rate": 0.9790575916230366,
+      "full_body_visible_frames": 190,
+      "full_body_visible_rate": 0.4973821989528796,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.633050006523263,
+        "p95": 16.610395006864564,
+        "mean": 14.975205236042944
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.479450001497753,
+        "p95": 19.182924998312952,
+        "mean": 16.87133115164982
+      },
+      "current_rule_output": {
+        "action": "burpee_broad_jump",
+        "phase": "landing",
+        "rep_count": 0,
+        "candidate_count": 1,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 1,
+        "last_rep_decision": {
+          "status": "UNSURE",
+          "rules": [
+            {
+              "rule_id": "chest_ground_contact",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "CHEST_GROUND_CONTACT_UNSURE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "simultaneous_takeoff",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "SIMULTANEOUS_TAKEOFF_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "simultaneous_landing",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "SIMULTANEOUS_LANDING_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "takeoff_stagger_proxy",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "TAKEOFF_STAGGER_PROXY_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "landing_stagger_proxy",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "LANDING_STAGGER_PROXY_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "no_extra_step_or_shuffle",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "POST_LANDING_FEET_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "legal_hand_placement_proxy",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "LEGAL_HAND_PLACEMENT_PROXY_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "forward_jump_detected",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "FORWARD_JUMP_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "CHEST_GROUND_CONTACT_UNSURE",
+            "SIMULTANEOUS_TAKEOFF_NOT_OBSERVABLE",
+            "SIMULTANEOUS_LANDING_NOT_OBSERVABLE",
+            "TAKEOFF_STAGGER_PROXY_NOT_OBSERVABLE",
+            "LANDING_STAGGER_PROXY_NOT_OBSERVABLE",
+            "POST_LANDING_FEET_NOT_OBSERVABLE",
+            "LEGAL_HAND_PLACEMENT_PROXY_NOT_OBSERVABLE",
+            "FORWARD_JUMP_NOT_OBSERVABLE"
+          ],
+          "confidence": 0.0
+        },
+        "last_rep_observability": {
+          "status": "UNSURE",
+          "reason_codes": [
+            "REQUIRED_LANDMARK_CONFIDENCE_LOW",
+            "CAMERA_VIEW_UNSUITABLE",
+            "FLOOR_REFERENCE_UNSURE"
+          ],
+          "rep_mean_confidence": 0.7999798984857778,
+          "required_landmark_confidence": 0.44653457403182983,
+          "decisive_rule_confidence": 0.0,
+          "floor_reference_ready": false,
+          "camera_view_suitable": false,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_002",
+      "source_filename": "波比跳-手脚过远-正前方-1.mp4",
+      "action": "burpee_broad_jump",
+      "camera_view": "front",
+      "source_frame_count": 433,
+      "analyzed_frame_count": 433,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 426,
+      "raw_pose_detection_rate": 0.9838337182448037,
+      "full_body_visible_frames": 164,
+      "full_body_visible_rate": 0.3787528868360277,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.728099995409139,
+        "p95": 16.399620004813183,
+        "mean": 15.015401616671035
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.664700000546873,
+        "p95": 18.406020005932074,
+        "mean": 16.93147090030431
+      },
+      "current_rule_output": {
+        "action": "burpee_broad_jump",
+        "phase": "landing",
+        "rep_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_003",
+      "source_filename": "波比跳-标准（单腿起）-正前方-1.mp4",
+      "action": "burpee_broad_jump",
+      "camera_view": "front",
+      "source_frame_count": 377,
+      "analyzed_frame_count": 377,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 376,
+      "raw_pose_detection_rate": 0.9973474801061007,
+      "full_body_visible_frames": 141,
+      "full_body_visible_rate": 0.3740053050397878,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.611999999033287,
+        "p95": 16.080199999851175,
+        "mean": 14.819186206768695
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.569800005527213,
+        "p95": 18.038000003434718,
+        "mean": 16.782416180761246
+      },
+      "current_rule_output": {
+        "action": "burpee_broad_jump",
+        "phase": "landing",
+        "rep_count": 0,
+        "candidate_count": 1,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 1,
+        "last_rep_decision": {
+          "status": "UNSURE",
+          "rules": [
+            {
+              "rule_id": "chest_ground_contact",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "CHEST_GROUND_CONTACT_UNSURE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "simultaneous_takeoff",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "SIMULTANEOUS_TAKEOFF_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "simultaneous_landing",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "SIMULTANEOUS_LANDING_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "takeoff_stagger_proxy",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "TAKEOFF_STAGGER_PROXY_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "landing_stagger_proxy",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "LANDING_STAGGER_PROXY_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "no_extra_step_or_shuffle",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "POST_LANDING_FEET_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "legal_hand_placement_proxy",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "LEGAL_HAND_PLACEMENT_PROXY_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "forward_jump_detected",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "FORWARD_JUMP_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "CHEST_GROUND_CONTACT_UNSURE",
+            "SIMULTANEOUS_TAKEOFF_NOT_OBSERVABLE",
+            "SIMULTANEOUS_LANDING_NOT_OBSERVABLE",
+            "TAKEOFF_STAGGER_PROXY_NOT_OBSERVABLE",
+            "LANDING_STAGGER_PROXY_NOT_OBSERVABLE",
+            "POST_LANDING_FEET_NOT_OBSERVABLE",
+            "LEGAL_HAND_PLACEMENT_PROXY_NOT_OBSERVABLE",
+            "FORWARD_JUMP_NOT_OBSERVABLE"
+          ],
+          "confidence": 0.0
+        },
+        "last_rep_observability": {
+          "status": "UNSURE",
+          "reason_codes": [
+            "REQUIRED_LANDMARK_CONFIDENCE_LOW",
+            "CAMERA_VIEW_UNSUITABLE",
+            "FLOOR_REFERENCE_UNSURE"
+          ],
+          "rep_mean_confidence": 0.7535362045221115,
+          "required_landmark_confidence": 0.4887291193008423,
+          "decisive_rule_confidence": 0.0,
+          "floor_reference_ready": false,
+          "camera_view_suitable": false,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_004",
+      "source_filename": "波比跳-标准（双脚起）-正前方-1.mp4",
+      "action": "burpee_broad_jump",
+      "camera_view": "front",
+      "source_frame_count": 508,
+      "analyzed_frame_count": 508,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 507,
+      "raw_pose_detection_rate": 0.9980314960629921,
+      "full_body_visible_frames": 226,
+      "full_body_visible_rate": 0.4448818897637795,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.578049995179754,
+        "p95": 16.16101999388775,
+        "mean": 14.757380905658772
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.575000001466833,
+        "p95": 18.209770009707427,
+        "mean": 16.727533464262255
+      },
+      "current_rule_output": {
+        "action": "burpee_broad_jump",
+        "phase": "landing",
+        "rep_count": 0,
+        "candidate_count": 1,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 1,
+        "last_rep_decision": {
+          "status": "UNSURE",
+          "rules": [
+            {
+              "rule_id": "chest_ground_contact",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "CHEST_GROUND_CONTACT_UNSURE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "simultaneous_takeoff",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "SIMULTANEOUS_TAKEOFF_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "simultaneous_landing",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "SIMULTANEOUS_LANDING_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "takeoff_stagger_proxy",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "TAKEOFF_STAGGER_PROXY_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "landing_stagger_proxy",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "LANDING_STAGGER_PROXY_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "no_extra_step_or_shuffle",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "POST_LANDING_FEET_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "legal_hand_placement_proxy",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "LEGAL_HAND_PLACEMENT_PROXY_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "forward_jump_detected",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "FORWARD_JUMP_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "CHEST_GROUND_CONTACT_UNSURE",
+            "SIMULTANEOUS_TAKEOFF_NOT_OBSERVABLE",
+            "SIMULTANEOUS_LANDING_NOT_OBSERVABLE",
+            "TAKEOFF_STAGGER_PROXY_NOT_OBSERVABLE",
+            "LANDING_STAGGER_PROXY_NOT_OBSERVABLE",
+            "POST_LANDING_FEET_NOT_OBSERVABLE",
+            "LEGAL_HAND_PLACEMENT_PROXY_NOT_OBSERVABLE",
+            "FORWARD_JUMP_NOT_OBSERVABLE"
+          ],
+          "confidence": 0.0
+        },
+        "last_rep_observability": {
+          "status": "UNSURE",
+          "reason_codes": [
+            "REQUIRED_LANDMARK_CONFIDENCE_LOW",
+            "CAMERA_VIEW_UNSUITABLE",
+            "FLOOR_REFERENCE_UNSURE"
+          ],
+          "rep_mean_confidence": 0.7846925803380288,
+          "required_landmark_confidence": 0.5053739547729492,
+          "decisive_rule_confidence": 0.0,
+          "floor_reference_ready": false,
+          "camera_view_suitable": false,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_005",
+      "source_filename": "波比跳-标准（跪姿起）-正前方-1.mp4",
+      "action": "burpee_broad_jump",
+      "camera_view": "front",
+      "source_frame_count": 453,
+      "analyzed_frame_count": 453,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 443,
+      "raw_pose_detection_rate": 0.977924944812362,
+      "full_body_visible_frames": 195,
+      "full_body_visible_rate": 0.4304635761589404,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.56190001044888,
+        "p95": 16.347059997497126,
+        "mean": 14.87510044213922
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.511299996636808,
+        "p95": 18.59040000417735,
+        "mean": 16.805400662332318
+      },
+      "current_rule_output": {
+        "action": "burpee_broad_jump",
+        "phase": "landing",
+        "rep_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "action": "burpee_broad_jump",
+      "camera_view": "front",
+      "source_frame_count": 423,
+      "analyzed_frame_count": 423,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 412,
+      "raw_pose_detection_rate": 0.9739952718676123,
+      "full_body_visible_frames": 186,
+      "full_body_visible_rate": 0.4397163120567376,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.954799989936873,
+        "p95": 19.303320007747967,
+        "mean": 15.45575721035673
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.900900009204634,
+        "p95": 21.43283999466803,
+        "mean": 17.432456028455896
+      },
+      "current_rule_output": {
+        "action": "burpee_broad_jump",
+        "phase": "chest_down",
+        "rep_count": 0,
+        "candidate_count": 1,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 1,
+        "last_rep_decision": {
+          "status": "UNSURE",
+          "rules": [
+            {
+              "rule_id": "chest_ground_contact",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "CHEST_GROUND_CONTACT_UNSURE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "simultaneous_takeoff",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "SIMULTANEOUS_TAKEOFF_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "simultaneous_landing",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "SIMULTANEOUS_LANDING_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "takeoff_stagger_proxy",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "TAKEOFF_STAGGER_PROXY_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "landing_stagger_proxy",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "LANDING_STAGGER_PROXY_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "no_extra_step_or_shuffle",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "POST_LANDING_FEET_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "legal_hand_placement_proxy",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "LEGAL_HAND_PLACEMENT_PROXY_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "forward_jump_detected",
+              "status": "UNSURE",
+              "confidence": 0.0,
+              "value": null,
+              "reason_code": "FORWARD_JUMP_NOT_OBSERVABLE",
+              "evidence_frames": [],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "CHEST_GROUND_CONTACT_UNSURE",
+            "SIMULTANEOUS_TAKEOFF_NOT_OBSERVABLE",
+            "SIMULTANEOUS_LANDING_NOT_OBSERVABLE",
+            "TAKEOFF_STAGGER_PROXY_NOT_OBSERVABLE",
+            "LANDING_STAGGER_PROXY_NOT_OBSERVABLE",
+            "POST_LANDING_FEET_NOT_OBSERVABLE",
+            "LEGAL_HAND_PLACEMENT_PROXY_NOT_OBSERVABLE",
+            "FORWARD_JUMP_NOT_OBSERVABLE"
+          ],
+          "confidence": 0.0
+        },
+        "last_rep_observability": {
+          "status": "UNSURE",
+          "reason_codes": [
+            "REQUIRED_LANDMARK_CONFIDENCE_LOW",
+            "CAMERA_VIEW_UNSUITABLE",
+            "FLOOR_REFERENCE_UNSURE"
+          ],
+          "rep_mean_confidence": 0.7698306111951492,
+          "required_landmark_confidence": 0.5169504880905151,
+          "decisive_rule_confidence": 0.0,
+          "floor_reference_ready": false,
+          "camera_view_suitable": false,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_007",
+      "source_filename": "波比跳-落地补步-正前方-1.mp4",
+      "action": "burpee_broad_jump",
+      "camera_view": "front",
+      "source_frame_count": 432,
+      "analyzed_frame_count": 432,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 432,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 255,
+      "full_body_visible_rate": 0.5902777777777778,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.837149996310472,
+        "p95": 16.95588999791653,
+        "mean": 15.016520833139818
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.778099998191465,
+        "p95": 18.966229998477502,
+        "mean": 16.987540509473074
+      },
+      "current_rule_output": {
+        "action": "burpee_broad_jump",
+        "phase": "landing",
+        "rep_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_farmers_carry_001",
+      "source_filename": "农夫行走-标准-侧方-1.mp4",
+      "action": "farmers_carry",
+      "camera_view": "side",
+      "source_frame_count": 161,
+      "analyzed_frame_count": 161,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 161,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 14,
+      "full_body_visible_rate": 0.08695652173913043,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 15.03470000170637,
+        "p95": 16.308999998727813,
+        "mean": 15.209872671384915
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 17.034299991792068,
+        "p95": 18.24460001080297,
+        "mean": 17.17765217363872
+      },
+      "current_rule_output": {
+        "action": "farmers_carry",
+        "phase": "ready",
+        "rep_count": 0,
+        "cycle_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "action": "farmers_carry",
+      "camera_view": "side",
+      "source_frame_count": 188,
+      "analyzed_frame_count": 188,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 188,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 0,
+      "full_body_visible_rate": 0.0,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.717599995492492,
+        "p95": 15.853819997573737,
+        "mean": 14.865981915174919
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.654500002914574,
+        "p95": 17.85951999554527,
+        "mean": 16.778276595977466
+      },
+      "current_rule_output": {
+        "action": "farmers_carry",
+        "phase": "rest",
+        "rep_count": 0,
+        "cycle_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_farmers_carry_003",
+      "source_filename": "农夫行走-甩壶铃-侧方-1.mp4",
+      "action": "farmers_carry",
+      "camera_view": "side",
+      "source_frame_count": 136,
+      "analyzed_frame_count": 136,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 136,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 0,
+      "full_body_visible_rate": 0.0,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.61389999894891,
+        "p95": 15.881850002188003,
+        "mean": 14.742746323891504
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.51875000243308,
+        "p95": 17.833150006481446,
+        "mean": 16.615212500576437
+      },
+      "current_rule_output": {
+        "action": "farmers_carry",
+        "phase": "rest",
+        "rep_count": 0,
+        "cycle_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_lunge_001",
+      "source_filename": "负重箭步蹲-同腿连续-正前方-1.mp4",
+      "action": "lunge",
+      "camera_view": "front",
+      "source_frame_count": 452,
+      "analyzed_frame_count": 452,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 451,
+      "raw_pose_detection_rate": 0.9977876106194691,
+      "full_body_visible_frames": 349,
+      "full_body_visible_rate": 0.7721238938053098,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.96459999907529,
+        "p95": 16.673755000374513,
+        "mean": 15.068676990992081
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 17.052800001692958,
+        "p95": 19.01785500886035,
+        "mean": 17.180432522047695
+      },
+      "current_rule_output": {
+        "action": "Lunge",
+        "phase": "ascent",
+        "rep_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_lunge_002",
+      "source_filename": "负重箭步蹲-后膝未触地-正前方-1.mp4",
+      "action": "lunge",
+      "camera_view": "front",
+      "source_frame_count": 426,
+      "analyzed_frame_count": 426,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 426,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 308,
+      "full_body_visible_rate": 0.7230046948356808,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 15.026100001705345,
+        "p95": 17.65615000476828,
+        "mean": 15.379172535398657
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 17.171949992189184,
+        "p95": 20.12250000916538,
+        "mean": 17.55386220621647
+      },
+      "current_rule_output": {
+        "action": "Lunge",
+        "phase": "bottom",
+        "rep_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_lunge_003",
+      "source_filename": "负重箭步蹲-标准-正前方-1.mp4",
+      "action": "lunge",
+      "camera_view": "front",
+      "source_frame_count": 527,
+      "analyzed_frame_count": 527,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 527,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 402,
+      "full_body_visible_rate": 0.7628083491461101,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.841700001852587,
+        "p95": 16.959000001952518,
+        "mean": 15.104030170675633
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.997800004901364,
+        "p95": 19.208520000393037,
+        "mean": 17.259094686966666
+      },
+      "current_rule_output": {
+        "action": "Lunge",
+        "phase": "stand",
+        "rep_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_lunge_004",
+      "source_filename": "负重箭步蹲-补步-正前方-1.mp4",
+      "action": "lunge",
+      "camera_view": "front",
+      "source_frame_count": 417,
+      "analyzed_frame_count": 417,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 417,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 309,
+      "full_body_visible_rate": 0.7410071942446043,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.768099994398654,
+        "p95": 17.35633999633137,
+        "mean": 15.09877122285786
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.911899991100654,
+        "p95": 19.623180001508445,
+        "mean": 17.23797553960386
+      },
+      "current_rule_output": {
+        "action": "Lunge",
+        "phase": "ascent",
+        "rep_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "action": "lunge",
+      "camera_view": "front",
+      "source_frame_count": 485,
+      "analyzed_frame_count": 485,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 485,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 333,
+      "full_body_visible_rate": 0.6865979381443299,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.863800010061823,
+        "p95": 16.67856000422034,
+        "mean": 15.068249072436695
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 17.010499999742024,
+        "p95": 19.141999998828396,
+        "mean": 17.20920144325271
+      },
+      "current_rule_output": {
+        "action": "Lunge",
+        "phase": "ascent",
+        "rep_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "action": "rowing",
+      "camera_view": "oblique_rear",
+      "source_frame_count": 769,
+      "analyzed_frame_count": 769,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 768,
+      "raw_pose_detection_rate": 0.9986996098829649,
+      "full_body_visible_frames": 0,
+      "full_body_visible_rate": 0.0,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.878600006341003,
+        "p95": 16.251879997435026,
+        "mean": 15.02196645013027
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.752099996665493,
+        "p95": 18.213020000257526,
+        "mean": 16.916592197560995
+      },
+      "current_rule_output": {
+        "action": "rowing",
+        "phase": "recovery",
+        "rep_count": 0,
+        "cycle_count": 0,
+        "candidate_count": 1,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 1,
+        "last_rep_decision": {
+          "status": "UNSURE",
+          "rules": [
+            {
+              "rule_id": "body_sequence_valid",
+              "status": "PASS",
+              "confidence": 0.7290145680308342,
+              "value": true,
+              "reason_code": null,
+              "evidence_frames": [
+                157
+              ],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "REP_MEAN_CONFIDENCE_LOW"
+          ],
+          "confidence": 0.6484165404060156
+        },
+        "last_rep_observability": {
+          "status": "UNSURE",
+          "reason_codes": [
+            "REP_MEAN_CONFIDENCE_LOW"
+          ],
+          "rep_mean_confidence": 0.6484165404060156,
+          "required_landmark_confidence": null,
+          "decisive_rule_confidence": 0.7290145680308342,
+          "floor_reference_ready": null,
+          "camera_view_suitable": null,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_rowing_002",
+      "source_filename": "划船机-桨把绕膝-侧后方-1.mp4",
+      "action": "rowing",
+      "camera_view": "oblique_rear",
+      "source_frame_count": 421,
+      "analyzed_frame_count": 421,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 421,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 0,
+      "full_body_visible_rate": 0.0,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.931000012438744,
+        "p95": 16.751100003602915,
+        "mean": 15.159525653266352
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.86899999913294,
+        "p95": 18.736700003501028,
+        "mean": 17.08509453630817
+      },
+      "current_rule_output": {
+        "action": "rowing",
+        "phase": "catch",
+        "rep_count": 0,
+        "cycle_count": 0,
+        "candidate_count": 1,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 1,
+        "last_rep_decision": {
+          "status": "UNSURE",
+          "rules": [
+            {
+              "rule_id": "body_sequence_valid",
+              "status": "PASS",
+              "confidence": 0.713485369225964,
+              "value": true,
+              "reason_code": null,
+              "evidence_frames": [
+                76
+              ],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "DECISIVE_RULE_CONFIDENCE_LOW"
+          ],
+          "confidence": 0.7009853597754907
+        },
+        "last_rep_observability": {
+          "status": "UNSURE",
+          "reason_codes": [
+            "DECISIVE_RULE_CONFIDENCE_LOW"
+          ],
+          "rep_mean_confidence": 0.7009853597754907,
+          "required_landmark_confidence": null,
+          "decisive_rule_confidence": 0.713485369225964,
+          "floor_reference_ready": null,
+          "camera_view_suitable": null,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_rowing_003",
+      "source_filename": "划船机-身体后仰-侧后方-1.mp4",
+      "action": "rowing",
+      "camera_view": "oblique_rear",
+      "source_frame_count": 362,
+      "analyzed_frame_count": 362,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 362,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 0,
+      "full_body_visible_rate": 0.0,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 15.01270000153454,
+        "p95": 17.94416500633815,
+        "mean": 15.352903315480683
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.95875000586966,
+        "p95": 19.970245009608334,
+        "mean": 17.268266575033095
+      },
+      "current_rule_output": {
+        "action": "rowing",
+        "phase": "recovery",
+        "rep_count": 1,
+        "cycle_count": 1,
+        "candidate_count": 1,
+        "pose_valid_rep_count": 1,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": {
+          "status": "VALID",
+          "rules": [
+            {
+              "rule_id": "body_sequence_valid",
+              "status": "PASS",
+              "confidence": 0.7265485790558159,
+              "value": true,
+              "reason_code": null,
+              "evidence_frames": [
+                234
+              ],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "body_sequence_valid"
+          ],
+          "confidence": 0.7265485790558159
+        },
+        "last_rep_observability": {
+          "status": "OBSERVABLE",
+          "reason_codes": [],
+          "rep_mean_confidence": 0.7052069393829363,
+          "required_landmark_confidence": null,
+          "decisive_rule_confidence": 0.7265485790558159,
+          "floor_reference_ready": null,
+          "camera_view_suitable": null,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_skierg_001",
+      "source_filename": "滑雪机-标准-后方-1.mp4",
+      "action": "skierg",
+      "camera_view": "rear",
+      "source_frame_count": 609,
+      "analyzed_frame_count": 609,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 605,
+      "raw_pose_detection_rate": 0.993431855500821,
+      "full_body_visible_frames": 216,
+      "full_body_visible_rate": 0.35467980295566504,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.816499999142252,
+        "p95": 17.70314000314102,
+        "mean": 15.210648440006182
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.83449999836739,
+        "p95": 20.13012000534218,
+        "mean": 17.29319211825222
+      },
+      "current_rule_output": {
+        "action": "skierg",
+        "phase": "return",
+        "rep_count": 10,
+        "cycle_count": 10,
+        "candidate_count": 10,
+        "pose_valid_rep_count": 10,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": {
+          "status": "VALID",
+          "rules": [
+            {
+              "rule_id": "body_sequence_valid",
+              "status": "PASS",
+              "confidence": 0.8551293214162191,
+              "value": true,
+              "reason_code": null,
+              "evidence_frames": [
+                565
+              ],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "body_sequence_valid"
+          ],
+          "confidence": 0.8551293214162191
+        },
+        "last_rep_observability": {
+          "status": "OBSERVABLE",
+          "reason_codes": [],
+          "rep_mean_confidence": 0.8723705618299151,
+          "required_landmark_confidence": null,
+          "decisive_rule_confidence": 0.8551293214162191,
+          "floor_reference_ready": null,
+          "camera_view_suitable": null,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "action": "skierg",
+      "camera_view": "oblique_rear",
+      "source_frame_count": 3764,
+      "analyzed_frame_count": 3764,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 3764,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 0,
+      "full_body_visible_rate": 0.0,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.568999999028165,
+        "p95": 17.070020002574893,
+        "mean": 14.863259086091114
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.506050000316463,
+        "p95": 19.20139000794734,
+        "mean": 16.817338602543558
+      },
+      "current_rule_output": {
+        "action": "skierg",
+        "phase": "pull_down",
+        "rep_count": 72,
+        "cycle_count": 72,
+        "candidate_count": 72,
+        "pose_valid_rep_count": 72,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": {
+          "status": "VALID",
+          "rules": [
+            {
+              "rule_id": "body_sequence_valid",
+              "status": "PASS",
+              "confidence": 0.7376495276888212,
+              "value": true,
+              "reason_code": null,
+              "evidence_frames": [
+                3695
+              ],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "body_sequence_valid"
+          ],
+          "confidence": 0.7376495276888212
+        },
+        "last_rep_observability": {
+          "status": "OBSERVABLE",
+          "reason_codes": [],
+          "rep_mean_confidence": 0.8184699002048,
+          "required_landmark_confidence": null,
+          "decisive_rule_confidence": 0.7376495276888212,
+          "floor_reference_ready": null,
+          "camera_view_suitable": null,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_sled_pull_001",
+      "source_filename": "拉雪橇-标准-侧方-1.mp4",
+      "action": "sled_pull",
+      "camera_view": "side",
+      "source_frame_count": 259,
+      "analyzed_frame_count": 259,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 259,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 170,
+      "full_body_visible_rate": 0.6563706563706564,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.755000011064112,
+        "p95": 19.750309996015858,
+        "mean": 15.425247104270348
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.831200002343394,
+        "p95": 21.72937000868842,
+        "mean": 17.452305405756682
+      },
+      "current_rule_output": {
+        "action": "sled_pull",
+        "phase": "ready",
+        "rep_count": 0,
+        "cycle_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "action": "sled_pull",
+      "camera_view": "side",
+      "source_frame_count": 737,
+      "analyzed_frame_count": 737,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 737,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 236,
+      "full_body_visible_rate": 0.3202170963364993,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.72279999870807,
+        "p95": 17.908940007328045,
+        "mean": 15.151474762315738
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.774999996414408,
+        "p95": 20.016080004279495,
+        "mean": 17.231119810079928
+      },
+      "current_rule_output": {
+        "action": "sled_pull",
+        "phase": "recover",
+        "rep_count": 0,
+        "cycle_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_sled_push_001",
+      "source_filename": "推雪橇-标准-侧方-1.mp4",
+      "action": "sled_push",
+      "camera_view": "side",
+      "source_frame_count": 231,
+      "analyzed_frame_count": 231,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 230,
+      "raw_pose_detection_rate": 0.9956709956709957,
+      "full_body_visible_frames": 0,
+      "full_body_visible_rate": 0.0,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.877299996442162,
+        "p95": 18.90119999734452,
+        "mean": 15.39451125590937
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.816999996080995,
+        "p95": 21.14189999701921,
+        "mean": 17.334607359310674
+      },
+      "current_rule_output": {
+        "action": "sled_push",
+        "phase": "drive",
+        "rep_count": 5,
+        "cycle_count": 5,
+        "candidate_count": 5,
+        "pose_valid_rep_count": 5,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": {
+          "status": "VALID",
+          "rules": [
+            {
+              "rule_id": "body_sequence_valid",
+              "status": "PASS",
+              "confidence": 0.8263607006520033,
+              "value": true,
+              "reason_code": null,
+              "evidence_frames": [
+                217
+              ],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "body_sequence_valid"
+          ],
+          "confidence": 0.8263607006520033
+        },
+        "last_rep_observability": {
+          "status": "OBSERVABLE",
+          "reason_codes": [],
+          "rep_mean_confidence": 0.8236765397965294,
+          "required_landmark_confidence": null,
+          "decisive_rule_confidence": 0.8263607006520033,
+          "floor_reference_ready": null,
+          "camera_view_suitable": true,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_sled_push_002",
+      "source_filename": "推雪橇-标准-侧方-2.mp4",
+      "action": "sled_push",
+      "camera_view": "side",
+      "source_frame_count": 260,
+      "analyzed_frame_count": 260,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 260,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 0,
+      "full_body_visible_rate": 0.0,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.663300004031043,
+        "p95": 19.38555499655194,
+        "mean": 15.229788076696703
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.641600006551016,
+        "p95": 22.719000001961827,
+        "mean": 17.226236538128713
+      },
+      "current_rule_output": {
+        "action": "sled_push",
+        "phase": "drive",
+        "rep_count": 3,
+        "cycle_count": 3,
+        "candidate_count": 3,
+        "pose_valid_rep_count": 3,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": {
+          "status": "VALID",
+          "rules": [
+            {
+              "rule_id": "body_sequence_valid",
+              "status": "PASS",
+              "confidence": 0.8512173015624285,
+              "value": true,
+              "reason_code": null,
+              "evidence_frames": [
+                149
+              ],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "body_sequence_valid"
+          ],
+          "confidence": 0.8512173015624285
+        },
+        "last_rep_observability": {
+          "status": "OBSERVABLE",
+          "reason_codes": [],
+          "rep_mean_confidence": 0.8462581085041165,
+          "required_landmark_confidence": null,
+          "decisive_rule_confidence": 0.8512173015624285,
+          "floor_reference_ready": null,
+          "camera_view_suitable": true,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "action": "sled_push",
+      "camera_view": "side",
+      "source_frame_count": 410,
+      "analyzed_frame_count": 410,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 409,
+      "raw_pose_detection_rate": 0.9975609756097561,
+      "full_body_visible_frames": 0,
+      "full_body_visible_rate": 0.0,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.81045000400627,
+        "p95": 18.209709995426227,
+        "mean": 15.266173902477377
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.6797999991104,
+        "p95": 20.712599997932536,
+        "mean": 17.18131536603678
+      },
+      "current_rule_output": {
+        "action": "sled_push",
+        "phase": "drive",
+        "rep_count": 3,
+        "cycle_count": 3,
+        "candidate_count": 3,
+        "pose_valid_rep_count": 3,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": {
+          "status": "VALID",
+          "rules": [
+            {
+              "rule_id": "body_sequence_valid",
+              "status": "PASS",
+              "confidence": 0.8256421540863812,
+              "value": true,
+              "reason_code": null,
+              "evidence_frames": [
+                382
+              ],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "body_sequence_valid"
+          ],
+          "confidence": 0.8256421540863812
+        },
+        "last_rep_observability": {
+          "status": "OBSERVABLE",
+          "reason_codes": [],
+          "rep_mean_confidence": 0.8247073977852728,
+          "required_landmark_confidence": null,
+          "decisive_rule_confidence": 0.8256421540863812,
+          "floor_reference_ready": null,
+          "camera_view_suitable": true,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_sled_push_004",
+      "source_filename": "推雪橇-标准-侧方-4.mp4",
+      "action": "sled_push",
+      "camera_view": "side",
+      "source_frame_count": 119,
+      "analyzed_frame_count": 119,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 119,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 0,
+      "full_body_visible_rate": 0.0,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.877199995680712,
+        "p95": 18.558449996635307,
+        "mean": 15.357561343561803
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.784699997515418,
+        "p95": 22.363730003416986,
+        "mean": 17.362057143076864
+      },
+      "current_rule_output": {
+        "action": "sled_push",
+        "phase": "step",
+        "rep_count": 2,
+        "cycle_count": 2,
+        "candidate_count": 2,
+        "pose_valid_rep_count": 2,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": {
+          "status": "VALID",
+          "rules": [
+            {
+              "rule_id": "body_sequence_valid",
+              "status": "PASS",
+              "confidence": 0.830052693374455,
+              "value": true,
+              "reason_code": null,
+              "evidence_frames": [
+                115
+              ],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "body_sequence_valid"
+          ],
+          "confidence": 0.830052693374455
+        },
+        "last_rep_observability": {
+          "status": "OBSERVABLE",
+          "reason_codes": [],
+          "rep_mean_confidence": 0.81835050787164,
+          "required_landmark_confidence": null,
+          "decisive_rule_confidence": 0.830052693374455,
+          "floor_reference_ready": null,
+          "camera_view_suitable": true,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_sled_push_005",
+      "source_filename": "推雪橇-标准-前方-1.mp4",
+      "action": "sled_push",
+      "camera_view": "front",
+      "source_frame_count": 608,
+      "analyzed_frame_count": 608,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 152,
+      "raw_pose_detection_rate": 0.25,
+      "full_body_visible_frames": 0,
+      "full_body_visible_rate": 0.0,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 22.98674999474315,
+        "p95": 25.78478000577888,
+        "mean": 19.668048190420738
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 23.446650004188996,
+        "p95": 26.36625000377535,
+        "mean": 20.55503355256262
+      },
+      "current_rule_output": {
+        "action": "sled_push",
+        "phase": "unknown",
+        "rep_count": 0,
+        "cycle_count": 0,
+        "candidate_count": 0,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "last_rep_decision": null,
+        "last_rep_observability": null
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": [
+        {
+          "proposal_type": "idle_or_setup_or_exit_or_transition_or_occlusion",
+          "start_frame": 0,
+          "end_frame": 37,
+          "start_ms": 0.0,
+          "end_ms": 1266.667,
+          "proposal_basis": "contiguous raw pose detector miss",
+          "human_confirmation_required": true,
+          "may_be_background_negative": false
+        },
+        {
+          "proposal_type": "idle_or_setup_or_exit_or_transition_or_occlusion",
+          "start_frame": 57,
+          "end_frame": 346,
+          "start_ms": 1900.0,
+          "end_ms": 11566.667,
+          "proposal_basis": "contiguous raw pose detector miss",
+          "human_confirmation_required": true,
+          "may_be_background_negative": false
+        },
+        {
+          "proposal_type": "idle_or_setup_or_exit_or_transition_or_occlusion",
+          "start_frame": 348,
+          "end_frame": 449,
+          "start_ms": 11600.0,
+          "end_ms": 15000.0,
+          "proposal_basis": "contiguous raw pose detector miss",
+          "human_confirmation_required": true,
+          "may_be_background_negative": false
+        }
+      ]
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "action": "wall_ball",
+      "camera_view": "side",
+      "source_frame_count": 345,
+      "analyzed_frame_count": 345,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 344,
+      "raw_pose_detection_rate": 0.9971014492753624,
+      "full_body_visible_frames": 0,
+      "full_body_visible_rate": 0.0,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.657899999292567,
+        "p95": 17.87276000250131,
+        "mean": 15.111475362673577
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.850200001499616,
+        "p95": 21.0230600059731,
+        "mean": 17.33242463787842
+      },
+      "current_rule_output": {
+        "action": "Wall Ball",
+        "phase": "squat_down",
+        "rep_count": 0,
+        "candidate_count": 5,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 5,
+        "last_rep_decision": {
+          "status": "UNSURE",
+          "rules": [
+            {
+              "rule_id": "tall_start",
+              "status": "FAIL",
+              "confidence": 0.95,
+              "value": false,
+              "reason_code": "TALL_START_REQUIREMENTS_NOT_MET",
+              "evidence_frames": [
+                260
+              ],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "hip_below_knee",
+              "status": "FAIL",
+              "confidence": 0.9,
+              "value": -0.12023695225346664,
+              "reason_code": "HIP_NOT_BELOW_KNEE",
+              "evidence_frames": [
+                289,
+                290,
+                291,
+                292,
+                293,
+                294,
+                295,
+                296,
+                297,
+                298
+              ],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "upward_extension",
+              "status": "FAIL",
+              "confidence": 0.95,
+              "value": 144.7870848154094,
+              "reason_code": "UPWARD_EXTENSION_INCOMPLETE",
+              "evidence_frames": [
+                309,
+                310
+              ],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "bilateral_throw_proxy",
+              "status": "FAIL",
+              "confidence": 0.9,
+              "value": null,
+              "reason_code": "WRISTS_DID_NOT_START_NEAR_CHEST",
+              "evidence_frames": [
+                261,
+                262,
+                263,
+                264,
+                265,
+                266,
+                267,
+                268,
+                269,
+                270,
+                271,
+                272,
+                273,
+                274,
+                275,
+                276,
+                277,
+                278,
+                279,
+                280,
+                307,
+                310
+              ],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "REQUIRED_LANDMARK_CONFIDENCE_LOW"
+          ],
+          "confidence": 0.2612488567829132
+        },
+        "last_rep_observability": {
+          "status": "UNSURE",
+          "reason_codes": [
+            "REQUIRED_LANDMARK_CONFIDENCE_LOW"
+          ],
+          "rep_mean_confidence": 0.7847988916747272,
+          "required_landmark_confidence": 0.2612488567829132,
+          "decisive_rule_confidence": 0.9,
+          "floor_reference_ready": true,
+          "camera_view_suitable": true,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_wall_ball_002",
+      "source_filename": "墙球-标准-正后方-1.mp4",
+      "action": "wall_ball",
+      "camera_view": "rear",
+      "source_frame_count": 421,
+      "analyzed_frame_count": 421,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 421,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 191,
+      "full_body_visible_rate": 0.45368171021377673,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.83090000692755,
+        "p95": 17.87270000204444,
+        "mean": 15.185110213011315
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 16.992799995932728,
+        "p95": 20.11569999740459,
+        "mean": 17.3872840852986
+      },
+      "current_rule_output": {
+        "action": "Wall Ball",
+        "phase": "drive",
+        "rep_count": 0,
+        "candidate_count": 5,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 1,
+        "unsure_count": 4,
+        "last_rep_decision": {
+          "status": "UNSURE",
+          "rules": [
+            {
+              "rule_id": "tall_start",
+              "status": "FAIL",
+              "confidence": 0.95,
+              "value": false,
+              "reason_code": "TALL_START_REQUIREMENTS_NOT_MET",
+              "evidence_frames": [
+                274
+              ],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "hip_below_knee",
+              "status": "FAIL",
+              "confidence": 0.9,
+              "value": -0.015315867269793695,
+              "reason_code": "HIP_NOT_BELOW_KNEE",
+              "evidence_frames": [
+                285,
+                286,
+                287,
+                288,
+                289,
+                290,
+                291,
+                292,
+                293,
+                294,
+                295,
+                296,
+                297,
+                298,
+                299,
+                300,
+                301,
+                302,
+                303,
+                304,
+                305,
+                306,
+                307,
+                308,
+                309,
+                310,
+                311
+              ],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "upward_extension",
+              "status": "FAIL",
+              "confidence": 0.95,
+              "value": 144.03352485281025,
+              "reason_code": "UPWARD_EXTENSION_INCOMPLETE",
+              "evidence_frames": [
+                311,
+                312
+              ],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "bilateral_throw_proxy",
+              "status": "FAIL",
+              "confidence": 0.9,
+              "value": null,
+              "reason_code": "WRISTS_DID_NOT_START_NEAR_CHEST",
+              "evidence_frames": [
+                275,
+                276,
+                277,
+                278,
+                279,
+                280,
+                281,
+                312
+              ],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "REQUIRED_LANDMARK_CONFIDENCE_LOW"
+          ],
+          "confidence": 0.449299618601799
+        },
+        "last_rep_observability": {
+          "status": "UNSURE",
+          "reason_codes": [
+            "REQUIRED_LANDMARK_CONFIDENCE_LOW"
+          ],
+          "rep_mean_confidence": 0.8745863788369063,
+          "required_landmark_confidence": 0.449299618601799,
+          "decisive_rule_confidence": 0.9,
+          "floor_reference_ready": true,
+          "camera_view_suitable": null,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    },
+    {
+      "record_id": "phone_wall_ball_003",
+      "source_filename": "墙球-踮脚-侧方-1.mp4",
+      "action": "wall_ball",
+      "camera_view": "side",
+      "source_frame_count": 400,
+      "analyzed_frame_count": 400,
+      "frame_stride": 1,
+      "raw_pose_detected_frames": 400,
+      "raw_pose_detection_rate": 1.0,
+      "full_body_visible_frames": 21,
+      "full_body_visible_rate": 0.0525,
+      "target_athlete_locked": false,
+      "subject_bound_metric_status": "provisional_until_round7_target_lock",
+      "pose_inference_ms": {
+        "p50": 14.89130000845762,
+        "p95": 16.980644993600425,
+        "mean": 15.20049025042681
+      },
+      "pose_and_rule_pipeline_ms": {
+        "p50": 17.00320000963984,
+        "p95": 19.62507500429637,
+        "mean": 17.367610499968578
+      },
+      "current_rule_output": {
+        "action": "Wall Ball",
+        "phase": "drive",
+        "rep_count": 0,
+        "candidate_count": 3,
+        "pose_valid_rep_count": 0,
+        "no_rep_count": 0,
+        "unsure_count": 3,
+        "last_rep_decision": {
+          "status": "UNSURE",
+          "rules": [
+            {
+              "rule_id": "tall_start",
+              "status": "FAIL",
+              "confidence": 0.95,
+              "value": false,
+              "reason_code": "TALL_START_REQUIREMENTS_NOT_MET",
+              "evidence_frames": [
+                164
+              ],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "hip_below_knee",
+              "status": "FAIL",
+              "confidence": 0.9,
+              "value": -0.08829285230258228,
+              "reason_code": "HIP_NOT_BELOW_KNEE",
+              "evidence_frames": [
+                219,
+                220,
+                221,
+                222,
+                223,
+                224,
+                225,
+                226,
+                227,
+                228,
+                229,
+                230,
+                231,
+                232,
+                233,
+                234,
+                235,
+                236,
+                237,
+                238,
+                239,
+                276,
+                277,
+                278,
+                279,
+                280,
+                281,
+                282,
+                283,
+                284,
+                285,
+                286,
+                287,
+                288,
+                289,
+                290,
+                291,
+                292,
+                293,
+                294
+              ],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "upward_extension",
+              "status": "FAIL",
+              "confidence": 0.95,
+              "value": 135.91415348123576,
+              "reason_code": "UPWARD_EXTENSION_INCOMPLETE",
+              "evidence_frames": [
+                302,
+                303
+              ],
+              "required_for_count": true
+            },
+            {
+              "rule_id": "bilateral_throw_proxy",
+              "status": "FAIL",
+              "confidence": 0.9,
+              "value": null,
+              "reason_code": "WRISTS_DID_NOT_START_NEAR_CHEST",
+              "evidence_frames": [
+                165,
+                166,
+                167,
+                168,
+                169,
+                170,
+                171,
+                301,
+                302,
+                303
+              ],
+              "required_for_count": true
+            }
+          ],
+          "reason_codes": [
+            "REQUIRED_LANDMARK_CONFIDENCE_LOW"
+          ],
+          "confidence": 0.25553396344184875
+        },
+        "last_rep_observability": {
+          "status": "UNSURE",
+          "reason_codes": [
+            "REQUIRED_LANDMARK_CONFIDENCE_LOW"
+          ],
+          "rep_mean_confidence": 0.8243892449691302,
+          "required_landmark_confidence": 0.25553396344184875,
+          "decisive_rule_confidence": 0.9,
+          "floor_reference_ready": true,
+          "camera_view_suitable": true,
+          "single_frame_failure": false
+        }
+      },
+      "accuracy": null,
+      "accuracy_reason": "recording intent in filename is unverified and is not ground truth",
+      "interval_review_candidates": []
+    }
+  ],
+  "interpretation_limits": [
+    "filename recording intent is not used as ground truth",
+    "no accuracy, precision or recall is computed",
+    "pose/full-body rates are provisional because target athlete tracks are not yet locked",
+    "background people must not be converted to negatives from this report"
+  ],
+  "baseline_isolation": {
+    "legacy_compatibility_baseline": "reports/baseline/golden_results.json",
+    "phone_rgb_data_baseline": "this artifact",
+    "realtime_latency_baseline": "reports/baseline/realtime_latency_baseline_v1.json"
+  }
+}

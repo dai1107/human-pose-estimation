@@ -1,0 +1,4 @@
+config_name: observability_default
+required_landmark_confidence: 0.60
+rep_mean_confidence: 0.65
+decisive_rule_confidence: 0.72

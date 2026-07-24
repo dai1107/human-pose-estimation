@@ -1,0 +1,5 @@
+minimum_pose_valid_ratio: 0.75
+maximum_timestamp_gap_ms: 200
+minimum_clip_duration_ms: 300
+minimum_visible_landmark_ratio: 0.70
+

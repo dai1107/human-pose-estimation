@@ -49,7 +49,7 @@ Full/Lite 的 8 视频对比工具会审计关键点、关节角、动作计数�
 | 8. 摄像头与硬件诊断 | 网页显式请求 640×480@60、最低 30 FPS，并保存实际轨道设置、实际 FPS、帧间隔、亮度和重复帧诊断；桌面提供 default/DSHOW/MSMF、MJPG/YUY2 设备基准与精确配置缓存 | 未自动打开真实摄像头；sensor-to-photon 与目标设备结果必须现场实测，报告不得用软件时间伪造 |
 | 9. 本地优先架构收口 | 浏览器本地 MediaPipe 负责即时视觉，Python 只用原始 landmarks 执行 HYROX；桌面全部在本机运行；服务器兼容回退可严格配置 | 常速度预测仅传给 Canvas，协议白名单禁止预测结果进入规则、计数与正式报告；神经网络、时序模型和训练流程未实现 |
 
-第八阶段与本地优先收口后的自动化基线为 Python `530 passed`、Node `16 passed`，Full 黄金视频回归 `8/8`；真实摄像头后端与 sensor-to-photon 仍需在目标设备主动测试。
+第 8 轮完成后的自动化基线为 Python `573 passed`、Node `16 passed`，Full 黄金视频回归 `8/8`；当前主机摄像头启动与 FPS 已通过，sensor-to-photon 仍需在各目标设备主动测试。
 
 ## 安装与命令行入口
 
@@ -79,6 +79,9 @@ pose-replay --help
 pose-golden --list
 pose-endurance --help
 pose-camera-benchmark --help
+pose-baseline --help
+pose-dataset-manifest --help
+pose-cache-round8 --help
 pose-clean --json
 pose-reference-create --help
 pose-reference-list
@@ -432,6 +435,189 @@ pose-endurance --minutes 30 --report outputs\validation\endurance_30m.json
 pose-endurance --minutes 60 --report outputs\validation\endurance_60m.json
 ```
 
+冻结规则、独立 DTW 能力、3D Assist 和实时产品配置时，运行阶段 0 一键入口：
+
+```powershell
+# 全量 Python/网页测试、无摄像头隔离冒烟、真实摄像头 FPS、
+# 8 视频黄金回归、MediaPipe P50/P95 和冻结报告
+pose-baseline --output-dir reports\baseline
+
+# 未安装命令行入口时
+powershell -ExecutionPolicy Bypass -File scripts\run_baseline_regression.ps1
+```
+
+输出固定为 `reports/baseline/`，包含 `environment.json`、配置副本、
+`golden_results.json`、`output_schema.json`、`latency_report.json`、
+`test_summary.json`、`test_summary.md` 和逐项日志。黄金报告保留每次候选的
+`VALID/NO_REP/UNSURE`、规则 `PASS/FAIL/UNSURE`、动作周期、3D Assist 证据及视频
+SHA256。当前 8 段视频没有绑定版本化参考动作，DTW 字段会明确记录
+`not_configured`，不会生成虚假距离。
+
+该命令只读 Git 并给出 `v0.9-rule-dtw-baseline` 标签建议；工作树审阅并提交干净后，
+按 `environment.json` 中的命令创建 annotated tag。它不读取 ONI、不导入 OpenNI，
+也不启用神经网络。`--skip-camera` 只适合 CI；物理摄像头项会记录为跳过，不能作为
+设备验收通过。软件无法推算摄像头曝光、显示器扫描和完整 sensor-to-photon，因此这些
+字段保持空值，并要求在目标设备用 120/240 FPS 外部录像补测。
+
+阶段 1 / 第 2 轮的 ONI 数据整理使用：
+
+```powershell
+# 首次执行：完整复制、源/备份 SHA256、只读保护和 manifest
+pose-dataset-manifest
+
+# 后续快速校验 manifest；不会复制或修改文件
+pose-dataset-manifest --validate-only
+
+# 发布或迁移前重新读取全部 11.86 GiB 备份并核验 SHA256
+pose-dataset-manifest --validate-only --verify-files
+```
+
+当前生成 `datasets/hyrox/` 的标准目录和 32 条 ONI `record_id`，原始中文文件名保持
+不变；`raw/oni/` 是独立完整副本，不是硬链接。源文件和副本均为只读，32/32
+源—备份 SHA256 一致。ONI 与第 6 轮接入的手机视频各自使用独立 `record_id` 和时间轴，
+禁止自动配对。文件名中的“标准”或错误描述仅保存为未验证录制意图；
+`subject_id`、使用授权和 `target_athlete` 在获得人工信息前保持待确认。整个
+`datasets/` 默认不提交 Git。
+
+第 6 轮手机 RGB 接入与三类基线使用：
+
+```powershell
+# 完整运行：复制/哈希/逐帧解码、全帧姿态与规则、坐标质量、Lite/Full 延迟
+pose-phone-rgb-round6
+
+# 只执行复制、逐帧解码审计和数据治理报告
+pose-phone-rgb-round6 --ingest-only
+```
+
+当前真实运行把 30/30 段视频以规范 `source_type: phone_rgb` 接入，排除了 30 个
+`._*.mp4` AppleDouble 文件，并逐帧解码到声明末帧（共 15,515 帧）。8 段网页示例仅为
+`example_candidate`；训练、黄金评测、模板和正式示例资格均保持关闭，直到授权、主体和
+专家审核完成。`phone_rgb_future` 只作为旧数据读取别名，不再写入新记录。报告位于
+`datasets/hyrox/{manifests,reports}/` 和 `reports/baseline/`。姿态检出率、全身可见率和
+规则输出不使用文件名作真值，因此不计算准确率；MediaPipe World 明确只作为人体中心
+相对 3D，不代表相机坐标或公制场地坐标。
+
+第 7 轮主体锁定、器械/场景候选和 ROI 消融使用：
+
+```powershell
+# 首次扫描所有人物候选并生成 30 条逐片复核图和 5 张总览图
+pose-tracking-round7 --scan-only
+
+# 查看全部复核图后显式批准；分裂轨迹用多个连续 source segment 绑定同一规范 ID
+pose-tracking-round7 --approve-reviewed-proposals `
+  --reviewer-id <reviewer-id> `
+  --target-segment phone_sled_push_005=person_candidate_001:0-549 `
+  --target-segment phone_sled_push_005=person_candidate_002:550-607 `
+  --skip-roi
+
+# 独立运行全帧与目标 ROI 的逐帧精度/延迟消融
+pose-tracking-round7 --roi-only
+```
+
+当前实测 30/30 已完成 AI 辅助逐片视觉复核、记录内规范
+`target_athlete_001` 绑定和全片审计；15,166/15,515 帧可正式使用，349 帧因目标缺失、
+追踪陈旧或疑似身份切换被排除。`phone_sled_push_005` 在第 550 帧把两个源候选分段映射
+到同一规范目标，并保存一次人工重初始化，重叠候选不会被误当作背景人物。共生成 5,640
+张其他人物 ignore mask；背景人物仍不是自动负样本。10 类器械/场景共生成 43,532 个
+候选搜索区域，但确认可见数保持为 0，实际重量、机器距离、墙球命中等字段保持
+`UNOBSERVABLE`。
+
+ROI 消融覆盖全部 15,515 帧，选择检测间隔 10 帧、padding 1.6。ROI 检出率
+97.267%，全帧为 96.758%，仿射回映 P95 误差为 `2.27e-13 px`；但跨记录关节误差 P95
+为图像对角线的 9.819%，且含摊销人物检测的 ROI 管线 P95 为 18.761 ms，相对全帧
+20.433 ms 未达到 10% 加速门。因此精度门和延迟门均未通过，默认产品链路不变、ROI
+保持关闭。主体身份切换漏检率和复核分歧仍为 `null`，等待独立第二名人类逐帧复核，
+不得把当前 AI 辅助复核冒充双人一致性。
+
+第 8 轮多后端缓存、统一坐标和关节时序审计使用：
+
+```powershell
+# 依次生成 Lite/Full 原始缓存、事件锚复核图和三套派生姿态
+pose-cache-round8 --cache-only
+pose-cache-round8 --anchors-only
+pose-cache-round8 --derive-only --approve-anchor-review `
+  --reviewer-id <reviewer-id>
+
+# 不重跑推理，只验证现有产物并重建最终汇总
+pose-cache-round8 --summary-only
+```
+
+当前 30/30 段、15,515 帧已分别保存 MediaPipe Lite/Full 原始 33 点姿态、World
+landmarks、目标 bbox/mask、模型与推理元数据；Lite 成功 15,071 帧，Full 成功
+14,766 帧，正式姿态均要求绑定 `target_athlete_001`。2,439 个高分歧帧进入第 9 轮
+优先人工复核；`teacher_proposal` 只用于建议，不是 ground truth，禁止静默平均或替代
+人工标签。
+
+统一坐标层同时保存原始归一化/像素 2D、估计内参相机射线、MediaPipe 人体中心相对
+World 和可逆 body canonical 3D。当前手机视频没有可靠标定或同步深度，因此内参状态为
+`estimated_intrinsics`，不报告手机单目绝对 3D 精度，也不生成手机—ONI 帧/像素配对。
+
+每条记录均生成互不覆盖的严格因果分析姿态、仅显示用短时预测姿态和使用未来帧的离线
+标注辅助姿态，共各 15,515 行。选中的 `joint_adaptive_round8_v2` 将延迟—抖动组合
+分数从当前 responsive 基线 `0.271957` 降至 `0.256649`，改善约 5.63%，缺失率保持
+`0.082080`。显示流选择 15 ms 受约束预测，当前离线指标中的关节滞后由 0.4167 ms
+降至 0 ms，并通过反向过冲、支撑脚漂移和骨长门；它仍禁止驱动规则、计数和正式报告。
+
+CPU/XNNPACK 基准覆盖 Lite/Full、原尺寸、长边 640 和 ROI，每个组合 90 个样本；
+当前环境未配置可用的 MediaPipe Tasks Python GPU delegate，因此 GPU 明确记为未测试。
+ROI 数据只用于离线对照，第 7 轮双门失败结论不变，产品默认仍关闭。事件锚已完成首轮
+AI 辅助视觉复核，只用于当前延迟审计；第 9 轮必须由独立人员双人复核后才能冻结最终
+事件报告。`sensor_to_photon` 仍为 `not_measured`。完整性报告确认原始缓存、坐标/
+共识和三套派生流计数全部为 15,515，违规数为 0；最终状态为
+`passed_with_round9_double_reviewed_event_anchors_pending`。
+
+主要报告位于：
+
+```text
+datasets/hyrox/reports/backend_agreement_v1.json
+datasets/hyrox/reports/coordinate_quality_v1.json
+datasets/hyrox/reports/joint_latency_jitter_v1.json
+datasets/hyrox/reports/pose_observability_v1.json
+datasets/hyrox/reports/round8_artifact_integrity_v1.json
+datasets/hyrox/reports/round8_implementation_summary.json
+```
+
+阶段 2 / 第 3 轮的离线 ONI 审计使用：
+
+```powershell
+# 扫描 manifest 中的全部 ONI
+pose-oni-audit
+
+# 未安装命令行入口时
+python tools\audit_oni_dataset.py
+```
+
+审计器是隔离在 `tools/oni_bridge/` 下的 C++/OpenNI2 文件工具，只部署
+`OniFile` 驱动，不连接摄像头，也不把 OpenNI 加进产品 Python 依赖。当前 32/32 个
+ONI 均可完整读取且无解码、时间戳、帧索引或估算丢帧异常；实际流组合全部为
+Depth + IR、没有 Color，因此全为 B 类，当前没有可直接进入 RGB-D 流程的 A 类记录。
+逐条结果、总表和单独的不合格记录表位于
+`datasets/hyrox/reports/oni_audit/`。这项流审计不代表动作标签、主体运动者或使用授权
+已确认；多人污染仍必须在后续轮次处理。
+
+第 4、5 轮的无损导出和 ONI 内部同步使用：
+
+```powershell
+pose-oni-export
+pose-oni-sync
+
+# 未安装命令行入口时
+python tools\export_oni_dataset.py
+python tools\synchronize_oni_dataset.py
+```
+
+第 4 轮已将 32/32 个 ONI 完整导出到 `datasets/hyrox/extracted/`：Depth
+18,709 帧、IR 18,713 帧均为 `640×480 uint16 NPY`，保留原始数值、frame index
+和 timestamp；32 个 `depth_preview.mp4` 只是派生预览。导出载荷约
+24.23 GB，逐条审计一致性错误为 0。最短记录重复导出的帧数、索引 SHA256 和全部帧
+内容聚合 SHA256 完全一致。由于源 ONI 没有 Color，本批没有生成 `color.mp4`，但工具
+保留 RGB888 无损帧和 Color 预览接口。
+
+第 5 轮已为 32/32 个记录生成内部同步报告。因为全部缺少 Color，可执行
+Color–Depth 配对为 0，所有记录均标为 `video_level_only` 并排除出需要精确 RGB–Depth
+同步的事件训练；没有把 IR 当作 Color，也没有生成 ONI—手机配对。报告位于
+`datasets/hyrox/reports/oni_export/` 和 `datasets/hyrox/reports/oni_sync/`。
+
 耐久报告包含平均 FPS、P95 端到端帧延迟、起止/峰值进程内存、内存增长、视频循环
 次数、异常读帧率、完成状态和帧/延迟记录完整性。默认阈值可通过命令行覆盖，便于不同
 CPU/GPU 机器建立各自基线。`src.realtime_pose` 已停止维护独立循环；旧导入会显示弃用
@@ -441,7 +627,7 @@ Windows/Linux CI 会在 Python 3.10 和 3.12 上执行依赖安装、导入、�
 全量单测、无摄像头冒烟和发布包构建。自动化测试还覆盖通用接触检测、脚部事件、
 `VALID/NO_REP/UNSURE` 可观测性门控、三项人体有效计数动作、距离动作违规边界、
 输出 schema/保留策略、相同特征流重复运行确定性、旧入口转发、黄金区间与耐久报告
-判定。第八阶段与本地优先架构收口后的当前基线为 Python `530 passed`、Node
+判定。第 8 轮完成后的当前基线为 Python `573 passed`、Node
 `16 passed`；Full 黄金视频回归为 `8/8`。
 
 ## 限制

@@ -30,5 +30,12 @@ outputs/web_uploads/
 outputs/screenshots/
 outputs/recordings/
 
+# Raw and derived human-motion datasets are local by default.
+datasets/
+
+# Local third-party source checkouts and ONI bridge intermediates.
+tools/oni_bridge/vendor/
+tools/oni_bridge/build/
+
 .env
 .env.*

@@ -1,0 +1,60 @@
+﻿{
+    "schema_version":  1,
+    "artifact_type":  "oni_bridge_runtime",
+    "generated_at":  "2026-07-24T09:45:09.3182991Z",
+    "architecture":  "x86_64",
+    "openni_version":  "2.3.0.65",
+    "offline_file_only":  true,
+    "camera_driver_included":  false,
+    "system_dependencies":  [
+                                "MSVCR120.dll (Microsoft Visual C++ 2013 x64 runtime)"
+                            ],
+    "provenance":  {
+                       "runtime":  "https://github.com/yunswj/orbbec-Openni2",
+                       "runtime_upstream_note":  "Orbbec OpenNI2 Redist",
+                       "headers":  "https://github.com/OpenNI/OpenNI2",
+                       "license":  "Apache-2.0"
+                   },
+    "files":  [
+                  {
+                      "path":  "oni-inspect.exe",
+                      "sha256":  "2a1f7e850323bd08cf078f1657965251172ab3c338bdf3ad7546dddc9d95a84e",
+                      "bytes":  2551732
+                  },
+                  {
+                      "path":  "oni-export.exe",
+                      "sha256":  "aa225157db8f11be19ab97fbae8290d259d7e78ea6037b49e5dec9a9ea6fc657",
+                      "bytes":  2555640
+                  },
+                  {
+                      "path":  "OpenNI2.dll",
+                      "sha256":  "752ed65ab7a3ac4c373e36fc28ab37f585fe9dd33587aeff1eb38acad04915c6",
+                      "bytes":  290816
+                  },
+                  {
+                      "path":  "libwinpthread-1.dll",
+                      "sha256":  "5bbef249a0d00e2d32c699d0bbe89f714ebeb872b3990a5cbeccb1d89f63e5e8",
+                      "bytes":  52224
+                  },
+                  {
+                      "path":  "OpenNI2/Drivers/OniFile.dll",
+                      "sha256":  "6f3b9b2ac29a10811161a5fa2b9d35c4cb20d27316fe574d48eeb134d6090c35",
+                      "bytes":  232960
+                  },
+                  {
+                      "path":  "OpenNI2/Drivers/OniFile.ini",
+                      "sha256":  "768ec608fc73a058e146761283eed863b520d88df120039a7375b77090d646b3",
+                      "bytes":  216
+                  },
+                  {
+                      "path":  "OPENNI2_LICENSE.txt",
+                      "sha256":  "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6",
+                      "bytes":  11558
+                  },
+                  {
+                      "path":  "MINGW_W64_RUNTIME_LICENSE.txt",
+                      "sha256":  "36a4857b6557a97baa82762444ffd6a74c7575015595dc26ff02215c299f81f6",
+                      "bytes":  10918
+                  }
+              ]
+}

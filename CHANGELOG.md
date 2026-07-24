@@ -7,6 +7,104 @@ development builds use the `X.Y.Z.devN` form.
 
 ### Added
 
+- Added `pose-cache-round8` and a complete 30-record, 15,515-frame round-eight
+  offline workflow. MediaPipe Lite and Full now retain separate target-bound
+  raw image/world landmarks, bbox and RLE-mask provenance, model/software
+  metadata, inference clocks, native/unified 33-point schemas and mapping loss.
+  The completed cache has 15,071 Lite and 14,766 Full detections; 2,439
+  high-disagreement frames are queued as human-review priorities, while teacher
+  proposals are explicitly prohibited from becoming or silently averaging into
+  ground truth.
+- Added explicit image-normalized, image-pixel, estimated camera-ray,
+  MediaPipe body-relative world and reversible body-canonical coordinate
+  layers, including bone/z/left-right/orientation/2D-3D quality audits. The
+  current phone footage remains `estimated_intrinsics`; without calibration,
+  synchronized depth or 3D truth, no absolute monocular 3D accuracy is claimed
+  and no phone-to-ONI frame/pixel pairing is created.
+- Added three non-overwriting temporal artifacts for every source frame:
+  strictly causal analysis, constrained display-only prediction and centered
+  five-frame offline annotation assistance. The selected
+  `joint_adaptive_round8_v2` improves the current responsive lag-jitter score
+  by about 5.63% without increasing missing rate. A 15 ms display horizon
+  reduces the measured offline lag while passing reversal overshoot,
+  support-foot drift and bone-length gates, and remains forbidden from driving
+  rules or reports.
+- Added per-joint lag, endpoint, jitter, missingness, left/right, bone-length
+  and prediction-stability audits; provisional event-anchor review sheets; a
+  Lite/Full × full-size/640/ROI CPU benchmark matrix; and an artifact-integrity
+  validator. GPU is explicitly untested in the current environment, physical
+  sensor-to-photon remains `not_measured`, ROI remains disabled, and final
+  event timing still requires round-nine independent double review. Integrity
+  validation reports 15,515 rows for each expected artifact class and zero
+  violations.
+- Added `pose-tracking-round7` for the 30-record target-lock workflow:
+  YOLO Pose candidate caching, joint IoU/motion/appearance/skeleton/action
+  association, explicit visual-review approval, record-local canonical target
+  IDs, split-source-track reinitialization, crossing/switch events, and
+  other-person ignore masks. The completed run binds 15,166/15,515 frames,
+  excludes 349 ambiguous/missing/stale frames, writes 5,640 ignore masks, and
+  records the `phone_sled_push_005` source-track transition at frame 550
+  without treating the reacquired candidate as a second athlete.
+- Added candidate-only tracks for all ten required equipment/scene classes,
+  including object IDs, bounded regions/masks, occlusion/out-of-frame fields,
+  target association and versioned scene-calibration proposals. The run writes
+  43,532 search-region proposals while keeping confirmed visibility at zero
+  and actual load, distance, target hit and other non-observable rule fields
+  explicitly `UNOBSERVABLE`.
+- Added a full-frame versus target-ROI ablation over all 15,515 phone frames,
+  including reversible per-frame affine transforms, detection/endpoint/joint
+  accuracy, identity IoU and P95 latency. Detection interval 10 and padding
+  1.6 produced 97.267% ROI versus 96.758% full-frame detection and negligible
+  affine round-trip error, but failed both gates (9.819% normalized joint-error
+  P95; 18.761 ms ROI-pipeline versus 20.433 ms full-frame P95), so ROI and all
+  default product behavior remain disabled/unchanged.
+- Added `pose-phone-rgb-round6` for the independent phone-RGB round-six
+  workflow. It excludes 30 AppleDouble metadata files before record-ID
+  assignment, preserves the 30 original Chinese filenames, creates read-only
+  hash-verified backups, and decodes all 15,515/15,515 declared frames with
+  independent timestamps and container/video metadata. New records use only
+  `phone_rgb`; `phone_rgb_future` remains a read compatibility alias.
+- Added versioned phone data-role, coverage-gap and observability reports plus
+  independent phone-data, coordinate-quality and realtime-latency baselines.
+  The full-frame run detected a raw pose on 15,012/15,515 frames without
+  treating filenames as truth or reporting accuracy. All training/golden roles
+  remain disabled, the eight web examples remain unverified candidates, and
+  ONI-phone pairing remains zero.
+- Added the isolated `oni-export.exe`, `pose-oni-export`, and `pose-oni-sync`
+  round-four/five workflows. All 32 ONIs now have lossless uint16 Depth/IR
+  frame exports, source frame/timestamp indices, content fingerprints,
+  derived depth previews, and per-record metadata. The run exported 18,709
+  Depth and 18,713 IR frames (24,228,045,828 payload bytes) with zero audit
+  consistency errors; a real repeat export matched frame counts, index hashes,
+  and aggregate frame-content hashes.
+- Added ONI-internal Color/Depth frame-index and nearest-timestamp pairing,
+  error statistics, quality grades, fine-event exclusions, and an independent
+  independent-phone timeline schema. The current files have no Color, so all 32
+  reports correctly contain zero pairs, are `video_level_only`, and are
+  excluded from fine RGB-D event training. IR and independent phone data are never
+  substituted for Color.
+- Added the isolated C++/OpenNI2 `oni-inspect.exe` and `pose-oni-audit`
+  round-three workflow for recorded files only. It audits full playback,
+  Color/Depth/IR modes, frame counts, timestamps, indices, interval P50/P95,
+  decode/timeline anomalies, estimated drops, and whole/center depth quality
+  without adding OpenNI to the product runtime. The 32-record scan completed
+  with no decode or timeline errors; every ONI contains Depth + IR but no
+  Color, so all 32 are class B and are separately listed as not RGB-D
+  qualified. Phone data is not consulted, and target-athlete identity remains
+  pending.
+- Added `pose-dataset-manifest` for the ONI-only round-two workflow. It parses
+  the existing Chinese filenames without renaming them, preserves stable
+  record IDs, creates and independently hashes a full read-only backup,
+  validates the manifest and no-pairing contract, and writes an explicitly
+  independent phone interface. The current run records 32/32 verified ONI
+  backups; subject identity, usage authorization, and target-athlete selection
+  remain explicitly pending instead of being inferred.
+- Added `pose-baseline` and `scripts/run_baseline_regression.ps1` to freeze the
+  phase-zero RGB product baseline in one command: dependency/model/config
+  hashes, copied configs, action-output schema, eight-video candidate/rule/3D
+  evidence, deterministic MediaPipe P50/P95 latency, optional physical-camera
+  FPS, full Python/Node/smoke logs, and an annotated Git-tag suggestion. The
+  baseline path does not read ONI, require OpenNI, or enable neural inference.
 - Added browser camera track/settings diagnostics for actual presented FPS,
   frame-interval P50/P95 and instability, low light, and duplicate frames.
 - Added `pose-camera-benchmark` for explicit on-device default/DSHOW/MSMF,
@@ -93,7 +191,7 @@ development builds use the `X.Y.Z.devN` form.
 
 ### Validation
 
-- The current full suite passes 530 Python tests and 16 Node tests. Full-model
+- The current full suite passes 566 Python tests and 16 Node tests. Full-model
   golden replay passes all 8/8 HYROX videos; Doctor, no-camera smoke,
   compileall, text-format, diff, and package-build checks also pass. Real
   camera backend and physical sensor-to-photon results remain device-site

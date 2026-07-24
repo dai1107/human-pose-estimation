@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, Mapping, Sequence
 
 import cv2
@@ -107,6 +108,7 @@ def evaluate_case(
     model_path: str | Path,
     *,
     backend: MediaPipeBackend | None = None,
+    frame_observer: Callable[[int, int, Mapping[str, object]], None] | None = None,
 ) -> GoldenObservation:
     video_path = resolve_asset(case.video)
     if not video_path.exists():
@@ -152,6 +154,8 @@ def evaluate_case(
             final_state = analyzer.attach_view_context(
                 analyzer.update(features if has_pose else None, timestamp_ms=timestamp_ms)
             )
+            if frame_observer is not None:
+                frame_observer(frame_index, timestamp_ms, final_state)
     finally:
         capture.release()
         if owns_backend:

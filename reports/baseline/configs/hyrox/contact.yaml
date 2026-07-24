@@ -1,0 +1,29 @@
+knee_contact:
+  surface_radius_shank_ratio: 0.10
+  enter_height_body_ratio: 0.015
+  exit_height_body_ratio: 0.035
+  max_vertical_speed_body_per_second: 0.15
+  min_landmark_confidence: 0.60
+  confirm_confidence: 0.72
+  min_hold_frames_high: 2
+  min_hold_frames_medium: 3
+  min_hold_frames_low: 4
+
+chest_contact:
+  # MediaPipe has no nipple-line landmark. This is explicitly a chest proxy.
+  shoulder_weight: 0.65
+  hip_weight: 0.35
+  surface_offset_torso_ratio: 0.20
+  enter_height_body_ratio: 0.020
+  exit_height_body_ratio: 0.045
+  shoulder_height_body_ratio_max: 0.080
+  hip_height_body_ratio_max: 0.160
+  torso_to_floor_angle_deg_max: 25
+  min_hold_frames_high: 2
+  min_hold_frames_medium: 3
+  min_hold_frames_low: 4
+
+segmentation_contact:
+  enabled: true
+  floor_band_body_ratio: 0.012
+  minimum_overlap_ratio: 0.08

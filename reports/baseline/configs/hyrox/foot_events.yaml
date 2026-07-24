@@ -1,0 +1,23 @@
+foot_support:
+  grounded_height_body_ratio: 0.025
+  airborne_height_body_ratio: 0.055
+  min_vertical_speed_body_per_second: 0.02
+  min_landmark_confidence: 0.60
+  transition_frames_high: 1
+  transition_frames_medium: 2
+  transition_frames_low: 3
+
+foot_sync:
+  # Video-system tolerances; the official rule does not define milliseconds.
+  pass_ms: 100
+  unsure_ms: 180
+
+foot_stagger:
+  # FOOT_STAGGER_PROXY, not an exact measurement of the official 5 cm limit.
+  pass_foot_length_ratio: 0.20
+  unsure_foot_length_ratio: 0.30
+
+step_event:
+  min_horizontal_displacement_leg_ratio: 0.07
+  min_airborne_ms: 80
+  min_grounded_ms: 80

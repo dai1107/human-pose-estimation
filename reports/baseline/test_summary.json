@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "artifact_type": "phase_zero_test_summary",
+  "generated_at": "2026-07-24T10:06:17.807410+00:00",
+  "status": "passed",
+  "checks": [
+    {
+      "name": "python_tests",
+      "required": true,
+      "status": "passed",
+      "return_code": 0,
+      "command": [
+        "C:\\Acon\\python.exe",
+        "-m",
+        "pytest",
+        "-q"
+      ],
+      "started_at": "2026-07-24T10:04:53.247736+00:00",
+      "finished_at": "2026-07-24T10:05:08.203050+00:00",
+      "duration_seconds": 14.955,
+      "stdout_log": "logs/python_tests.stdout.log",
+      "stderr_log": "logs/python_tests.stderr.log"
+    },
+    {
+      "name": "web_node_tests",
+      "required": true,
+      "status": "passed",
+      "return_code": 0,
+      "command": [
+        "C:\\nvm4w\\nodejs\\node.EXE",
+        "--test",
+        "C:\\Users\\dell\\Desktop\\pose estimation\\tests\\js\\camera_diagnostics.test.mjs",
+        "C:\\Users\\dell\\Desktop\\pose estimation\\tests\\js\\display_pose_filter.test.mjs",
+        "C:\\Users\\dell\\Desktop\\pose estimation\\tests\\js\\display_pose_predictor.test.mjs",
+        "C:\\Users\\dell\\Desktop\\pose estimation\\tests\\js\\render_performance.test.mjs"
+      ],
+      "started_at": "2026-07-24T10:05:08.211373+00:00",
+      "finished_at": "2026-07-24T10:05:08.347388+00:00",
+      "duration_seconds": 0.136,
+      "stdout_log": "logs/web_node_tests.stdout.log",
+      "stderr_log": "logs/web_node_tests.stderr.log"
+    },
+    {
+      "name": "no_camera_smoke",
+      "required": true,
+      "status": "passed",
+      "return_code": 0,
+      "command": [
+        "C:\\Acon\\python.exe",
+        "-m",
+        "src.smoke_test"
+      ],
+      "started_at": "2026-07-24T10:05:08.349130+00:00",
+      "finished_at": "2026-07-24T10:05:09.681203+00:00",
+      "duration_seconds": 1.332,
+      "stdout_log": "logs/no_camera_smoke.stdout.log",
+      "stderr_log": "logs/no_camera_smoke.stderr.log"
+    },
+    {
+      "name": "camera_startup",
+      "required": true,
+      "status": "passed",
+      "return_code": 0,
+      "command": [
+        "C:\\Acon\\python.exe",
+        "-m",
+        "src.doctor",
+        "--camera",
+        "0",
+        "--json"
+      ],
+      "started_at": "2026-07-24T10:05:09.681756+00:00",
+      "finished_at": "2026-07-24T10:05:12.143138+00:00",
+      "duration_seconds": 2.461,
+      "stdout_log": "logs/camera_startup.stdout.log",
+      "stderr_log": "logs/camera_startup.stderr.log"
+    },
+    {
+      "name": "physical_camera_benchmark",
+      "required": true,
+      "status": "passed",
+      "return_code": 0,
+      "command": [
+        "C:\\Acon\\python.exe",
+        "-m",
+        "tools.benchmark_camera_backends",
+        "--camera",
+        "0",
+        "--backends",
+        "default",
+        "--duration",
+        "1.0",
+        "--warmup",
+        "0.25",
+        "--output",
+        "reports\\baseline\\camera_report.json",
+        "--no-cache-update"
+      ],
+      "started_at": "2026-07-24T10:05:12.143248+00:00",
+      "finished_at": "2026-07-24T10:05:35.887774+00:00",
+      "duration_seconds": 23.745,
+      "stdout_log": "logs/physical_camera_benchmark.stdout.log",
+      "stderr_log": "logs/physical_camera_benchmark.stderr.log"
+    },
+    {
+      "name": "golden_and_latency_baseline",
+      "required": true,
+      "status": "passed",
+      "return_code": 0,
+      "command": [
+        "C:\\Acon\\python.exe",
+        "tools/freeze_baseline.py",
+        "--output-dir",
+        "reports\\baseline",
+        "--camera-report",
+        "reports\\baseline\\camera_report.json"
+      ],
+      "started_at": "2026-07-24T10:05:35.889317+00:00",
+      "finished_at": "2026-07-24T10:06:17.805389+00:00",
+      "duration_seconds": 41.916,
+      "stdout_log": "logs/golden_and_latency_baseline.stdout.log",
+      "stderr_log": "logs/golden_and_latency_baseline.stderr.log"
+    }
+  ],
+  "failed_required": [],
+  "notes": [
+    "Python tests include the existing web/JavaScript wrapper tests.",
+    "no_camera_smoke proves startup without ONI/OpenNI and with neural prediction disabled.",
+    "A physical camera check cannot be replaced by an offline or mocked result."
+  ]
+}

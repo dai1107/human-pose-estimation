@@ -1,0 +1,352 @@
+{
+  "schema_version": 1,
+  "artifact_type": "phase_zero_environment",
+  "generated_at": "2026-07-24T10:05:37.116343+00:00",
+  "program_version": "0.1.0.dev0",
+  "platform": {
+    "system": "Windows",
+    "release": "11",
+    "version": "10.0.22631",
+    "machine": "AMD64",
+    "processor": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel"
+  },
+  "python": {
+    "version": "3.12.7",
+    "implementation": "CPython",
+    "executable": "C:\\Acon\\python.exe"
+  },
+  "dependencies": {
+    "pose-estimation-hyrox": "0.1.0.dev0",
+    "mediapipe": "0.10.35",
+    "opencv-python": "5.0.0.93",
+    "numpy": "2.2.6",
+    "Flask": "3.0.3",
+    "Flask-Sock": "0.7.0"
+  },
+  "requirements": [
+    {
+      "path": "requirements-core.txt",
+      "bytes": 330,
+      "sha256": "58bc7e2935e6d73e07409caecc8d484f5d1949fb38da2a57da4c615adacccee7",
+      "mtime_utc": "2026-07-20T09:05:11.009182+00:00"
+    },
+    {
+      "path": "requirements-dev.txt",
+      "bytes": 65,
+      "sha256": "18bb2cd2cf7a54c0f32c773ed45efeccf5e70affd0429336e5a13403c93896f2",
+      "mtime_utc": "2026-07-21T05:17:42.762473+00:00"
+    },
+    {
+      "path": "requirements-rtmw-cpu.txt",
+      "bytes": 20,
+      "sha256": "34ffc9e2309d8a681752fadd87b7be29bf102048c0d8834f881e34638d33e3b9",
+      "mtime_utc": "2026-07-20T09:05:13.601448+00:00"
+    },
+    {
+      "path": "requirements-rtmw-gpu.txt",
+      "bytes": 53,
+      "sha256": "c590c44c140246b09343241522f5374814d7fff3e57fcd1ae6fb51e672b8e980",
+      "mtime_utc": "2026-07-20T09:05:14.500497+00:00"
+    },
+    {
+      "path": "requirements-yolo.txt",
+      "bytes": 67,
+      "sha256": "811f7ecee8613b98f80774fddbac2c26eddadaa4b9db1208402609804f0b3299",
+      "mtime_utc": "2026-07-20T09:05:11.901911+00:00"
+    },
+    {
+      "path": "requirements.txt",
+      "bytes": 50,
+      "sha256": "daadba1fc214b22e3aa9f6ab05a67f2f517e8bbc48eb5651289b44c6f8c8edbb",
+      "mtime_utc": "2026-07-20T09:05:10.173813+00:00"
+    }
+  ],
+  "models": [
+    {
+      "path": "models/hand_landmarker.task",
+      "bytes": 7819105,
+      "sha256": "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1",
+      "mtime_utc": "2026-07-06T12:47:56.614755+00:00"
+    },
+    {
+      "path": "models/pose_landmarker_full.task",
+      "bytes": 9398198,
+      "sha256": "4eaa5eb7a98365221087693fcc286334cf0858e2eb6e15b506aa4a7ecdcec4ad",
+      "mtime_utc": "2026-07-04T08:19:51.911310+00:00"
+    },
+    {
+      "path": "models/pose_landmarker_lite.task",
+      "bytes": 5777746,
+      "sha256": "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a",
+      "mtime_utc": "2026-07-22T09:55:49.688296+00:00"
+    },
+    {
+      "path": "models/rtmw-dw-x-l_simcc-cocktail14_270e-256x192_20231122.onnx",
+      "bytes": 228708578,
+      "sha256": "9a9bc17c13ff0a1e37507f45a037a21bc410cd08374b0e664c57d0080843aa58",
+      "mtime_utc": "2026-07-18T14:44:45.323499+00:00"
+    },
+    {
+      "path": "yolo11n-pose.pt",
+      "bytes": 6255593,
+      "sha256": "869e83fcdffdc7371fa4e34cd8e51c838cc729571d1635e5141e3075e9319dc0",
+      "mtime_utc": "2026-07-08T09:11:51.525652+00:00"
+    },
+    {
+      "path": "yolo11n.pt",
+      "bytes": 5613764,
+      "sha256": "0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1",
+      "mtime_utc": "2026-07-08T08:54:52.602774+00:00"
+    }
+  ],
+  "configuration_files": [
+    {
+      "path": "configs/hyrox/burpee_broad_jump.yaml",
+      "bytes": 566,
+      "sha256": "957f7b90359f9e4c67353a2524430c3a95d047bc372dce155ef31a45351ed198",
+      "mtime_utc": "2026-07-17T07:26:01.180317+00:00"
+    },
+    {
+      "path": "configs/hyrox/contact.yaml",
+      "bytes": 820,
+      "sha256": "978976b0b8d31b00d50c1f56f98c8c7346f61cc82f4ef07a0888e0d03811552e",
+      "mtime_utc": "2026-07-17T06:36:55.245390+00:00"
+    },
+    {
+      "path": "configs/hyrox/farmers_carry.yaml",
+      "bytes": 462,
+      "sha256": "6f14a4abb5e32ee9ea755d39ca32955de696e4e7a90cae9dc1eed6dd6bc1b9e1",
+      "mtime_utc": "2026-07-17T08:10:19.121344+00:00"
+    },
+    {
+      "path": "configs/hyrox/foot_events.yaml",
+      "bytes": 626,
+      "sha256": "1e1f27b0e41b7e1a7261e3aab2a6639912ed25f8fa9d64d9313147e6d3d35a64",
+      "mtime_utc": "2026-07-17T06:50:08.931631+00:00"
+    },
+    {
+      "path": "configs/hyrox/lunge.yaml",
+      "bytes": 865,
+      "sha256": "d3a23cc8fd3b2e163e29bb1c3ae8f52b8eeb53bd75ce1d051c759f5c22c55b35",
+      "mtime_utc": "2026-07-18T15:48:57.709505+00:00"
+    },
+    {
+      "path": "configs/hyrox/observability.yaml",
+      "bytes": 127,
+      "sha256": "45c4280ad0a21d873c6352b75a741d3c6b093692151ac3c56551091e8cf28473",
+      "mtime_utc": "2026-07-17T07:55:46.354148+00:00"
+    },
+    {
+      "path": "configs/hyrox/rowing.yaml",
+      "bytes": 569,
+      "sha256": "734006abea1a71d06adc4bbf19ea6a6803179f1495aa91a0e12fa93a3cecc86f",
+      "mtime_utc": "2026-07-17T08:10:17.550490+00:00"
+    },
+    {
+      "path": "configs/hyrox/skierg.yaml",
+      "bytes": 371,
+      "sha256": "31f0ce3611c3b95ed2c508b52ceefee2e6602be72093899cd6559c413b020cdc",
+      "mtime_utc": "2026-07-16T05:08:35.599011+00:00"
+    },
+    {
+      "path": "configs/hyrox/sled_pull.yaml",
+      "bytes": 560,
+      "sha256": "f3b9053073378d43d335cbe371a56bc9898dabc3a8e12a001fc7d01ca79c2eea",
+      "mtime_utc": "2026-07-17T08:10:18.380887+00:00"
+    },
+    {
+      "path": "configs/hyrox/sled_push.yaml",
+      "bytes": 340,
+      "sha256": "1ba9b343eeb287635e9d5e16aa79c6b50379d975c5f21aed3ca158b374e72581",
+      "mtime_utc": "2026-07-16T05:08:37.269523+00:00"
+    },
+    {
+      "path": "configs/hyrox/wall_ball.yaml",
+      "bytes": 933,
+      "sha256": "0791f400fc75f36b431a38e569bfc1bdbdd813b0c56a0918393670174ac439d2",
+      "mtime_utc": "2026-07-17T07:40:48.234700+00:00"
+    },
+    {
+      "path": "configs/hyrox_golden_videos.json",
+      "bytes": 3195,
+      "sha256": "a7bbeb95d2abb498d3825974ef990042337791880cee8d6aff9072d83cf99c4e",
+      "mtime_utc": "2026-07-21T09:19:14.591455+00:00"
+    },
+    {
+      "path": "configs/product_pose.yaml",
+      "bytes": 2545,
+      "sha256": "40456c691ad6a07ea1a970b5498757b22ac8c423192c70fa971fc74b910a049e",
+      "mtime_utc": "2026-07-23T08:06:37.347204+00:00"
+    },
+    {
+      "path": "configs/reference_features.yaml",
+      "bytes": 585,
+      "sha256": "244a3ee5c280d46737c46072d22bc6c5e1c4dbedc930a87e56f037dd6d58914d",
+      "mtime_utc": "2026-07-04T12:43:01.980699+00:00"
+    },
+    {
+      "path": "configs/reference_quality.yaml",
+      "bytes": 129,
+      "sha256": "fd05e351c77b6456b336c591751defa339e837acdee1a6eba689757663392911",
+      "mtime_utc": "2026-07-04T12:43:02.799793+00:00"
+    }
+  ],
+  "git": {
+    "head": "a891d3887c77d2aa0f7cf2e111666b1e227a32c4",
+    "branch": "main",
+    "working_tree_clean": false,
+    "status_porcelain": [
+      "M .gitignore",
+      " M CHANGELOG.md",
+      " D \"Lite\\344\\270\\216Full\\346\\250\\241\\345\\236\\213\\346\\241\\243\\344\\275\\215\\345\\233\\236\\345\\275\\222.md\"",
+      " M README.md",
+      " M pyproject.toml",
+      " M src/validation/golden_videos.py",
+      " M tests/test_packaging_and_ci.py",
+      " M \"\\344\\275\\277\\347\\224\\250\\350\\257\\264\\346\\230\\216.md\"",
+      " D \"\\345\\247\\277\\346\\200\\201\\346\\250\\241\\345\\236\\213\\344\\275\\277\\347\\224\\250\\346\\233\\264\\346\\224\\271\\345\\222\\214\\345\\273\\266\\350\\277\\237\\344\\274\\230\\345\\214\\226.md\"",
+      " D \"\\345\\256\\236\\346\\227\\266\\345\\247\\277\\346\\200\\201\\346\\230\\276\\347\\244\\272\\345\\273\\266\\350\\277\\237\\344\\274\\230\\345\\214\\226.md\"",
+      " D \"\\345\\273\\266\\350\\277\\237\\345\\256\\241\\350\\256\\241\\344\\270\\216\\351\\253\\230\\351\\200\\237\\345\\275\\225\\345\\203\\217\\351\\252\\214\\346\\224\\266.md\"",
+      " D \"\\347\\250\\213\\345\\272\\217\\346\\210\\220\\347\\206\\237\\345\\272\\246\\345\\256\\241\\350\\256\\241\\344\\270\\216\\345\\256\\236\\346\\226\\275\\346\\270\\205\\345\\215\\225.md\"",
+      " M \"\\347\\275\\221\\351\\241\\265\\347\\211\\210\\344\\275\\277\\347\\224\\250\\350\\257\\264\\346\\230\\216.md\"",
+      "?? \"hyrox\\345\\212\\250\\344\\275\\234\\350\\247\\206\\351\\242\\221\\351\\233\\206\\357\\274\\210oni\\357\\274\\211/\"",
+      "?? reports/",
+      "?? scripts/run_baseline_regression.ps1",
+      "?? src/validation/baseline.py",
+      "?? tests/test_baseline_freeze.py",
+      "?? tests/test_dataset_manifest.py",
+      "?? tests/test_oni_audit.py",
+      "?? tests/test_oni_export_and_sync.py",
+      "?? tools/audit_oni_dataset.py",
+      "?? tools/build_hyrox_dataset_manifest.py",
+      "?? tools/dataset/",
+      "?? tools/export_oni_dataset.py",
+      "?? tools/freeze_baseline.py",
+      "?? tools/oni_bridge/",
+      "?? tools/run_baseline_regression.py",
+      "?? tools/synchronize_oni_dataset.py",
+      "?? \"\\345\\256\\214\\346\\225\\264\\345\\256\\236\\346\\226\\275\\346\\270\\205\\345\\215\\225.md\""
+    ],
+    "tag_suggestion": "v0.9-rule-dtw-baseline",
+    "tag_created": false,
+    "tag_command_after_commit": "git tag -a v0.9-rule-dtw-baseline -m \"Frozen rule/DTW/3D Assist baseline\"",
+    "tag_note": "The baseline tool never mutates Git. Create the annotated tag only after reviewing and committing a clean baseline."
+  },
+  "isolation": {
+    "default_pose_backend": "mediapipe",
+    "oni_runtime_required": false,
+    "openni_dependency_declared": false,
+    "neural_prediction_default_enabled": false,
+    "oni_files_read": false
+  },
+  "host": {
+    "logical_cpu_count": 20
+  },
+  "configuration_snapshot": [
+    {
+      "path": "configs/hyrox/burpee_broad_jump.yaml",
+      "bytes": 566,
+      "sha256": "957f7b90359f9e4c67353a2524430c3a95d047bc372dce155ef31a45351ed198",
+      "mtime_utc": "2026-07-17T07:26:01.180317+00:00",
+      "snapshot_path": "configs/hyrox/burpee_broad_jump.yaml"
+    },
+    {
+      "path": "configs/hyrox/contact.yaml",
+      "bytes": 820,
+      "sha256": "978976b0b8d31b00d50c1f56f98c8c7346f61cc82f4ef07a0888e0d03811552e",
+      "mtime_utc": "2026-07-17T06:36:55.245390+00:00",
+      "snapshot_path": "configs/hyrox/contact.yaml"
+    },
+    {
+      "path": "configs/hyrox/farmers_carry.yaml",
+      "bytes": 462,
+      "sha256": "6f14a4abb5e32ee9ea755d39ca32955de696e4e7a90cae9dc1eed6dd6bc1b9e1",
+      "mtime_utc": "2026-07-17T08:10:19.121344+00:00",
+      "snapshot_path": "configs/hyrox/farmers_carry.yaml"
+    },
+    {
+      "path": "configs/hyrox/foot_events.yaml",
+      "bytes": 626,
+      "sha256": "1e1f27b0e41b7e1a7261e3aab2a6639912ed25f8fa9d64d9313147e6d3d35a64",
+      "mtime_utc": "2026-07-17T06:50:08.931631+00:00",
+      "snapshot_path": "configs/hyrox/foot_events.yaml"
+    },
+    {
+      "path": "configs/hyrox/lunge.yaml",
+      "bytes": 865,
+      "sha256": "d3a23cc8fd3b2e163e29bb1c3ae8f52b8eeb53bd75ce1d051c759f5c22c55b35",
+      "mtime_utc": "2026-07-18T15:48:57.709505+00:00",
+      "snapshot_path": "configs/hyrox/lunge.yaml"
+    },
+    {
+      "path": "configs/hyrox/observability.yaml",
+      "bytes": 127,
+      "sha256": "45c4280ad0a21d873c6352b75a741d3c6b093692151ac3c56551091e8cf28473",
+      "mtime_utc": "2026-07-17T07:55:46.354148+00:00",
+      "snapshot_path": "configs/hyrox/observability.yaml"
+    },
+    {
+      "path": "configs/hyrox/rowing.yaml",
+      "bytes": 569,
+      "sha256": "734006abea1a71d06adc4bbf19ea6a6803179f1495aa91a0e12fa93a3cecc86f",
+      "mtime_utc": "2026-07-17T08:10:17.550490+00:00",
+      "snapshot_path": "configs/hyrox/rowing.yaml"
+    },
+    {
+      "path": "configs/hyrox/skierg.yaml",
+      "bytes": 371,
+      "sha256": "31f0ce3611c3b95ed2c508b52ceefee2e6602be72093899cd6559c413b020cdc",
+      "mtime_utc": "2026-07-16T05:08:35.599011+00:00",
+      "snapshot_path": "configs/hyrox/skierg.yaml"
+    },
+    {
+      "path": "configs/hyrox/sled_pull.yaml",
+      "bytes": 560,
+      "sha256": "f3b9053073378d43d335cbe371a56bc9898dabc3a8e12a001fc7d01ca79c2eea",
+      "mtime_utc": "2026-07-17T08:10:18.380887+00:00",
+      "snapshot_path": "configs/hyrox/sled_pull.yaml"
+    },
+    {
+      "path": "configs/hyrox/sled_push.yaml",
+      "bytes": 340,
+      "sha256": "1ba9b343eeb287635e9d5e16aa79c6b50379d975c5f21aed3ca158b374e72581",
+      "mtime_utc": "2026-07-16T05:08:37.269523+00:00",
+      "snapshot_path": "configs/hyrox/sled_push.yaml"
+    },
+    {
+      "path": "configs/hyrox/wall_ball.yaml",
+      "bytes": 933,
+      "sha256": "0791f400fc75f36b431a38e569bfc1bdbdd813b0c56a0918393670174ac439d2",
+      "mtime_utc": "2026-07-17T07:40:48.234700+00:00",
+      "snapshot_path": "configs/hyrox/wall_ball.yaml"
+    },
+    {
+      "path": "configs/hyrox_golden_videos.json",
+      "bytes": 3195,
+      "sha256": "a7bbeb95d2abb498d3825974ef990042337791880cee8d6aff9072d83cf99c4e",
+      "mtime_utc": "2026-07-21T09:19:14.591455+00:00",
+      "snapshot_path": "configs/hyrox_golden_videos.json"
+    },
+    {
+      "path": "configs/product_pose.yaml",
+      "bytes": 2545,
+      "sha256": "40456c691ad6a07ea1a970b5498757b22ac8c423192c70fa971fc74b910a049e",
+      "mtime_utc": "2026-07-23T08:06:37.347204+00:00",
+      "snapshot_path": "configs/product_pose.yaml"
+    },
+    {
+      "path": "configs/reference_features.yaml",
+      "bytes": 585,
+      "sha256": "244a3ee5c280d46737c46072d22bc6c5e1c4dbedc930a87e56f037dd6d58914d",
+      "mtime_utc": "2026-07-04T12:43:01.980699+00:00",
+      "snapshot_path": "configs/reference_features.yaml"
+    },
+    {
+      "path": "configs/reference_quality.yaml",
+      "bytes": 129,
+      "sha256": "fd05e351c77b6456b336c591751defa339e837acdee1a6eba689757663392911",
+      "mtime_utc": "2026-07-04T12:43:02.799793+00:00",
+      "snapshot_path": "configs/reference_quality.yaml"
+    }
+  ]
+}

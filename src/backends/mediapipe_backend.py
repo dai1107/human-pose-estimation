@@ -82,13 +82,17 @@ def _convert_landmarker_result(
     }
     segmentation_masks = getattr(result, "segmentation_masks", None)
     if segmentation_masks:
+        converted_masks: list[np.ndarray] = []
         try:
-            extra["segmentation_mask"] = np.asarray(
-                segmentation_masks[0].numpy_view(),
-                dtype=np.float32,
-            ).copy()
-        except (AttributeError, IndexError, TypeError, ValueError):
-            pass
+            for mask in segmentation_masks:
+                converted_masks.append(
+                    np.asarray(mask.numpy_view(), dtype=np.float32).copy()
+                )
+        except (AttributeError, TypeError, ValueError):
+            converted_masks = []
+        if converted_masks:
+            extra["segmentation_masks"] = converted_masks
+            extra["segmentation_mask"] = converted_masks[0]
 
     if not pose_candidates:
         return PoseResult(

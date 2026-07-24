@@ -1,0 +1,3033 @@
+{
+  "schema_version": 1,
+  "artifact_type": "phase_zero_output_schema_snapshot",
+  "generated_at": "2026-07-24T10:06:15.460178+00:00",
+  "program_version": "0.1.0.dev0",
+  "output_schema_constants": {
+    "current": 1,
+    "legacy": 0,
+    "csv_version_fields": [
+      "schema_version",
+      "program_version"
+    ]
+  },
+  "golden_observation_fields": [
+    "case_id",
+    "video",
+    "action",
+    "total_frames",
+    "pose_detected_frames",
+    "pose_detected_rate",
+    "candidate_count",
+    "pose_valid_rep_count",
+    "no_rep_count",
+    "unsure_count",
+    "cycle_count",
+    "rep_count",
+    "final_phase"
+  ],
+  "action_output_schemas": {
+    "lunge": {
+      "action": "str",
+      "candidate_count": "int",
+      "debug": {
+        "body_center_x": "float",
+        "bottom_seen": "bool",
+        "camera_view": "str",
+        "candidate_count": "int",
+        "config_name": "str",
+        "confirmation_frames": "int",
+        "contact_confirmed_frame": "NoneType",
+        "contacts": {
+          "chest_proxy": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "float",
+            "surface_point": {
+              "x": "float",
+              "y": "float"
+            },
+            "surface_side": "str"
+          },
+          "knee": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "float",
+            "surface_point": {
+              "x": "float",
+              "y": "float"
+            },
+            "surface_side": "str"
+          }
+        },
+        "current_contact_leg": "str",
+        "current_leading_leg": "str",
+        "extension_observation_frames": "int",
+        "extension_side": "NoneType",
+        "floor_reference": {
+          "body_height": "float",
+          "body_height_source": "str",
+          "confidence": "float",
+          "line": {
+            "x1": "float",
+            "x2": "float",
+            "y1": "float",
+            "y2": "float"
+          },
+          "reason_code": "NoneType",
+          "sample_count": "int",
+          "source": "str",
+          "status": "str"
+        },
+        "foot_events": {
+          "left": {
+            "confidence": "float",
+            "heel_height_ratio": "float",
+            "landing_ms": "int",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "float",
+            "takeoff_ms": "int",
+            "toe_height_ratio": "float",
+            "vertical_speed_body_per_second": "float"
+          },
+          "new_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "recent_events": {
+            "type": "array",
+            "item_examples": [
+              {
+                "airborne_ms": "NoneType",
+                "event_type": "str",
+                "foot_x": "float",
+                "frame_index": "int",
+                "horizontal_displacement_leg_ratio": "NoneType",
+                "side": "str",
+                "signed_horizontal_displacement": "NoneType",
+                "timestamp_ms": "int"
+              },
+              {
+                "airborne_ms": "NoneType",
+                "event_type": "str",
+                "foot_x": "float",
+                "frame_index": "int",
+                "horizontal_displacement_leg_ratio": "NoneType",
+                "side": "str",
+                "signed_horizontal_displacement": "NoneType",
+                "timestamp_ms": "int"
+              },
+              {
+                "airborne_ms": "int",
+                "event_type": "str",
+                "foot_x": "float",
+                "frame_index": "int",
+                "horizontal_displacement_leg_ratio": "NoneType",
+                "side": "str",
+                "signed_horizontal_displacement": "NoneType",
+                "timestamp_ms": "int"
+              }
+            ]
+          },
+          "right": {
+            "confidence": "float",
+            "heel_height_ratio": "float",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "float",
+            "takeoff_ms": "int",
+            "toe_height_ratio": "float",
+            "vertical_speed_body_per_second": "float"
+          },
+          "stagger": {
+            "confidence": "float",
+            "mean_foot_length": "float",
+            "rule_id": "str",
+            "stagger_ratio": "float",
+            "status": "str"
+          },
+          "step_event_count": "int",
+          "sync": {
+            "landing_delta_ms": "NoneType",
+            "landing_status": "str",
+            "left_landing_ms": "int",
+            "left_takeoff_ms": "int",
+            "right_landing_ms": "NoneType",
+            "right_takeoff_ms": "NoneType",
+            "takeoff_delta_ms": "NoneType",
+            "takeoff_status": "str"
+          }
+        },
+        "foot_interval_observable": "bool",
+        "frames_in_phase": "int",
+        "full_extension_confirmed_frame": "NoneType",
+        "full_extension_hold_frames": "int",
+        "hip_center_y": "float",
+        "hip_drop": "float",
+        "hip_drop_min": "float",
+        "hip_extension_hold": "int",
+        "hip_motion_tolerance": "float",
+        "just_completed_rep": "bool",
+        "knee_extension_hold": "int",
+        "last_ignored_phase": "NoneType",
+        "last_lunge_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "last_rep_decision": {
+          "confidence": "float",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str",
+              "str"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "item_examples": [
+              {
+                "confidence": "float",
+                "evidence_frames": {
+                  "type": "array",
+                  "item_examples": [
+                    "int",
+                    "int",
+                    "int"
+                  ]
+                },
+                "reason_code": "NoneType",
+                "required_for_count": "bool",
+                "rule_id": "str",
+                "status": "str",
+                "value": "float"
+              },
+              {
+                "confidence": "float",
+                "evidence_frames": {
+                  "type": "array",
+                  "item_examples": [
+                    "int"
+                  ]
+                },
+                "reason_code": "str",
+                "required_for_count": "bool",
+                "rule_id": "str",
+                "status": "str",
+                "value": "int"
+              },
+              {
+                "confidence": "float",
+                "evidence_frames": {
+                  "type": "array",
+                  "item_examples": []
+                },
+                "reason_code": "str",
+                "required_for_count": "bool",
+                "rule_id": "str",
+                "status": "str",
+                "value": "int"
+              }
+            ]
+          },
+          "status": "str"
+        },
+        "last_rep_observability": {
+          "camera_view_suitable": "bool",
+          "decisive_rule_confidence": "float",
+          "floor_reference_ready": "bool",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": []
+          },
+          "rep_mean_confidence": "float",
+          "required_landmark_confidence": "float",
+          "single_frame_failure": "bool",
+          "status": "str"
+        },
+        "last_rep_time_ms": "int",
+        "last_three_d_assist": {
+          "boosted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "confidence_after": "float",
+          "confidence_before": "float",
+          "conflicted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "decision_mode": "str",
+          "final_status": "str",
+          "original_status": "str",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str"
+            ]
+          },
+          "relevant_angles": {
+            "type": "array",
+            "item_examples": [
+              "str",
+              "str",
+              "str"
+            ]
+          },
+          "status": "str",
+          "supported_rules": {
+            "type": "array",
+            "item_examples": []
+          }
+        },
+        "lunge_required_rules": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "lunge_validation_state": "str",
+        "min_hip_angle": "float",
+        "min_knee_angle": "float",
+        "min_visible_score": "float",
+        "movement_direction": "int",
+        "no_rep_count": "int",
+        "observed_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str"
+          ]
+        },
+        "optional_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str"
+          ]
+        },
+        "phase_sequence_progress": "int",
+        "pose_valid_rep_count": "int",
+        "previous_valid_contact_leg": "NoneType",
+        "raw_phase": "str",
+        "rep_completed": "bool",
+        "rep_cooldown_ms": "int",
+        "required_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "sensitivity": "str",
+        "side_knee_contacts": {
+          "left": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "float",
+            "surface_point": {
+              "x": "float",
+              "y": "float"
+            },
+            "surface_side": "str"
+          },
+          "right": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "NoneType",
+            "surface_point": "NoneType",
+            "surface_side": "NoneType"
+          }
+        },
+        "skipped_optional_phases": {
+          "type": "array",
+          "item_examples": []
+        },
+        "stable_phase": "str",
+        "stand_hip_center_y": "float",
+        "steps_since_last_candidate": "int",
+        "timestamp_ms": "int",
+        "torso_angle": "float",
+        "trailing_leg_confidence": "float",
+        "trailing_leg_source": "str",
+        "unsure_count": "int",
+        "view_profile": "str",
+        "visible_score": "float"
+      },
+      "feedback_messages": {
+        "type": "array",
+        "item_examples": []
+      },
+      "last_rep_candidate": {
+        "action": "str",
+        "end_frame": "int",
+        "events": {
+          "contact_confirmed_frame": "int",
+          "contact_leg": "str",
+          "extension_side": "str",
+          "full_extension_confirmed_frame": "NoneType",
+          "leading_leg": "str",
+          "movement_direction": "int",
+          "step_event_count": "int",
+          "terminal_phase": "str",
+          "trailing_leg_confidence": "float",
+          "trailing_leg_source": "str",
+          "visible_score": "float"
+        },
+        "frame_count": "int",
+        "phases_seen": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "start_frame": "int"
+      },
+      "last_rep_decision": {
+        "confidence": "float",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str"
+          ]
+        },
+        "rules": {
+          "type": "array",
+          "item_examples": [
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": [
+                  "int",
+                  "int",
+                  "int"
+                ]
+              },
+              "reason_code": "NoneType",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "float"
+            },
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": [
+                  "int"
+                ]
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "int"
+            },
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": []
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "int"
+            }
+          ]
+        },
+        "status": "str"
+      },
+      "last_rep_observability": {
+        "camera_view_suitable": "bool",
+        "decisive_rule_confidence": "float",
+        "floor_reference_ready": "bool",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": []
+        },
+        "rep_mean_confidence": "float",
+        "required_landmark_confidence": "float",
+        "single_frame_failure": "bool",
+        "status": "str"
+      },
+      "last_three_d_assist": {
+        "boosted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "confidence_after": "float",
+        "confidence_before": "float",
+        "conflicted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "decision_mode": "str",
+        "final_status": "str",
+        "original_status": "str",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "relevant_angles": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "status": "str",
+        "supported_rules": {
+          "type": "array",
+          "item_examples": []
+        }
+      },
+      "no_rep_count": "int",
+      "phase": "str",
+      "pose_valid_rep_count": "int",
+      "rep_count": "int",
+      "unsure_count": "int"
+    },
+    "skierg": {
+      "action": "str",
+      "candidate_count": "int",
+      "count_semantics": "str",
+      "cycle_count": "int",
+      "debug": {
+        "camera_view": "str",
+        "candidate_count": "int",
+        "config_name": "str",
+        "contacts": {
+          "chest_proxy": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "NoneType",
+            "surface_point": "NoneType",
+            "surface_side": "NoneType"
+          },
+          "knee": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "NoneType",
+            "surface_point": "NoneType",
+            "surface_side": "NoneType"
+          }
+        },
+        "floor_reference": {
+          "body_height": "float",
+          "body_height_source": "str",
+          "confidence": "float",
+          "line": "NoneType",
+          "reason_code": "str",
+          "sample_count": "int",
+          "source": "str",
+          "status": "str"
+        },
+        "foot_events": {
+          "left": {
+            "confidence": "float",
+            "heel_height_ratio": "NoneType",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "NoneType",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "NoneType",
+            "vertical_speed_body_per_second": "NoneType"
+          },
+          "new_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "recent_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "right": {
+            "confidence": "float",
+            "heel_height_ratio": "NoneType",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "NoneType",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "NoneType",
+            "vertical_speed_body_per_second": "NoneType"
+          },
+          "stagger": {
+            "confidence": "float",
+            "mean_foot_length": "NoneType",
+            "rule_id": "str",
+            "stagger_ratio": "NoneType",
+            "status": "str"
+          },
+          "step_event_count": "int",
+          "sync": {
+            "landing_delta_ms": "NoneType",
+            "landing_status": "str",
+            "left_landing_ms": "NoneType",
+            "left_takeoff_ms": "NoneType",
+            "right_landing_ms": "NoneType",
+            "right_takeoff_ms": "NoneType",
+            "takeoff_delta_ms": "NoneType",
+            "takeoff_status": "str"
+          }
+        },
+        "frames_in_phase": "int",
+        "knee_angle_mean": "float",
+        "last_ignored_phase": "NoneType",
+        "last_rep_decision": {
+          "confidence": "float",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "item_examples": [
+              {
+                "confidence": "float",
+                "evidence_frames": {
+                  "type": "array",
+                  "item_examples": [
+                    "int"
+                  ]
+                },
+                "reason_code": "NoneType",
+                "required_for_count": "bool",
+                "rule_id": "str",
+                "status": "str",
+                "value": "bool"
+              }
+            ]
+          },
+          "status": "str"
+        },
+        "last_rep_observability": {
+          "camera_view_suitable": "bool",
+          "decisive_rule_confidence": "float",
+          "floor_reference_ready": "NoneType",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": []
+          },
+          "rep_mean_confidence": "float",
+          "required_landmark_confidence": "NoneType",
+          "single_frame_failure": "bool",
+          "status": "str"
+        },
+        "last_three_d_assist": {
+          "boosted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "confidence_after": "float",
+          "confidence_before": "float",
+          "conflicted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "decision_mode": "str",
+          "final_status": "str",
+          "original_status": "str",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str"
+            ]
+          },
+          "relevant_angles": {
+            "type": "array",
+            "item_examples": [
+              "str",
+              "str",
+              "str"
+            ]
+          },
+          "status": "str",
+          "supported_rules": {
+            "type": "array",
+            "item_examples": []
+          }
+        },
+        "no_rep_count": "int",
+        "observed_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "optional_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str"
+          ]
+        },
+        "phase_duration_ms": "int",
+        "phase_sequence_progress": "int",
+        "pose_valid_rep_count": "int",
+        "pull_count": "int",
+        "raw_phase": "str",
+        "rep_completed": "bool",
+        "required_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "sensitivity": "str",
+        "skipped_optional_phases": {
+          "type": "array",
+          "item_examples": []
+        },
+        "stable_phase": "str",
+        "torso_angle": "float",
+        "unsure_count": "int",
+        "view_profile": "str",
+        "wrist_asymmetry": "NoneType",
+        "wrist_height_mean": "float"
+      },
+      "feedback_messages": {
+        "type": "array",
+        "item_examples": []
+      },
+      "last_rep_candidate": {
+        "action": "str",
+        "end_frame": "int",
+        "events": {
+          "terminal_phase": "str"
+        },
+        "frame_count": "int",
+        "phases_seen": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "start_frame": "int"
+      },
+      "last_rep_decision": {
+        "confidence": "float",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "rules": {
+          "type": "array",
+          "item_examples": [
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": [
+                  "int"
+                ]
+              },
+              "reason_code": "NoneType",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "bool"
+            }
+          ]
+        },
+        "status": "str"
+      },
+      "last_rep_observability": {
+        "camera_view_suitable": "bool",
+        "decisive_rule_confidence": "float",
+        "floor_reference_ready": "NoneType",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": []
+        },
+        "rep_mean_confidence": "float",
+        "required_landmark_confidence": "NoneType",
+        "single_frame_failure": "bool",
+        "status": "str"
+      },
+      "last_three_d_assist": {
+        "boosted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "confidence_after": "float",
+        "confidence_before": "float",
+        "conflicted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "decision_mode": "str",
+        "final_status": "str",
+        "original_status": "str",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "relevant_angles": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "status": "str",
+        "supported_rules": {
+          "type": "array",
+          "item_examples": []
+        }
+      },
+      "no_rep_count": "int",
+      "official_rep_count_supported": "bool",
+      "phase": "str",
+      "pose_valid_rep_count": "int",
+      "rep_count": "int",
+      "unsure_count": "int"
+    },
+    "burpee_broad_jump": {
+      "action": "str",
+      "candidate_count": "int",
+      "debug": {
+        "ankle_distance_norm": "NoneType",
+        "body_center_delta_x": "float",
+        "body_center_x": "float",
+        "body_center_y": "float",
+        "burpee_required_rules": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "burpee_validation_state": "str",
+        "camera_view": "str",
+        "candidate_count": "int",
+        "chest_contact": {
+          "confidence": "float",
+          "evidence_frames": {
+            "type": "array",
+            "item_examples": []
+          },
+          "hold_ms": "int",
+          "status": "str",
+          "surface_height_ratio": "NoneType",
+          "surface_point": "NoneType",
+          "surface_side": "NoneType"
+        },
+        "config_name": "str",
+        "contacts": {
+          "chest_proxy": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "NoneType",
+            "surface_point": "NoneType",
+            "surface_side": "NoneType"
+          },
+          "knee": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "NoneType",
+            "surface_point": "NoneType",
+            "surface_side": "NoneType"
+          }
+        },
+        "cycle_foot_observable": "bool",
+        "cycle_landing_ms": {
+          "left": "NoneType",
+          "right": "NoneType"
+        },
+        "cycle_takeoff_ms": {
+          "left": "NoneType",
+          "right": "NoneType"
+        },
+        "feet_stagger_score": "NoneType",
+        "floor_reference": {
+          "body_height": "NoneType",
+          "body_height_source": "str",
+          "confidence": "float",
+          "line": "NoneType",
+          "reason_code": "str",
+          "sample_count": "int",
+          "source": "str",
+          "status": "str"
+        },
+        "foot_events": {
+          "left": {
+            "confidence": "float",
+            "heel_height_ratio": "NoneType",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "NoneType",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "NoneType",
+            "vertical_speed_body_per_second": "NoneType"
+          },
+          "new_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "recent_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "right": {
+            "confidence": "float",
+            "heel_height_ratio": "NoneType",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "NoneType",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "NoneType",
+            "vertical_speed_body_per_second": "NoneType"
+          },
+          "stagger": {
+            "confidence": "float",
+            "mean_foot_length": "NoneType",
+            "rule_id": "str",
+            "stagger_ratio": "NoneType",
+            "status": "str"
+          },
+          "step_event_count": "int",
+          "sync": {
+            "landing_delta_ms": "NoneType",
+            "landing_status": "str",
+            "left_landing_ms": "NoneType",
+            "left_takeoff_ms": "NoneType",
+            "right_landing_ms": "NoneType",
+            "right_takeoff_ms": "NoneType",
+            "takeoff_delta_ms": "NoneType",
+            "takeoff_status": "str"
+          }
+        },
+        "frames_in_phase": "int",
+        "landing_stagger_proxy": "NoneType",
+        "last_burpee_rules": {
+          "type": "array",
+          "item_examples": [
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": []
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "NoneType"
+            },
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": []
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "NoneType"
+            },
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": []
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "NoneType"
+            }
+          ]
+        },
+        "last_ignored_phase": "str",
+        "last_rep_decision": {
+          "confidence": "float",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str",
+              "str",
+              "str"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "item_examples": [
+              {
+                "confidence": "float",
+                "evidence_frames": {
+                  "type": "array",
+                  "item_examples": []
+                },
+                "reason_code": "str",
+                "required_for_count": "bool",
+                "rule_id": "str",
+                "status": "str",
+                "value": "NoneType"
+              },
+              {
+                "confidence": "float",
+                "evidence_frames": {
+                  "type": "array",
+                  "item_examples": []
+                },
+                "reason_code": "str",
+                "required_for_count": "bool",
+                "rule_id": "str",
+                "status": "str",
+                "value": "NoneType"
+              },
+              {
+                "confidence": "float",
+                "evidence_frames": {
+                  "type": "array",
+                  "item_examples": []
+                },
+                "reason_code": "str",
+                "required_for_count": "bool",
+                "rule_id": "str",
+                "status": "str",
+                "value": "NoneType"
+              }
+            ]
+          },
+          "status": "str"
+        },
+        "last_rep_observability": {
+          "camera_view_suitable": "bool",
+          "decisive_rule_confidence": "float",
+          "floor_reference_ready": "bool",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str",
+              "str"
+            ]
+          },
+          "rep_mean_confidence": "float",
+          "required_landmark_confidence": "float",
+          "single_frame_failure": "bool",
+          "status": "str"
+        },
+        "last_three_d_assist": {
+          "boosted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "confidence_after": "float",
+          "confidence_before": "float",
+          "conflicted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "decision_mode": "str",
+          "final_status": "str",
+          "original_status": "str",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": []
+          },
+          "relevant_angles": {
+            "type": "array",
+            "item_examples": []
+          },
+          "status": "str",
+          "supported_rules": {
+            "type": "array",
+            "item_examples": []
+          }
+        },
+        "legal_hand_placement_proxy": {
+          "proxy_name": "str",
+          "ratio": "NoneType",
+          "status": "str"
+        },
+        "no_rep_count": "int",
+        "observed_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "optional_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str"
+          ]
+        },
+        "phase_duration_ms": "int",
+        "phase_sequence_progress": "int",
+        "pose_valid_rep_count": "int",
+        "post_landing_step_count": "int",
+        "raw_phase": "str",
+        "rep_completed": "bool",
+        "rep_count": "int",
+        "required_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "sensitivity": "str",
+        "skipped_optional_phases": {
+          "type": "array",
+          "item_examples": []
+        },
+        "stable_phase": "str",
+        "takeoff_stagger_proxy": "NoneType",
+        "torso_angle": "float",
+        "unsure_count": "int",
+        "view_profile": "str"
+      },
+      "feedback_messages": {
+        "type": "array",
+        "item_examples": [
+          "FeedbackMessage"
+        ]
+      },
+      "last_rep_candidate": {
+        "action": "str",
+        "end_frame": "int",
+        "events": {
+          "hand_placement_proxy_name": "str",
+          "landing_ms": {
+            "left": "NoneType",
+            "right": "NoneType"
+          },
+          "landing_stagger_ratio": "NoneType",
+          "post_landing_step_count": "int",
+          "takeoff_ms": {
+            "left": "NoneType",
+            "right": "NoneType"
+          },
+          "takeoff_stagger_ratio": "NoneType",
+          "terminal_phase": "str",
+          "validation_boundary": "str",
+          "visible_score": "float"
+        },
+        "frame_count": "int",
+        "phases_seen": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "start_frame": "int"
+      },
+      "last_rep_decision": {
+        "confidence": "float",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "rules": {
+          "type": "array",
+          "item_examples": [
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": []
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "NoneType"
+            },
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": []
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "NoneType"
+            },
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": []
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "NoneType"
+            }
+          ]
+        },
+        "status": "str"
+      },
+      "last_rep_observability": {
+        "camera_view_suitable": "bool",
+        "decisive_rule_confidence": "float",
+        "floor_reference_ready": "bool",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str"
+          ]
+        },
+        "rep_mean_confidence": "float",
+        "required_landmark_confidence": "float",
+        "single_frame_failure": "bool",
+        "status": "str"
+      },
+      "last_three_d_assist": {
+        "boosted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "confidence_after": "float",
+        "confidence_before": "float",
+        "conflicted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "decision_mode": "str",
+        "final_status": "str",
+        "original_status": "str",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": []
+        },
+        "relevant_angles": {
+          "type": "array",
+          "item_examples": []
+        },
+        "status": "str",
+        "supported_rules": {
+          "type": "array",
+          "item_examples": []
+        }
+      },
+      "no_rep_count": "int",
+      "phase": "str",
+      "pose_valid_rep_count": "int",
+      "rep_count": "int",
+      "unsure_count": "int"
+    },
+    "sled_push": {
+      "action": "str",
+      "candidate_count": "int",
+      "count_semantics": "str",
+      "cycle_count": "int",
+      "debug": {
+        "ankle_delta": "float",
+        "body_center_delta_x": "float",
+        "camera_view": "str",
+        "candidate_count": "int",
+        "config_name": "str",
+        "contacts": {
+          "chest_proxy": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "NoneType",
+            "surface_point": "NoneType",
+            "surface_side": "NoneType"
+          },
+          "knee": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "NoneType",
+            "surface_point": "NoneType",
+            "surface_side": "NoneType"
+          }
+        },
+        "drive_score": "float",
+        "floor_reference": {
+          "body_height": "float",
+          "body_height_source": "str",
+          "confidence": "float",
+          "line": "NoneType",
+          "reason_code": "str",
+          "sample_count": "int",
+          "source": "str",
+          "status": "str"
+        },
+        "foot_events": {
+          "left": {
+            "confidence": "float",
+            "heel_height_ratio": "NoneType",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "NoneType",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "NoneType",
+            "vertical_speed_body_per_second": "NoneType"
+          },
+          "new_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "recent_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "right": {
+            "confidence": "float",
+            "heel_height_ratio": "NoneType",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "NoneType",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "NoneType",
+            "vertical_speed_body_per_second": "NoneType"
+          },
+          "stagger": {
+            "confidence": "float",
+            "mean_foot_length": "NoneType",
+            "rule_id": "str",
+            "stagger_ratio": "NoneType",
+            "status": "str"
+          },
+          "step_event_count": "int",
+          "sync": {
+            "landing_delta_ms": "NoneType",
+            "landing_status": "str",
+            "left_landing_ms": "NoneType",
+            "left_takeoff_ms": "NoneType",
+            "right_landing_ms": "NoneType",
+            "right_takeoff_ms": "NoneType",
+            "takeoff_delta_ms": "NoneType",
+            "takeoff_status": "str"
+          }
+        },
+        "frames_in_phase": "int",
+        "knee_angle_mean": "float",
+        "last_ignored_phase": "NoneType",
+        "last_rep_decision": {
+          "confidence": "float",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "item_examples": [
+              {
+                "confidence": "float",
+                "evidence_frames": {
+                  "type": "array",
+                  "item_examples": [
+                    "int"
+                  ]
+                },
+                "reason_code": "NoneType",
+                "required_for_count": "bool",
+                "rule_id": "str",
+                "status": "str",
+                "value": "bool"
+              }
+            ]
+          },
+          "status": "str"
+        },
+        "last_rep_observability": {
+          "camera_view_suitable": "bool",
+          "decisive_rule_confidence": "float",
+          "floor_reference_ready": "NoneType",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": []
+          },
+          "rep_mean_confidence": "float",
+          "required_landmark_confidence": "NoneType",
+          "single_frame_failure": "bool",
+          "status": "str"
+        },
+        "last_three_d_assist": {
+          "boosted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "confidence_after": "float",
+          "confidence_before": "float",
+          "conflicted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "decision_mode": "str",
+          "final_status": "str",
+          "original_status": "str",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str"
+            ]
+          },
+          "relevant_angles": {
+            "type": "array",
+            "item_examples": [
+              "str",
+              "str",
+              "str"
+            ]
+          },
+          "status": "str",
+          "supported_rules": {
+            "type": "array",
+            "item_examples": []
+          }
+        },
+        "no_rep_count": "int",
+        "observed_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "optional_phase_sequence": {
+          "type": "array",
+          "item_examples": []
+        },
+        "phase_sequence_progress": "int",
+        "pose_valid_rep_count": "int",
+        "raw_phase": "str",
+        "rep_completed": "bool",
+        "required_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str"
+          ]
+        },
+        "sensitivity": "str",
+        "skipped_optional_phases": {
+          "type": "array",
+          "item_examples": []
+        },
+        "stable_phase": "str",
+        "step_count": "int",
+        "torso_angle": "float",
+        "unsure_count": "int",
+        "view_profile": "str"
+      },
+      "feedback_messages": {
+        "type": "array",
+        "item_examples": []
+      },
+      "last_rep_candidate": {
+        "action": "str",
+        "end_frame": "int",
+        "events": {
+          "terminal_phase": "str"
+        },
+        "frame_count": "int",
+        "phases_seen": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str"
+          ]
+        },
+        "start_frame": "int"
+      },
+      "last_rep_decision": {
+        "confidence": "float",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "rules": {
+          "type": "array",
+          "item_examples": [
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": [
+                  "int"
+                ]
+              },
+              "reason_code": "NoneType",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "bool"
+            }
+          ]
+        },
+        "status": "str"
+      },
+      "last_rep_observability": {
+        "camera_view_suitable": "bool",
+        "decisive_rule_confidence": "float",
+        "floor_reference_ready": "NoneType",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": []
+        },
+        "rep_mean_confidence": "float",
+        "required_landmark_confidence": "NoneType",
+        "single_frame_failure": "bool",
+        "status": "str"
+      },
+      "last_three_d_assist": {
+        "boosted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "confidence_after": "float",
+        "confidence_before": "float",
+        "conflicted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "decision_mode": "str",
+        "final_status": "str",
+        "original_status": "str",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "relevant_angles": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "status": "str",
+        "supported_rules": {
+          "type": "array",
+          "item_examples": []
+        }
+      },
+      "no_rep_count": "int",
+      "official_rep_count_supported": "bool",
+      "phase": "str",
+      "pose_valid_rep_count": "int",
+      "rep_count": "int",
+      "unsure_count": "int"
+    },
+    "sled_pull": {
+      "action": "str",
+      "active_violation_codes": {
+        "type": "array",
+        "item_examples": []
+      },
+      "candidate_count": "int",
+      "count_semantics": "str",
+      "cycle_count": "int",
+      "debug": {
+        "body_center_y": "float",
+        "camera_view": "str",
+        "candidate_count": "int",
+        "config_name": "str",
+        "contacts": {
+          "chest_proxy": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "NoneType",
+            "surface_point": "NoneType",
+            "surface_side": "NoneType"
+          },
+          "knee": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "NoneType",
+            "surface_point": "NoneType",
+            "surface_side": "NoneType"
+          }
+        },
+        "elbow_angle_mean": "float",
+        "elbow_delta": "float",
+        "floor_reference": {
+          "body_height": "float",
+          "body_height_source": "str",
+          "confidence": "float",
+          "line": "NoneType",
+          "reason_code": "str",
+          "sample_count": "int",
+          "source": "str",
+          "status": "str"
+        },
+        "foot_events": {
+          "left": {
+            "confidence": "float",
+            "heel_height_ratio": "NoneType",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "NoneType",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "NoneType",
+            "vertical_speed_body_per_second": "NoneType"
+          },
+          "new_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "recent_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "right": {
+            "confidence": "float",
+            "heel_height_ratio": "NoneType",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "NoneType",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "NoneType",
+            "vertical_speed_body_per_second": "NoneType"
+          },
+          "stagger": {
+            "confidence": "float",
+            "mean_foot_length": "NoneType",
+            "rule_id": "str",
+            "stagger_ratio": "NoneType",
+            "status": "str"
+          },
+          "step_event_count": "int",
+          "sync": {
+            "landing_delta_ms": "NoneType",
+            "landing_status": "str",
+            "left_landing_ms": "NoneType",
+            "left_takeoff_ms": "NoneType",
+            "right_landing_ms": "NoneType",
+            "right_takeoff_ms": "NoneType",
+            "takeoff_delta_ms": "NoneType",
+            "takeoff_status": "str"
+          }
+        },
+        "frames_in_phase": "int",
+        "hip_center_y": "float",
+        "hip_vertical_speed_body_ratio": "float",
+        "knee_angle_mean": "float",
+        "knee_contact": {
+          "confidence": "float",
+          "evidence_frames": {
+            "type": "array",
+            "item_examples": []
+          },
+          "hold_ms": "int",
+          "status": "str",
+          "surface_height_ratio": "NoneType",
+          "surface_point": "NoneType",
+          "surface_side": "NoneType"
+        },
+        "last_ignored_phase": "NoneType",
+        "last_rep_decision": {
+          "confidence": "float",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "item_examples": [
+              {
+                "confidence": "float",
+                "evidence_frames": {
+                  "type": "array",
+                  "item_examples": [
+                    "int"
+                  ]
+                },
+                "reason_code": "NoneType",
+                "required_for_count": "bool",
+                "rule_id": "str",
+                "status": "str",
+                "value": "bool"
+              }
+            ]
+          },
+          "status": "str"
+        },
+        "last_rep_observability": {
+          "camera_view_suitable": "bool",
+          "decisive_rule_confidence": "float",
+          "floor_reference_ready": "NoneType",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": []
+          },
+          "rep_mean_confidence": "float",
+          "required_landmark_confidence": "NoneType",
+          "single_frame_failure": "bool",
+          "status": "str"
+        },
+        "last_three_d_assist": {
+          "boosted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "confidence_after": "float",
+          "confidence_before": "float",
+          "conflicted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "decision_mode": "str",
+          "final_status": "str",
+          "original_status": "str",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str"
+            ]
+          },
+          "relevant_angles": {
+            "type": "array",
+            "item_examples": [
+              "str",
+              "str",
+              "str"
+            ]
+          },
+          "status": "str",
+          "supported_rules": {
+            "type": "array",
+            "item_examples": []
+          }
+        },
+        "no_rep_count": "int",
+        "observed_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "optional_phase_sequence": {
+          "type": "array",
+          "item_examples": []
+        },
+        "phase_sequence_progress": "int",
+        "pose_valid_rep_count": "int",
+        "pull_count": "int",
+        "raw_phase": "str",
+        "rep_completed": "bool",
+        "required_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "sensitivity": "str",
+        "skipped_optional_phases": {
+          "type": "array",
+          "item_examples": []
+        },
+        "sled_pull_violations": {
+          "type": "array",
+          "item_examples": [
+            {
+              "active": "bool",
+              "code": "str",
+              "confidence": "float",
+              "duration_ms": "int",
+              "started_ms": "NoneType",
+              "status": "str"
+            },
+            {
+              "active": "bool",
+              "code": "str",
+              "confidence": "float",
+              "duration_ms": "int",
+              "started_ms": "NoneType",
+              "status": "str"
+            },
+            {
+              "active": "bool",
+              "code": "str",
+              "confidence": "float",
+              "duration_ms": "int",
+              "started_ms": "NoneType",
+              "status": "str"
+            }
+          ]
+        },
+        "stable_phase": "str",
+        "standing_hip_center_y": "float",
+        "torso_angle": "float",
+        "unsure_count": "int",
+        "view_profile": "str",
+        "wrist_asymmetry": "float",
+        "wrist_distance_norm": "float"
+      },
+      "feedback_messages": {
+        "type": "array",
+        "item_examples": []
+      },
+      "last_rep_candidate": {
+        "action": "str",
+        "end_frame": "int",
+        "events": {
+          "terminal_phase": "str"
+        },
+        "frame_count": "int",
+        "phases_seen": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "start_frame": "int"
+      },
+      "last_rep_decision": {
+        "confidence": "float",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "rules": {
+          "type": "array",
+          "item_examples": [
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": [
+                  "int"
+                ]
+              },
+              "reason_code": "NoneType",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "bool"
+            }
+          ]
+        },
+        "status": "str"
+      },
+      "last_rep_observability": {
+        "camera_view_suitable": "bool",
+        "decisive_rule_confidence": "float",
+        "floor_reference_ready": "NoneType",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": []
+        },
+        "rep_mean_confidence": "float",
+        "required_landmark_confidence": "NoneType",
+        "single_frame_failure": "bool",
+        "status": "str"
+      },
+      "last_three_d_assist": {
+        "boosted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "confidence_after": "float",
+        "confidence_before": "float",
+        "conflicted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "decision_mode": "str",
+        "final_status": "str",
+        "original_status": "str",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "relevant_angles": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "status": "str",
+        "supported_rules": {
+          "type": "array",
+          "item_examples": []
+        }
+      },
+      "no_rep_count": "int",
+      "official_rep_count_supported": "bool",
+      "phase": "str",
+      "pose_valid_rep_count": "int",
+      "rep_count": "int",
+      "uncertain_violation_codes": {
+        "type": "array",
+        "item_examples": []
+      },
+      "unsure_count": "int",
+      "violation_results": {
+        "type": "array",
+        "item_examples": [
+          {
+            "active": "bool",
+            "code": "str",
+            "confidence": "float",
+            "duration_ms": "int",
+            "started_ms": "NoneType",
+            "status": "str"
+          },
+          {
+            "active": "bool",
+            "code": "str",
+            "confidence": "float",
+            "duration_ms": "int",
+            "started_ms": "NoneType",
+            "status": "str"
+          },
+          {
+            "active": "bool",
+            "code": "str",
+            "confidence": "float",
+            "duration_ms": "int",
+            "started_ms": "NoneType",
+            "status": "str"
+          }
+        ]
+      },
+      "violation_scope": "str"
+    },
+    "wall_ball": {
+      "action": "str",
+      "candidate_count": "int",
+      "debug": {
+        "ankle_width": "float",
+        "bottom_depth_met": "bool",
+        "bottom_seen": "bool",
+        "camera_view": "str",
+        "candidate_count": "int",
+        "candidate_rule_active": "bool",
+        "config_name": "str",
+        "confirmation_frames": "int",
+        "contacts": {
+          "chest_proxy": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "float",
+            "surface_point": {
+              "x": "float",
+              "y": "float"
+            },
+            "surface_side": "str"
+          },
+          "knee": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "float",
+            "surface_point": {
+              "x": "float",
+              "y": "float"
+            },
+            "surface_side": "str"
+          }
+        },
+        "extension_pending": "bool",
+        "extension_seen": "bool",
+        "floor_reference": {
+          "body_height": "float",
+          "body_height_source": "str",
+          "confidence": "float",
+          "line": {
+            "x1": "float",
+            "x2": "float",
+            "y1": "float",
+            "y2": "float"
+          },
+          "reason_code": "NoneType",
+          "sample_count": "int",
+          "source": "str",
+          "status": "str"
+        },
+        "foot_events": {
+          "left": {
+            "confidence": "float",
+            "heel_height_ratio": "float",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "float",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "float",
+            "vertical_speed_body_per_second": "float"
+          },
+          "new_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "recent_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "right": {
+            "confidence": "float",
+            "heel_height_ratio": "float",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "float",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "float",
+            "vertical_speed_body_per_second": "float"
+          },
+          "stagger": {
+            "confidence": "float",
+            "mean_foot_length": "float",
+            "rule_id": "str",
+            "stagger_ratio": "float",
+            "status": "str"
+          },
+          "step_event_count": "int",
+          "sync": {
+            "landing_delta_ms": "NoneType",
+            "landing_status": "str",
+            "left_landing_ms": "NoneType",
+            "left_takeoff_ms": "NoneType",
+            "right_landing_ms": "NoneType",
+            "right_takeoff_ms": "NoneType",
+            "takeoff_delta_ms": "NoneType",
+            "takeoff_status": "str"
+          }
+        },
+        "frames_in_phase": "int",
+        "hip_below_knee_best_ratio": "NoneType",
+        "hip_knee_depth": "float",
+        "just_completed_rep": "bool",
+        "knee_width": "float",
+        "last_ignored_phase": "NoneType",
+        "last_rep_decision": {
+          "confidence": "float",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "item_examples": [
+              {
+                "confidence": "float",
+                "evidence_frames": {
+                  "type": "array",
+                  "item_examples": [
+                    "int",
+                    "int",
+                    "int"
+                  ]
+                },
+                "reason_code": "str",
+                "required_for_count": "bool",
+                "rule_id": "str",
+                "status": "str",
+                "value": "bool"
+              },
+              {
+                "confidence": "float",
+                "evidence_frames": {
+                  "type": "array",
+                  "item_examples": [
+                    "int",
+                    "int",
+                    "int"
+                  ]
+                },
+                "reason_code": "str",
+                "required_for_count": "bool",
+                "rule_id": "str",
+                "status": "str",
+                "value": "float"
+              },
+              {
+                "confidence": "float",
+                "evidence_frames": {
+                  "type": "array",
+                  "item_examples": [
+                    "int",
+                    "int"
+                  ]
+                },
+                "reason_code": "str",
+                "required_for_count": "bool",
+                "rule_id": "str",
+                "status": "str",
+                "value": "float"
+              }
+            ]
+          },
+          "status": "str"
+        },
+        "last_rep_observability": {
+          "camera_view_suitable": "bool",
+          "decisive_rule_confidence": "float",
+          "floor_reference_ready": "bool",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str"
+            ]
+          },
+          "rep_mean_confidence": "float",
+          "required_landmark_confidence": "float",
+          "single_frame_failure": "bool",
+          "status": "str"
+        },
+        "last_rep_time_ms": "int",
+        "last_three_d_assist": {
+          "boosted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "confidence_after": "float",
+          "confidence_before": "float",
+          "conflicted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "decision_mode": "str",
+          "final_status": "str",
+          "original_status": "str",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str"
+            ]
+          },
+          "relevant_angles": {
+            "type": "array",
+            "item_examples": [
+              "str",
+              "str",
+              "str"
+            ]
+          },
+          "status": "str",
+          "supported_rules": {
+            "type": "array",
+            "item_examples": []
+          }
+        },
+        "min_knee_angle": "float",
+        "min_visible_score": "float",
+        "no_rep_count": "int",
+        "observed_phase_sequence": {
+          "type": "array",
+          "item_examples": []
+        },
+        "optional_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str"
+          ]
+        },
+        "phase_sequence_progress": "int",
+        "pose_valid_rep_count": "int",
+        "raw_phase": "str",
+        "rep_completed": "bool",
+        "rep_cooldown_ms": "int",
+        "required_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "selected_elbow_angle": "float",
+        "selected_hip_angle": "float",
+        "sensitivity": "str",
+        "skipped_optional_phases": {
+          "type": "array",
+          "item_examples": []
+        },
+        "stable_phase": "str",
+        "stand_seen": "bool",
+        "timestamp_ms": "int",
+        "unsure_count": "int",
+        "view_profile": "str",
+        "visible_score": "float",
+        "wall_ball_required_rules": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "wall_ball_rules": {
+          "type": "array",
+          "item_examples": [
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": [
+                  "int",
+                  "int",
+                  "int"
+                ]
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "bool"
+            },
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": [
+                  "int",
+                  "int",
+                  "int"
+                ]
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "float"
+            },
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": [
+                  "int",
+                  "int"
+                ]
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "float"
+            }
+          ]
+        },
+        "wall_ball_validation_state": "str",
+        "wrist_above_shoulder": "float",
+        "wrist_peak_ms": {
+          "left": "NoneType",
+          "right": "NoneType"
+        }
+      },
+      "feedback_messages": {
+        "type": "array",
+        "item_examples": []
+      },
+      "last_rep_candidate": {
+        "action": "str",
+        "end_frame": "int",
+        "events": {
+          "hip_below_knee_ratio": "float",
+          "terminal_phase": "str",
+          "throw_proxy_name": "str",
+          "visible_score": "float",
+          "wrist_peak_time_diff_ms": "int"
+        },
+        "frame_count": "int",
+        "phases_seen": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "start_frame": "int"
+      },
+      "last_rep_decision": {
+        "confidence": "float",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "rules": {
+          "type": "array",
+          "item_examples": [
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": [
+                  "int",
+                  "int",
+                  "int"
+                ]
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "bool"
+            },
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": [
+                  "int",
+                  "int",
+                  "int"
+                ]
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "float"
+            },
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": [
+                  "int",
+                  "int"
+                ]
+              },
+              "reason_code": "str",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "float"
+            }
+          ]
+        },
+        "status": "str"
+      },
+      "last_rep_observability": {
+        "camera_view_suitable": "bool",
+        "decisive_rule_confidence": "float",
+        "floor_reference_ready": "bool",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "rep_mean_confidence": "float",
+        "required_landmark_confidence": "float",
+        "single_frame_failure": "bool",
+        "status": "str"
+      },
+      "last_three_d_assist": {
+        "boosted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "confidence_after": "float",
+        "confidence_before": "float",
+        "conflicted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "decision_mode": "str",
+        "final_status": "str",
+        "original_status": "str",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "relevant_angles": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "status": "str",
+        "supported_rules": {
+          "type": "array",
+          "item_examples": []
+        }
+      },
+      "no_rep_count": "int",
+      "phase": "str",
+      "pose_valid_rep_count": "int",
+      "rep_count": "int",
+      "unsure_count": "int"
+    },
+    "rowing": {
+      "action": "str",
+      "active_violation_codes": {
+        "type": "array",
+        "item_examples": []
+      },
+      "candidate_count": "int",
+      "count_semantics": "str",
+      "cycle_count": "int",
+      "debug": {
+        "camera_view": "str",
+        "candidate_count": "int",
+        "config_name": "str",
+        "contacts": {
+          "chest_proxy": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "NoneType",
+            "surface_point": "NoneType",
+            "surface_side": "NoneType"
+          },
+          "knee": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "NoneType",
+            "surface_point": "NoneType",
+            "surface_side": "NoneType"
+          }
+        },
+        "elbow_angle_mean": "float",
+        "floor_reference": {
+          "body_height": "float",
+          "body_height_source": "str",
+          "confidence": "float",
+          "line": "NoneType",
+          "reason_code": "str",
+          "sample_count": "int",
+          "source": "str",
+          "status": "str"
+        },
+        "foot_events": {
+          "left": {
+            "confidence": "float",
+            "heel_height_ratio": "NoneType",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "NoneType",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "NoneType",
+            "vertical_speed_body_per_second": "NoneType"
+          },
+          "new_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "recent_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "right": {
+            "confidence": "float",
+            "heel_height_ratio": "NoneType",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "NoneType",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "NoneType",
+            "vertical_speed_body_per_second": "NoneType"
+          },
+          "stagger": {
+            "confidence": "float",
+            "mean_foot_length": "NoneType",
+            "rule_id": "str",
+            "stagger_ratio": "NoneType",
+            "status": "str"
+          },
+          "step_event_count": "int",
+          "sync": {
+            "landing_delta_ms": "NoneType",
+            "landing_status": "str",
+            "left_landing_ms": "NoneType",
+            "left_takeoff_ms": "NoneType",
+            "right_landing_ms": "NoneType",
+            "right_takeoff_ms": "NoneType",
+            "takeoff_delta_ms": "NoneType",
+            "takeoff_status": "str"
+          }
+        },
+        "frames_in_phase": "int",
+        "last_ignored_phase": "NoneType",
+        "last_rep_decision": {
+          "confidence": "float",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str"
+            ]
+          },
+          "rules": {
+            "type": "array",
+            "item_examples": [
+              {
+                "confidence": "float",
+                "evidence_frames": {
+                  "type": "array",
+                  "item_examples": [
+                    "int"
+                  ]
+                },
+                "reason_code": "NoneType",
+                "required_for_count": "bool",
+                "rule_id": "str",
+                "status": "str",
+                "value": "bool"
+              }
+            ]
+          },
+          "status": "str"
+        },
+        "last_rep_observability": {
+          "camera_view_suitable": "bool",
+          "decisive_rule_confidence": "float",
+          "floor_reference_ready": "NoneType",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": []
+          },
+          "rep_mean_confidence": "float",
+          "required_landmark_confidence": "NoneType",
+          "single_frame_failure": "bool",
+          "status": "str"
+        },
+        "last_three_d_assist": {
+          "boosted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "confidence_after": "float",
+          "confidence_before": "float",
+          "conflicted_rules": {
+            "type": "array",
+            "item_examples": []
+          },
+          "decision_mode": "str",
+          "final_status": "str",
+          "original_status": "str",
+          "reason_codes": {
+            "type": "array",
+            "item_examples": [
+              "str"
+            ]
+          },
+          "relevant_angles": {
+            "type": "array",
+            "item_examples": [
+              "str",
+              "str",
+              "str"
+            ]
+          },
+          "status": "str",
+          "supported_rules": {
+            "type": "array",
+            "item_examples": []
+          }
+        },
+        "left_knee_angle": "float",
+        "no_rep_count": "int",
+        "observed_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "optional_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "phase_duration_ms": "int",
+        "phase_sequence_progress": "int",
+        "pose_valid_rep_count": "int",
+        "raw_phase": "str",
+        "rep_completed": "bool",
+        "required_phase_sequence": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "right_knee_angle": "NoneType",
+        "rowing_early_stand_proxy": {
+          "active": "bool",
+          "code": "str",
+          "confidence": "float",
+          "duration_ms": "int",
+          "started_ms": "NoneType",
+          "status": "str"
+        },
+        "seated_hip_center_y": "float",
+        "sensitivity": "str",
+        "side_view_likely": "bool",
+        "skipped_optional_phases": {
+          "type": "array",
+          "item_examples": []
+        },
+        "stable_phase": "str",
+        "stroke_count": "int",
+        "torso_angle": "float",
+        "unsure_count": "int",
+        "view_profile": "str"
+      },
+      "feedback_messages": {
+        "type": "array",
+        "item_examples": []
+      },
+      "last_rep_candidate": {
+        "action": "str",
+        "end_frame": "int",
+        "events": {
+          "terminal_phase": "str"
+        },
+        "frame_count": "int",
+        "phases_seen": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "start_frame": "int"
+      },
+      "last_rep_decision": {
+        "confidence": "float",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "rules": {
+          "type": "array",
+          "item_examples": [
+            {
+              "confidence": "float",
+              "evidence_frames": {
+                "type": "array",
+                "item_examples": [
+                  "int"
+                ]
+              },
+              "reason_code": "NoneType",
+              "required_for_count": "bool",
+              "rule_id": "str",
+              "status": "str",
+              "value": "bool"
+            }
+          ]
+        },
+        "status": "str"
+      },
+      "last_rep_observability": {
+        "camera_view_suitable": "bool",
+        "decisive_rule_confidence": "float",
+        "floor_reference_ready": "NoneType",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": []
+        },
+        "rep_mean_confidence": "float",
+        "required_landmark_confidence": "NoneType",
+        "single_frame_failure": "bool",
+        "status": "str"
+      },
+      "last_three_d_assist": {
+        "boosted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "confidence_after": "float",
+        "confidence_before": "float",
+        "conflicted_rules": {
+          "type": "array",
+          "item_examples": []
+        },
+        "decision_mode": "str",
+        "final_status": "str",
+        "original_status": "str",
+        "reason_codes": {
+          "type": "array",
+          "item_examples": [
+            "str"
+          ]
+        },
+        "relevant_angles": {
+          "type": "array",
+          "item_examples": [
+            "str",
+            "str",
+            "str"
+          ]
+        },
+        "status": "str",
+        "supported_rules": {
+          "type": "array",
+          "item_examples": []
+        }
+      },
+      "no_rep_count": "int",
+      "official_rep_count_supported": "bool",
+      "phase": "str",
+      "pose_valid_rep_count": "int",
+      "rep_count": "int",
+      "unsure_count": "int",
+      "violation_results": {
+        "type": "array",
+        "item_examples": [
+          {
+            "active": "bool",
+            "code": "str",
+            "confidence": "float",
+            "duration_ms": "int",
+            "started_ms": "NoneType",
+            "status": "str"
+          }
+        ]
+      },
+      "violation_scope": "str"
+    },
+    "farmers_carry": {
+      "action": "str",
+      "active_violation_codes": {
+        "type": "array",
+        "item_examples": []
+      },
+      "candidate_count": "int",
+      "count_semantics": "str",
+      "cycle_count": "int",
+      "debug": {
+        "camera_view": "str",
+        "candidate_count": "int",
+        "carrying_score": "float",
+        "config_name": "str",
+        "contacts": {
+          "chest_proxy": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "NoneType",
+            "surface_point": "NoneType",
+            "surface_side": "NoneType"
+          },
+          "knee": {
+            "confidence": "float",
+            "evidence_frames": {
+              "type": "array",
+              "item_examples": []
+            },
+            "hold_ms": "int",
+            "status": "str",
+            "surface_height_ratio": "NoneType",
+            "surface_point": "NoneType",
+            "surface_side": "NoneType"
+          }
+        },
+        "farmers_carry_arm_violations": {
+          "type": "array",
+          "item_examples": [
+            {
+              "active": "bool",
+              "code": "str",
+              "confidence": "float",
+              "duration_ms": "int",
+              "started_ms": "int",
+              "status": "str"
+            },
+            {
+              "active": "bool",
+              "code": "str",
+              "confidence": "float",
+              "duration_ms": "int",
+              "started_ms": "int",
+              "status": "str"
+            }
+          ]
+        },
+        "floor_reference": {
+          "body_height": "float",
+          "body_height_source": "str",
+          "confidence": "float",
+          "line": "NoneType",
+          "reason_code": "str",
+          "sample_count": "int",
+          "source": "str",
+          "status": "str"
+        },
+        "foot_events": {
+          "left": {
+            "confidence": "float",
+            "heel_height_ratio": "NoneType",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "NoneType",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "NoneType",
+            "vertical_speed_body_per_second": "NoneType"
+          },
+          "new_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "recent_events": {
+            "type": "array",
+            "item_examples": []
+          },
+          "right": {
+            "confidence": "float",
+            "heel_height_ratio": "NoneType",
+            "landing_ms": "NoneType",
+            "observable": "bool",
+            "side": "str",
+            "state": "str",
+            "support_height_ratio": "NoneType",
+            "takeoff_ms": "NoneType",
+            "toe_height_ratio": "NoneType",
+            "vertical_speed_body_per_second": "NoneType"
+          },
+          "stagger": {
+            "confidence": "float",
+            "mean_foot_length": "NoneType",
+            "rule_id": "str",
+            "stagger_ratio": "NoneType",
+            "status": "str"
+          },
+          "step_event_count": "int",
+          "sync": {
+            "landing_delta_ms": "NoneType",
+            "landing_status": "str",
+            "left_landing_ms": "NoneType",
+            "left_takeoff_ms": "NoneType",
+            "right_landing_ms": "NoneType",
+            "right_takeoff_ms": "NoneType",
+            "takeoff_delta_ms": "NoneType",
+            "takeoff_status": "str"
+          }
+        },
+        "frames_in_phase": "int",
+        "hip_tilt": "float",
+        "last_rep_decision": "NoneType",
+        "last_rep_observability": "NoneType",
+        "last_three_d_assist": "NoneType",
+        "motion_detected": "bool",
+        "no_rep_count": "int",
+        "pose_valid_rep_count": "int",
+        "raw_phase": "str",
+        "sensitivity": "str",
+        "shoulder_tilt": "float",
+        "stable_phase": "str",
+        "stationary_ms": "int",
+        "torso_angle": "float",
+        "unsure_count": "int",
+        "view_profile": "str",
+        "wrist_to_hip": "float"
+      },
+      "feedback_messages": {
+        "type": "array",
+        "item_examples": []
+      },
+      "last_rep_candidate": "NoneType",
+      "last_rep_decision": "NoneType",
+      "last_rep_observability": "NoneType",
+      "last_three_d_assist": "NoneType",
+      "no_rep_count": "int",
+      "official_rep_count_supported": "bool",
+      "phase": "str",
+      "pose_valid_rep_count": "int",
+      "rep_count": "int",
+      "unsure_count": "int",
+      "violation_results": {
+        "type": "array",
+        "item_examples": [
+          {
+            "active": "bool",
+            "code": "str",
+            "confidence": "float",
+            "duration_ms": "int",
+            "started_ms": "int",
+            "status": "str"
+          },
+          {
+            "active": "bool",
+            "code": "str",
+            "confidence": "float",
+            "duration_ms": "int",
+            "started_ms": "int",
+            "status": "str"
+          }
+        ]
+      },
+      "violation_scope": "str"
+    }
+  },
+  "compatibility_contract": {
+    "existing_fields_may_be_removed": false,
+    "existing_fields_may_be_renamed": false,
+    "new_optional_fields_may_be_added": true
+  }
+}

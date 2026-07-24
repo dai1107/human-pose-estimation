@@ -27,6 +27,11 @@ def test_pyproject_declares_python_cli_and_optional_dependency_groups() -> None:
         "pose-replay",
         "pose-golden",
         "pose-endurance",
+        "pose-baseline",
+        "pose-dataset-manifest",
+        "pose-oni-audit",
+        "pose-oni-export",
+        "pose-oni-sync",
         "pose-clean",
     } <= set(project["scripts"])
     assert "configs/hyrox_golden_videos.json" in payload["tool"]["setuptools"]["data-files"]["configs"]
