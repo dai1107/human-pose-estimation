@@ -148,3 +148,33 @@ def test_rowing_bad_view_feedback_for_upright_standing_pose() -> None:
         100,
     )
     assert "NOT_SEATED_OR_BAD_VIEW" in {message.code for message in frontal["feedback_messages"]}
+
+
+def test_rowing_uses_visible_side_for_oblique_rear_counting() -> None:
+    analyzer = _analyzer()
+    common = {
+        "visible_score": 0.66,
+        "left_side_visible_score": 0.96,
+        "right_side_visible_score": 0.30,
+        "left_knee_confidence": 0.95,
+        "right_knee_confidence": 0.25,
+    }
+    analyzer.update(_features(**common), 0)
+    analyzer.update(
+        _features(**common, left_knee_angle=132, right_knee_angle=170),
+        150,
+    )
+    state = analyzer.update(
+        _features(
+            **common,
+            left_knee_angle=155,
+            right_knee_angle=170,
+            left_elbow_angle=110,
+            right_elbow_angle=175,
+        ),
+        300,
+    )
+    assert state["rep_count"] == 1
+    assert state["unsure_count"] == 0
+    assert state["debug"]["selected_pose_side"] == "left"
+    assert state["debug"]["analysis_visible_score"] == pytest.approx(0.96)

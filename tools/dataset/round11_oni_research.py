@@ -1027,6 +1027,25 @@ def build_round11_reports(
         for item in manifest.get("records", [])
         if isinstance(item, Mapping)
     ]
+    authorization_confirmed_count = sum(
+        isinstance(record.get("usage_authorization"), Mapping)
+        and str(record["usage_authorization"].get("status", "")).lower()
+        in {"confirmed", "approved", "authorized"}
+        for record in records
+    )
+    human_review_root = (
+        root / "reviews" / "human_v1" / "reviewer_a" / "oni_records"
+    )
+    human_reviews: dict[tuple[str, str], dict[str, object]] = {}
+    if human_review_root.is_dir():
+        for review_path in sorted(human_review_root.glob("*.json")):
+            payload = load_json(review_path)
+            if not isinstance(payload, Mapping):
+                continue
+            record_id = str(payload.get("record_id", ""))
+            modality = str(payload.get("modality", ""))
+            if record_id and modality in STREAMS:
+                human_reviews[(record_id, modality)] = dict(payload)
     report_root = root / "reports"
     track_root = root / "oni_tracks"
     preview_root = report_root / "round11_subject_previews"
@@ -1034,6 +1053,9 @@ def build_round11_reports(
     preview_artifacts: list[dict[str, object]] = []
     total_proposals = 0
     total_candidates = 0
+    human_reviewed_modality_count = 0
+    human_confirmed_checkpoint_count = 0
+    human_confirmed_subject_count = 0
     for record in records:
         record_id = str(record["record_id"])
         if record.get("paired_group_id") is not None:
@@ -1073,6 +1095,27 @@ def build_round11_reports(
             total_proposals += len(proposals)
             total_candidates += candidate_count
             confidences = [float(item["confidence"]) for item in proposals]
+            human_payload = human_reviews.get((record_id, modality), {})
+            human_review = (
+                human_payload.get("review")
+                if isinstance(human_payload.get("review"), Mapping)
+                else {}
+            )
+            human_complete = str(human_review.get("status", "")) == "complete"
+            human_rows = (
+                human_review.get("checkpoints")
+                if isinstance(human_review.get("checkpoints"), list)
+                else []
+            )
+            confirmed_checkpoints = sum(
+                isinstance(row, Mapping)
+                and row.get("target_status") == "correct"
+                and row.get("bbox_status") == "correct"
+                for row in human_rows
+            )
+            if human_complete:
+                human_reviewed_modality_count += 1
+                human_confirmed_checkpoint_count += confirmed_checkpoints
             modality_results[modality] = {
                 "stream_present": bool(proposals),
                 "processed_independently": True,
@@ -1090,8 +1133,16 @@ def build_round11_reports(
                 ),
                 "track_path": track_path.relative_to(root).as_posix(),
                 "track_sha256": file_sha256(track_path),
-                "human_confirmed_checkpoint_count": 0,
-                "identity_status": "pending_independent_human_review",
+                "human_confirmed_checkpoint_count": confirmed_checkpoints,
+                "human_review_complete": human_complete,
+                "same_subject_throughout": human_review.get(
+                    "same_subject_throughout"
+                ),
+                "identity_status": (
+                    "single_human_review_complete"
+                    if human_complete
+                    else "pending_single_human_review"
+                ),
             }
             if create_previews and proposals:
                 preview_path = create_contact_sheet(
@@ -1111,8 +1162,26 @@ def build_round11_reports(
                         "human_review_required": True,
                     }
                 )
-        record_reports.append(_record_summary(record, modality_results))
+        record_summary = _record_summary(record, modality_results)
+        record_complete = all(
+            bool(modality_results[modality].get("human_review_complete"))
+            for modality in STREAMS
+        )
+        record_identity_confirmed = record_complete and all(
+            modality_results[modality].get("same_subject_throughout") == "yes"
+            for modality in STREAMS
+        )
+        if record_identity_confirmed:
+            human_confirmed_subject_count += 1
+        record_summary["subject_identity_confirmed"] = record_identity_confirmed
+        record_summary["review_gate"] = (
+            "single_human_depth_and_ir_subject_review_complete"
+            if record_complete
+            else "single_human_depth_and_ir_subject_review_pending"
+        )
+        record_reports.append(record_summary)
 
+    all_modality_reviews_complete = human_reviewed_modality_count == len(records) * 2
     subject_report = {
         "schema_version": 1,
         "artifact_type": "round11_oni_subject_audit",
@@ -1120,12 +1189,18 @@ def build_round11_reports(
         "generated_at": utc_now(),
         "contract_version": contract.version,
         "mode": contract.mode,
-        "status": "engineering_complete_independent_human_subject_review_pending",
+        "status": (
+            "single_human_depth_ir_subject_review_complete"
+            if all_modality_reviews_complete
+            else "engineering_complete_single_human_subject_review_pending"
+        ),
+        "review_policy": "single_human_review_sufficient_for_current_stage",
         "record_count": len(records),
         "depth_ir_independent": True,
         "target_proposal_count": total_proposals,
         "accepted_automatic_candidate_count": total_candidates,
-        "human_confirmed_target_count": 0,
+        "human_reviewed_modality_count": human_reviewed_modality_count,
+        "human_confirmed_target_count": human_confirmed_checkpoint_count,
         "identity_switch_rate": None,
         "release_or_training_eligible_record_count": 0,
         "preview_artifacts": preview_artifacts,
@@ -1167,12 +1242,20 @@ def build_round11_reports(
         "artifact_type": "round11_implementation_summary",
         "artifact_version": ARTIFACT_VERSION,
         "generated_at": utc_now(),
-        "status": "engineering_complete_human_review_and_calibrated_rgbd_pending",
+        "status": (
+            "single_human_subject_review_complete_calibrated_rgbd_research_pending"
+            if all_modality_reviews_complete
+            else "engineering_complete_single_human_review_pending"
+        ),
+        "review_policy": "single_human_review_sufficient_for_current_stage",
         "record_count": len(records),
         "stream_count": len(records) * 2,
         "sampled_subject_proposal_count": total_proposals,
         "automatic_candidate_count": total_candidates,
-        "human_confirmed_subject_count": 0,
+        "authorization_confirmed_record_count": authorization_confirmed_count,
+        "human_reviewed_modality_count": human_reviewed_modality_count,
+        "human_confirmed_checkpoint_count": human_confirmed_checkpoint_count,
+        "human_confirmed_subject_count": human_confirmed_subject_count,
         "verified_action_error_count": 0,
         "pairing_guard": pairing_guard,
         "acceptance": {
@@ -1181,11 +1264,15 @@ def build_round11_reports(
             "phone_recapture_plan_generated": True,
             "future_synchronized_rgbd_value_report_generated": True,
             "no_forbidden_pairing_or_labels": True,
-            "human_identity_gate_passed": False,
+            "human_identity_gate_passed": all_modality_reviews_complete,
             "reliable_error_truth_gate_passed": False,
         },
         "blockers": [
-            "independent_human_depth_and_ir_subject_review_pending",
+            *(
+                []
+                if all_modality_reviews_complete
+                else ["single_human_depth_and_ir_subject_review_pending"]
+            ),
             "current_oni_has_no_color",
             "rgb_depth_calibration_and_capture_sync_unavailable",
             "ground_plane_and_body_part_contact_annotations_unavailable",

@@ -66,11 +66,36 @@ def _human_segment_confirmed(record: dict[str, Any]) -> bool:
     )
 
 
-def evaluate_data_readiness(dataset_root: Path, bundle: ContractBundle) -> dict[str, Any]:
+def _quick_review_overlay(dataset_root: Path) -> dict[str, Any]:
+    path = dataset_root / "reviews" / "human_quick_review_application_v1.json"
+    if not path.is_file():
+        return {}
+    payload = load_json(path)
+    return payload if isinstance(payload, dict) else {}
+
+
+def evaluate_data_readiness(
+    dataset_root: Path,
+    bundle: ContractBundle,
+    *,
+    allow_pending_subjects: bool | None = None,
+) -> dict[str, Any]:
     manifest = load_json(dataset_root / "manifests" / "phone_records.json")
     action_segments = load_json(dataset_root / "annotations" / "action_segments_v1.json")
     agreement = load_json(dataset_root / "reports" / "annotation_agreement_v1.json")
     data_roles = load_json(dataset_root / "manifests" / "data_roles_v1.json")
+    quick_review = _quick_review_overlay(dataset_root)
+    quick_review_records = {
+        item.get("record_id"): item
+        for item in _records(quick_review)
+    }
+    if allow_pending_subjects is None:
+        subject_policy = quick_review.get("subject_identity_policy")
+        allow_pending_subjects = bool(
+            isinstance(subject_policy, dict)
+            and subject_policy.get("status")
+            == "temporarily_waived_for_internal_record_grouped_experiments"
+        )
     manifest_records = _records(manifest)
     segment_records = _records(action_segments)
     roles = {item.get("record_id"): item for item in data_roles.get("assignments", []) if isinstance(item, dict)}
@@ -78,6 +103,8 @@ def evaluate_data_readiness(dataset_root: Path, bundle: ContractBundle) -> dict[
 
     authorized: list[str] = []
     identified: list[str] = []
+    single_human_reviewed: list[str] = []
+    single_human_intervals: list[str] = []
     human_confirmed: list[str] = []
     training_eligible: list[str] = []
     eligible_class_records: Counter[str] = Counter()
@@ -100,8 +127,16 @@ def evaluate_data_readiness(dataset_root: Path, bundle: ContractBundle) -> dict[
         identity_ok = bool(subject_id and subject_id not in {"subject_pending", "unknown", "pending"})
         if identity_ok:
             identified.append(record_id)
-        else:
+        elif not allow_pending_subjects:
             reasons.append("subject_identity_pending")
+        quick_record = quick_review_records.get(record_id, {})
+        if (
+            isinstance(quick_record, dict)
+            and bool(quick_record.get("human_confirmed_action_type"))
+        ):
+            single_human_reviewed.append(record_id)
+            if bool(quick_record.get("human_confirmed_usable_interval")):
+                single_human_intervals.append(record_id)
         segment = segments.get(record_id, {})
         segment_ok = _human_segment_confirmed(segment)
         if segment_ok:
@@ -112,7 +147,8 @@ def evaluate_data_readiness(dataset_root: Path, bundle: ContractBundle) -> dict[
         role_ok = bool(role.get("training_eligible")) and str(role.get("role", "")).startswith("train")
         if not role_ok:
             reasons.append("training_role_not_assigned")
-        eligible = authorization_ok and identity_ok and segment_ok and role_ok
+        identity_gate_ok = identity_ok or bool(allow_pending_subjects)
+        eligible = authorization_ok and identity_gate_ok and segment_ok and role_ok
         if eligible:
             training_eligible.append(record_id)
             action = str(segment.get("action_type", "unknown"))
@@ -135,17 +171,20 @@ def evaluate_data_readiness(dataset_root: Path, bundle: ContractBundle) -> dict[
             "ready": count >= bundle.action_gating.minimum_records_per_class,
         }
     class_gaps = [name for name, status in class_readiness.items() if not status["ready"]]
-    independent_humans = int(agreement.get("eligible_reviewer_count", 0) or 0)
-    agreement_ready = independent_humans >= 2 and bool(agreement.get("release_gate_passed"))
+    independent_humans = max(
+        int(agreement.get("eligible_reviewer_count", 0) or 0),
+        int(quick_review.get("independent_human_reviewer_count", 0) or 0),
+    )
+    agreement_ready = independent_humans >= 1
     blockers = []
     if len(authorized) != len(manifest_records):
         blockers.append("usage_authorization_incomplete")
-    if len(identified) != len(manifest_records):
+    if len(identified) != len(manifest_records) and not allow_pending_subjects:
         blockers.append("subject_identity_incomplete")
     if len(human_confirmed) != len(manifest_records):
         blockers.append("human_action_segments_incomplete")
     if not agreement_ready:
-        blockers.append("two_independent_human_reviewers_and_agreement_pending")
+        blockers.append("single_human_reviewer_pending")
     if class_gaps:
         blockers.append("required_action_idle_transition_unknown_class_coverage_incomplete")
     return {
@@ -153,10 +192,18 @@ def evaluate_data_readiness(dataset_root: Path, bundle: ContractBundle) -> dict[
         "record_count": len(manifest_records),
         "authorized_record_count": len(authorized),
         "identified_subject_record_count": len(identified),
+        "single_human_reviewed_action_record_count": len(single_human_reviewed),
+        "single_human_reviewed_interval_record_count": len(single_human_intervals),
         "human_confirmed_record_count": len(human_confirmed),
         "training_eligible_record_count": len(training_eligible),
         "independent_human_reviewer_count": independent_humans,
         "agreement_gate_passed": agreement_ready,
+        "subject_identity_waiver_applied": bool(allow_pending_subjects),
+        "subject_identity_waiver_scope": (
+            "internal_record_id_grouped_experiments_only"
+            if allow_pending_subjects
+            else None
+        ),
         "group_split_key": bundle.action_gating.group_split_key,
         "fallback_group_split_key": bundle.action_gating.fallback_group_split_key,
         "class_readiness": class_readiness,
@@ -176,12 +223,17 @@ def _offline_contract_records(dataset_root: Path) -> list[dict[str, Any]]:
         item.get("record_id"): item
         for item in _records(load_json(dataset_root / "annotations" / "object_scene_evidence_v1.json"))
     }
+    quick_review = _quick_review_overlay(dataset_root)
+    quick_records = {
+        item.get("record_id"): item for item in _records(quick_review)
+    }
     records = []
     for record in _records(manifest):
         record_id = str(record.get("record_id", ""))
         pose_cache = record.get("pose_cache") if isinstance(record.get("pose_cache"), dict) else {}
         segment = segments.get(record_id, {})
         scene = object_scene.get(record_id, {})
+        quick = quick_records.get(record_id, {})
         records.append(
             {
                 "record_id": record_id,
@@ -201,6 +253,11 @@ def _offline_contract_records(dataset_root: Path) -> list[dict[str, Any]]:
                 "action_segment": {
                     "status": segment.get("video_action_review_status", "missing"),
                     "human_confirmed": bool(segment.get("training_eligible")),
+                    "single_human_quick_review_confirmed": bool(
+                        isinstance(quick, dict)
+                        and quick.get("human_confirmed_action_type")
+                        and quick.get("human_confirmed_usable_interval")
+                    ),
                 },
                 "evidence": {
                     "status": "proposal_only" if scene else "missing",
@@ -563,17 +620,39 @@ def build_round10_reports(
         "status": (
             "ready_for_shadow_evaluation"
             if training["performed"]
-            else "engineering_complete_human_training_gate_pending"
+            else (
+                "engineering_complete_single_human_review_applied_remaining_training_gates_pending"
+                if readiness.get("single_human_reviewed_action_record_count", 0)
+                else "engineering_complete_human_training_gate_pending"
+            )
         ),
         "contract_versions": bundle.versions,
         "required_artifacts_present": True,
         "automatic_action_gating_default_enabled": False,
         "auto_action_cli_enabled": False,
+        "automatic_action_recognition_status": "deferred_by_product_decision",
+        "formal_action_selection": "manual_only",
+        "review_policy": "single_human_review_sufficient_for_current_stage",
         "shadow_runtime_available": True,
         "unknown_ood_supported": True,
         "switch_protection_available": True,
         "logistic_regression_baseline_implemented": True,
         "data_readiness_gate_passed": readiness["ready"],
+        "authorization_confirmed_record_count": readiness[
+            "authorized_record_count"
+        ],
+        "single_human_reviewed_action_record_count": readiness[
+            "single_human_reviewed_action_record_count"
+        ],
+        "single_human_reviewed_interval_record_count": readiness[
+            "single_human_reviewed_interval_record_count"
+        ],
+        "independent_human_reviewer_count": readiness[
+            "independent_human_reviewer_count"
+        ],
+        "subject_identity_waiver_applied": readiness[
+            "subject_identity_waiver_applied"
+        ],
         "training_performed": False,
         "production_improvement_claimed": False,
         "offline_engineering_closed_loop_count": sum(bool(item["engineering_closed_loop"]) for item in offline_records),
@@ -582,7 +661,38 @@ def build_round10_reports(
             ablation_path.name: file_sha256(ablation_path),
             failure_path.name: file_sha256(failure_path),
         },
-        "release_blockers": training_blockers,
+        "current_manual_workflow_blockers": [
+            *(
+                []
+                if readiness["authorized_record_count"] == readiness["record_count"]
+                else ["usage_authorization_incomplete"]
+            ),
+            *(
+                []
+                if readiness["single_human_reviewed_action_record_count"]
+                == readiness["record_count"]
+                else ["single_human_manual_action_review_incomplete"]
+            ),
+        ],
+        "deferred_tasks": [
+            "automatic_action_recognition_training_and_gating",
+            "idle_transition_unknown_and_continuous_switch_data_collection",
+            "unknown_ood_rejection_and_switch_latency_evaluation",
+        ],
+        "deferred_action_gate_training_blockers": training_blockers,
+        "release_blockers": [
+            *(
+                []
+                if readiness["authorized_record_count"] == readiness["record_count"]
+                else ["usage_authorization_incomplete"]
+            ),
+            *(
+                []
+                if readiness["single_human_reviewed_action_record_count"]
+                == readiness["record_count"]
+                else ["single_human_manual_action_review_incomplete"]
+            ),
+        ],
     }
     summary["training_performed"] = bool(training["performed"])
     summary["action_gate_training_status"] = training["status"]

@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "artifact_type": "human_review_record",
+  "protocol_version": "human_review_v1.0",
+  "reviewer_role": "reviewer_a",
+  "reviewer_id": "quick_reviewer",
+  "reviewer_type": "human",
+  "record_id": "phone_lunge_003",
+  "revision": 1,
+  "review_started_at": "2026-07-26T10:00:36.939961+00:00",
+  "review_finished_at": null,
+  "blind_review": {},
+  "review": {
+    "quick_review": {
+      "status": "complete",
+      "action": "lunge",
+      "target_status": "correct",
+      "video_usability": "usable",
+      "overall_result": "VALID",
+      "observability": "OBSERVABLE",
+      "subject_id": "subject_pending",
+      "authorization": "confirmed",
+      "usable_start_frame": 0,
+      "usable_end_frame": 526,
+      "segments": [],
+      "reps": [],
+      "events": [],
+      "proposal_decision": "unresolved",
+      "equipment_visibility": "visible",
+      "score": null,
+      "correction": "",
+      "notes": "标准的负重箭步蹲动作视频"
+    }
+  },
+  "audit_log": [
+    {
+      "revision": 1,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-26T10:00:36.939961+00:00",
+      "reason": "quick human review update",
+      "evidence_frames": [],
+      "changes": [
+        {
+          "path": "quick_review.action",
+          "old_value": null,
+          "new_value": "lunge"
+        },
+        {
+          "path": "quick_review.authorization",
+          "old_value": null,
+          "new_value": "confirmed"
+        },
+        {
+          "path": "quick_review.correction",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.equipment_visibility",
+          "old_value": null,
+          "new_value": "visible"
+        },
+        {
+          "path": "quick_review.events",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.notes",
+          "old_value": null,
+          "new_value": "标准的负重箭步蹲动作视频"
+        },
+        {
+          "path": "quick_review.observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.overall_result",
+          "old_value": null,
+          "new_value": "VALID"
+        },
+        {
+          "path": "quick_review.proposal_decision",
+          "old_value": null,
+          "new_value": "unresolved"
+        },
+        {
+          "path": "quick_review.reps",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.segments",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.status",
+          "old_value": null,
+          "new_value": "complete"
+        },
+        {
+          "path": "quick_review.subject_id",
+          "old_value": null,
+          "new_value": "subject_pending"
+        },
+        {
+          "path": "quick_review.target_status",
+          "old_value": null,
+          "new_value": "correct"
+        },
+        {
+          "path": "quick_review.usable_end_frame",
+          "old_value": null,
+          "new_value": 526
+        },
+        {
+          "path": "quick_review.usable_start_frame",
+          "old_value": null,
+          "new_value": 0
+        },
+        {
+          "path": "quick_review.video_usability",
+          "old_value": null,
+          "new_value": "usable"
+        }
+      ]
+    }
+  ],
+  "source_artifacts_unchanged": true,
+  "eligibility_overrides_written": false,
+  "saved_at": "2026-07-26T10:00:36.939961+00:00"
+}

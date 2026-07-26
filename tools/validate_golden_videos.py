@@ -13,8 +13,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.validation.golden_videos import build_report, evaluate_case, load_manifest
-from src.backends.mediapipe_backend import MediaPipeBackend
-from src.paths import resolve_asset
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -42,16 +40,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     observations = []
     selected_model = args.model or model
-    backend = MediaPipeBackend(
-        resolve_asset(selected_model),
-        output_segmentation_masks=False,
-    )
-    try:
-        for case in cases:
-            print(f"running {case.case_id}: {case.video}")
-            observations.append(evaluate_case(case, selected_model, backend=backend))
-    finally:
-        backend.close()
+    for case in cases:
+        print(f"running {case.case_id}: {case.video}")
+        # MediaPipe VIDEO mode retains temporal tracking state. Reusing one
+        # instance across unrelated files leaks the prior video's last pose
+        # into the next case and can create a false opening repetition.
+        observations.append(evaluate_case(case, selected_model))
     report = build_report(cases, observations)
     report_path = Path(args.report)
     report_path.parent.mkdir(parents=True, exist_ok=True)

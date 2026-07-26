@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import json
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -138,6 +140,296 @@ def test_web_home_and_options_are_available() -> None:
     lite_model = client.get(options.json["realtime"]["browser_pose"]["model_urls"]["lite"])
     assert lite_model.status_code == 200
     assert lite_model.mimetype == "application/octet-stream"
+
+
+def test_human_review_workspace_loads_real_queue_and_quick_review_materials() -> None:
+    client = create_app(FakeEngine()).test_client()
+
+    page = client.get("/review")
+    bootstrap = client.get("/api/review/bootstrap")
+
+    assert page.status_code == 200
+    assert "HYROX 人工复核台" in page.get_data(as_text=True)
+    assert "当前：单人复核" in page.get_data(as_text=True)
+    assert "阶段与错误区间" in page.get_data(as_text=True)
+    assert "ONI 主体复核" in page.get_data(as_text=True)
+    assert "自动动作识别暂缓" in page.get_data(as_text=True)
+    assert "这是 AI 候选，不是正确答案" in page.get_data(as_text=True)
+    assert "载入候选次数" in page.get_data(as_text=True)
+    assert bootstrap.status_code == 200
+    assert bootstrap.json["protocol_version"] == "human_review_v1.0"
+    assert bootstrap.json["review_policy"] == "single_human_review_sufficient_for_current_stage"
+    assert bootstrap.json["formal_action_selection"] == "manual_only"
+    assert bootstrap.json["automatic_action_gating_default_enabled"] is False
+    assert len(bootstrap.json["records"]) == 30
+    assert sum(1 for item in bootstrap.json["records"] if item["core"]) == 15
+    assert len(bootstrap.json["oni_records"]) == 64
+    assert bootstrap.json["tasks"]["core_fine_annotation"]["record_count"] == 15
+    assert bootstrap.json["tasks"]["oni_subject_review"]["record_count"] == 32
+    assert bootstrap.json["labels"]["phase_labels_zh"]["contact"] == "后膝接触"
+    assert bootstrap.json["labels"]["error_labels_zh"]["NO_ERROR"] == "无错误"
+
+    bound = client.post(
+        "/api/review/session",
+        headers={"X-CSRF-Token": bootstrap.json["csrf_token"]},
+        json={"role": "a", "reviewer_id": "quick_reviewer", "independence_confirmed": True},
+    )
+    assert bound.status_code == 200
+    record_id = next(item["record_id"] for item in bootstrap.json["records"] if item["core"])
+    detail = client.get(f"/api/review/records/{record_id}?role=a&reviewer_id=quick_reviewer&quick=1")
+    assert detail.status_code == 200
+    assert detail.json["blind_complete"] is False
+    assert detail.json["proposal"] is not None
+    assert detail.json["proposal"]["core_annotations"]["reps"]
+    assert detail.json["proposal"]["core_annotations"]["reps"][0]["errors"] is not None
+    assert detail.json["record"]["source_filename"]
+    assert detail.json["record"]["recording_intent"]
+    oni = bootstrap.json["oni_records"][0]
+    oni_detail = client.get(f"/api/review/oni/{oni['record_id']}/{oni['modality']}")
+    assert oni_detail.status_code == 200
+    assert len(oni_detail.json["checkpoints"]) == 24
+    assert client.get(oni_detail.json["record"]["preview_url"]).status_code == 200
+    assert client.get("/api/review/agreement").status_code == 403
+
+
+def test_human_review_client_explains_and_imports_ai_candidates() -> None:
+    source = Path("webui/static/review.js").read_text(encoding="utf-8")
+
+    assert 'FOOT_DESYNCHRONIZED: "双脚起跳或落地不同步"' in source
+    assert 'NO_KNEE_CONTACT: "后膝未触地"' in source
+    assert "function renderProposalRep" in source
+    assert "function importProposal" in source
+    assert "phase_error_intervals" in source
+    assert "formal action" not in source
+    assert 'toast("动作已人工切换；请核对阶段和事件选项")' in source
+    assert "当前没有逐次 AI proposal" in source
+    assert "AI 候选已载入草稿" in source
+
+
+def test_human_review_save_is_role_bound_audited_and_frame_validated(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import webui.app as web_app
+
+    dataset_root = tmp_path / "datasets" / "hyrox"
+    (dataset_root / "manifests").mkdir(parents=True)
+    (dataset_root / "annotations").mkdir()
+    (dataset_root / "reports").mkdir()
+    record = {
+        "record_id": "phone_lunge_001",
+        "source_file": "raw/phone_rgb/test.mp4",
+        "source_filename": "隐藏意图.mp4",
+        "action": "lunge",
+        "subject_id": "subject_pending",
+        "camera_view": "side",
+        "recording_intent": "error",
+        "recording_intent_raw": "隐藏",
+        "expected_errors_unverified": ["NO_KNEE_CONTACT"],
+        "target_athlete": {"track_id": "target_athlete_001"},
+        "video": {
+            "decoded_frame_count": 10,
+            "fps": 30.0,
+            "duration_seconds": 0.333333,
+            "resolution": "720x1280",
+        },
+    }
+    (dataset_root / "manifests" / "phone_records.json").write_text(
+        json.dumps({"records": [record]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    for filename in (
+        "action_segments_v1.json",
+        "core_rep_phase_event_error_v1.json",
+        "object_scene_evidence_v1.json",
+        "scoring_correction_v1.json",
+    ):
+        (dataset_root / "annotations" / filename).write_text('{"records":[]}', encoding="utf-8")
+    (dataset_root / "reports" / "round9_active_review_queue_v1.json").write_text(
+        '{"records":[{"record_id":"phone_lunge_001","priority":1}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(web_app, "PROJECT_ROOT", tmp_path)
+    client = web_app.create_app(FakeEngine()).test_client()
+    bootstrap = client.get("/api/review/bootstrap")
+    headers = {"X-CSRF-Token": bootstrap.json["csrf_token"]}
+    assert client.post(
+        "/api/review/session",
+        headers=headers,
+        json={"role": "a", "reviewer_id": "reviewer_test", "independence_confirmed": True},
+    ).status_code == 200
+
+    review = {
+        "quick_review": {
+            "status": "complete",
+            "action": "lunge",
+            "target_status": "correct",
+            "video_usability": "usable",
+            "usable_start_frame": 0,
+            "usable_end_frame": 9,
+            "segments": [{"label": "target_action", "start_frame": 0, "end_frame": 9}],
+            "reps": [{"rep_id": "rep_001", "start_frame": 0, "end_frame": 9, "validity": "VALID"}],
+            "phase_error_intervals": [
+                {
+                    "rep_id": "rep_001",
+                    "start_frame": 0,
+                    "end_frame": 4,
+                    "phase": "descent",
+                    "error_code": "NO_KNEE_CONTACT",
+                    "observability": "OBSERVABLE",
+                }
+            ],
+            "events": [{"event_type": "bottom_reached", "frame_index": 5}],
+            "notes": "可供后续处理",
+        }
+    }
+    saved = client.put(
+        "/api/review/records/phone_lunge_001",
+        headers=headers,
+        json={"role": "a", "reviewer_id": "reviewer_test", "review": review},
+    )
+    assert saved.status_code == 200
+    output = json.loads(
+        (dataset_root / "reviews" / "human_v1" / "reviewer_a" / "records" / "phone_lunge_001.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert output["reviewer_role"] == "reviewer_a"
+    assert output["review"]["quick_review"]["events"][0]["timestamp_ms"] == pytest.approx(166.667)
+    assert output["audit_log"][0]["changes"]
+    assert output["eligibility_overrides_written"] is False
+    refreshed = client.get("/api/review/bootstrap")
+    assert refreshed.json["records"][0]["reviewer_a"]["complete"] is True
+    exported = client.get("/api/review/export?scope=a")
+    assert exported.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(exported.data)) as archive:
+        names = set(archive.namelist())
+        assert "human_v1/reviewer_a/codex_handoff.json" in names
+        assert "human_v1/reviewer_a/records/phone_lunge_001.json" in names
+        assert not any(name.startswith("human_v1/agreement/") for name in names)
+
+    review["quick_review"]["events"][0]["frame_index"] = 10
+    rejected = client.put(
+        "/api/review/records/phone_lunge_001",
+        headers=headers,
+        json={"role": "a", "reviewer_id": "reviewer_test", "base_revision": 1, "review": review},
+    )
+    assert rejected.status_code == 422
+    assert rejected.json["code"] == "frame_validation_failed"
+
+
+def test_single_reviewer_can_save_independent_oni_depth_subject_review(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import webui.app as web_app
+
+    dataset_root = tmp_path / "datasets" / "hyrox"
+    for directory in ("manifests", "annotations", "reports/round11_subject_previews/oni_test_001", "oni_tracks/oni_test_001"):
+        (dataset_root / directory).mkdir(parents=True, exist_ok=True)
+    (dataset_root / "manifests" / "phone_records.json").write_text('{"records":[]}', encoding="utf-8")
+    (dataset_root / "manifests" / "oni_records.json").write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "record_id": "oni_test_001",
+                        "action": "lunge",
+                        "camera_view": "side",
+                        "recording_intent_code": "standard",
+                        "subject_id": "subject_pending",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    (dataset_root / "reports" / "oni_subject_audit_v1.json").write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "record_id": "oni_test_001",
+                        "modalities": {
+                            "depth": {"sampled_checkpoint_count": 2},
+                            "ir": {"sampled_checkpoint_count": 2},
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    for modality in ("depth", "ir"):
+        rows = [
+            {
+                "modality": modality,
+                "source_frame_index": frame,
+                "bbox_px": [1, 2, 3, 4],
+                "confidence": 0.5,
+            }
+            for frame in (1, 21)
+        ]
+        (dataset_root / "oni_tracks" / "oni_test_001" / f"{modality}_target_proposals.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in rows) + "\n",
+            encoding="utf-8",
+        )
+        (dataset_root / "reports" / "round11_subject_previews" / "oni_test_001" / f"{modality}_subject_proposals.jpg").write_bytes(
+            b"\xff\xd8\xff\xd9"
+        )
+    for filename in (
+        "action_segments_v1.json",
+        "core_rep_phase_event_error_v1.json",
+        "object_scene_evidence_v1.json",
+        "scoring_correction_v1.json",
+    ):
+        (dataset_root / "annotations" / filename).write_text('{"records":[]}', encoding="utf-8")
+    (dataset_root / "reports" / "round9_active_review_queue_v1.json").write_text('{"records":[]}', encoding="utf-8")
+
+    monkeypatch.setattr(web_app, "PROJECT_ROOT", tmp_path)
+    client = web_app.create_app(FakeEngine()).test_client()
+    bootstrap = client.get("/api/review/bootstrap")
+    headers = {"X-CSRF-Token": bootstrap.json["csrf_token"]}
+    assert client.post(
+        "/api/review/session",
+        headers=headers,
+        json={"role": "a", "reviewer_id": "oni_reviewer"},
+    ).status_code == 200
+    assert len(bootstrap.json["oni_records"]) == 2
+
+    review = {
+        "status": "complete",
+        "overall_target_status": "correct",
+        "same_subject_throughout": "yes",
+        "observability": "OBSERVABLE",
+        "checkpoints": [
+            {
+                "frame_index": frame,
+                "target_status": "correct",
+                "bbox_status": "correct",
+                "surface_reliable": "yes",
+                "notes": "",
+            }
+            for frame in (1, 21)
+        ],
+        "notes": "两个检查点均为同一目标运动者",
+    }
+    saved = client.put(
+        "/api/review/oni/oni_test_001/depth",
+        headers=headers,
+        json={"reviewer_id": "oni_reviewer", "review": review},
+    )
+    assert saved.status_code == 200
+    output_path = dataset_root / "reviews" / "human_v1" / "reviewer_a" / "oni_records" / "oni_test_001__depth.json"
+    output = json.loads(output_path.read_text(encoding="utf-8"))
+    assert output["review_policy"] == "single_human_review_sufficient_for_current_stage"
+    assert output["review"]["same_subject_throughout"] == "yes"
+    assert output["eligibility_overrides_written"] is False
+    refreshed = client.get("/api/review/bootstrap")
+    depth_item = next(item for item in refreshed.json["oni_records"] if item["modality"] == "depth")
+    ir_item = next(item for item in refreshed.json["oni_records"] if item["modality"] == "ir")
+    assert depth_item["complete"] is True
+    assert ir_item["complete"] is False
 
 
 def test_browser_realtime_client_uses_video_frame_callback_and_single_in_flight_request() -> None:

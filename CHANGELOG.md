@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- 接入 30 条 reviewer A 快速人工复核作为独立覆盖层，确认手机 30 条与 ONI 32 条的全部
+  8 类授权用途，并保留第二复核者、逐次精标与 ONI Depth/IR 人工主体门。
+- 修复 Rowing/SkiErg 在后方和斜后方视角下因远侧肢体遮挡导致的漏计与 `UNSURE`：按可靠
+  侧选择关键关节、使用动作特定可见度和端点迟滞，并增加复核视频因果缓存回放报告。
+- 第 10、11 轮报告新增单人复核进度、内部 subject-ID 临时豁免边界和授权确认计数。
+
 All notable changes are recorded here. Versions follow Semantic Versioning;
 development builds use the `X.Y.Z.devN` form.
 

@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "artifact_type": "human_review_record",
+  "protocol_version": "human_review_v1.0",
+  "reviewer_role": "reviewer_a",
+  "reviewer_id": "quick_reviewer",
+  "reviewer_type": "human",
+  "record_id": "phone_rowing_001",
+  "revision": 3,
+  "review_started_at": "2026-07-26T09:27:27.696351+00:00",
+  "review_finished_at": null,
+  "blind_review": {},
+  "review": {
+    "quick_review": {
+      "action": "rowing",
+      "authorization": "confirmed",
+      "correction": "",
+      "equipment_visibility": "visible",
+      "events": [],
+      "notes": "是一个完整的人体和器械均可见的完成了多次动作的视频",
+      "observability": "OBSERVABLE",
+      "overall_result": "VALID",
+      "proposal_decision": "unresolved",
+      "reps": [],
+      "score": null,
+      "segments": [],
+      "status": "complete",
+      "subject_id": "subject_pending",
+      "target_status": "correct",
+      "usable_end_frame": 768,
+      "usable_start_frame": 0,
+      "video_usability": "usable"
+    }
+  },
+  "audit_log": [
+    {
+      "revision": 1,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-26T09:27:27.696351+00:00",
+      "reason": "quick human review update",
+      "evidence_frames": [],
+      "changes": [
+        {
+          "path": "quick_review.action",
+          "old_value": null,
+          "new_value": "rowing"
+        },
+        {
+          "path": "quick_review.authorization",
+          "old_value": null,
+          "new_value": "confirmed"
+        },
+        {
+          "path": "quick_review.correction",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.equipment_visibility",
+          "old_value": null,
+          "new_value": "visible"
+        },
+        {
+          "path": "quick_review.events",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.notes",
+          "old_value": null,
+          "new_value": "是一个完整的人体和器械均可见的完成了多次动作的视频"
+        },
+        {
+          "path": "quick_review.observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.overall_result",
+          "old_value": null,
+          "new_value": "VALID"
+        },
+        {
+          "path": "quick_review.proposal_decision",
+          "old_value": null,
+          "new_value": "accept"
+        },
+        {
+          "path": "quick_review.reps",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.segments",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.status",
+          "old_value": null,
+          "new_value": "complete"
+        },
+        {
+          "path": "quick_review.subject_id",
+          "old_value": null,
+          "new_value": "subject_pending"
+        },
+        {
+          "path": "quick_review.target_status",
+          "old_value": null,
+          "new_value": "correct"
+        },
+        {
+          "path": "quick_review.usable_end_frame",
+          "old_value": null,
+          "new_value": 768
+        },
+        {
+          "path": "quick_review.usable_start_frame",
+          "old_value": null,
+          "new_value": 0
+        },
+        {
+          "path": "quick_review.video_usability",
+          "old_value": null,
+          "new_value": "usable"
+        }
+      ]
+    },
+    {
+      "revision": 2,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-26T09:41:36.789638+00:00",
+      "reason": "quick human review update",
+      "evidence_frames": [],
+      "changes": [
+        {
+          "path": "quick_review.proposal_decision",
+          "old_value": "accept",
+          "new_value": "modify"
+        }
+      ]
+    },
+    {
+      "revision": 3,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-26T10:10:17.173798+00:00",
+      "reason": "quick human review update",
+      "evidence_frames": [],
+      "changes": [
+        {
+          "path": "quick_review.proposal_decision",
+          "old_value": "modify",
+          "new_value": "unresolved"
+        }
+      ]
+    }
+  ],
+  "source_artifacts_unchanged": true,
+  "eligibility_overrides_written": false,
+  "saved_at": "2026-07-26T10:10:17.173798+00:00"
+}

@@ -150,3 +150,63 @@ def test_skierg_reports_rushed_return_and_incomplete_top() -> None:
     )
     incomplete = analyzer.update(_pull_down(), 750)
     assert "ARMS_NOT_HIGH_ENOUGH" in {message.code for message in incomplete["feedback_messages"]}
+
+
+def test_skierg_counts_with_one_reliably_visible_wrist_from_rear() -> None:
+    analyzer = _analyzer()
+    common = {
+        "visible_score": 0.68,
+        "upper_body_visible_score": 0.62,
+        "left_side_visible_score": 0.35,
+        "right_side_visible_score": 0.97,
+        "left_wrist_confidence": 0.10,
+        "right_wrist_confidence": 0.96,
+        "left_wrist_y": 0.50,
+        "left_wrist_above_shoulder": -0.20,
+    }
+    analyzer.update(
+        _features(
+            **common,
+            right_wrist_y=0.20,
+            right_wrist_above_shoulder=0.08,
+        ),
+        0,
+    )
+    analyzer.update(
+        _features(
+            **common,
+            right_wrist_y=0.36,
+            right_wrist_above_shoulder=-0.03,
+        ),
+        150,
+    )
+    analyzer.update(
+        _features(
+            **common,
+            right_wrist_y=0.52,
+            right_wrist_above_shoulder=-0.10,
+            torso_angle=0,
+            left_knee_angle=165,
+            right_knee_angle=165,
+        ),
+        300,
+    )
+    analyzer.update(
+        _features(
+            **common,
+            right_wrist_y=0.36,
+            right_wrist_above_shoulder=-0.03,
+        ),
+        450,
+    )
+    state = analyzer.update(
+        _features(
+            **common,
+            right_wrist_y=0.20,
+            right_wrist_above_shoulder=0.08,
+        ),
+        600,
+    )
+    assert state["rep_count"] == 1
+    assert state["debug"]["selected_pose_side"] == "right"
+    assert state["debug"]["analysis_visible_score"] == pytest.approx(0.97)

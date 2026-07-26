@@ -8,7 +8,7 @@ from hyrox.feedback import FeedbackMessage
 
 
 SENSITIVITY_FRAME_DELTAS = {"low": 1, "medium": 0, "high": -1}
-WRIST_MOTION_MIN = 0.004
+WRIST_MOTION_MIN = 0.003
 
 
 def _safe_float(value: object) -> float | None:
@@ -37,6 +37,28 @@ def _mean_metric(*values: object) -> float | None:
     return sum(valid) / len(valid) if valid else None
 
 
+def _best_side_value(
+    *,
+    left_value: object,
+    right_value: object,
+    left_confidence: object,
+    right_confidence: object,
+) -> tuple[float | None, str | None]:
+    candidates = []
+    for side, raw_value, raw_confidence in (
+        ("left", left_value, left_confidence),
+        ("right", right_value, right_confidence),
+    ):
+        value = _safe_float(raw_value)
+        confidence = _safe_float(raw_confidence)
+        if value is not None:
+            candidates.append((confidence if confidence is not None else -1.0, value, side))
+    if not candidates:
+        return None, None
+    _, value, side = max(candidates, key=lambda item: item[0])
+    return value, side
+
+
 class SkiErgAnalyzer(BaseActionAnalyzer):
     """Front/oblique-view SkiErg pull analyzer based on pose landmarks only."""
 
@@ -57,6 +79,10 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
         self.config_name = str(config_name or values.get("config_name") or "skierg_default")
         self.top_wrist_above_shoulder_margin = _resolved_float(values.get("top_wrist_above_shoulder_margin"), 0.03)
         self.bottom_wrist_below_chest_margin = _resolved_float(values.get("bottom_wrist_below_chest_margin"), 0.05)
+        self.bottom_wrist_below_shoulder_margin = _resolved_float(
+            values.get("bottom_wrist_below_shoulder_margin"),
+            0.06,
+        )
         self.hip_hinge_torso_angle_min = _resolved_float(values.get("hip_hinge_torso_angle_min"), 15.0)
         self.too_much_squat_knee_angle_max = _resolved_float(values.get("too_much_squat_knee_angle_max"), 110.0)
         self.wrist_asymmetry_warn = _resolved_float(values.get("wrist_asymmetry_warn"), 0.08)
@@ -104,7 +130,19 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
         )
 
     def _visible_score(self, features: dict[str, object]) -> float:
-        score = _safe_float(features.get("upper_body_visible_score"))
+        score = max(
+            (
+                value
+                for value in (
+                    _safe_float(features.get("left_side_visible_score")),
+                    _safe_float(features.get("right_side_visible_score")),
+                )
+                if value is not None
+            ),
+            default=None,
+        )
+        if score is None:
+            score = _safe_float(features.get("upper_body_visible_score"))
         if score is None:
             score = _safe_float(features.get("visible_score"))
         return max(0.0, min(1.0, score or 0.0))
@@ -114,6 +152,7 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
         *,
         wrist_height: float | None,
         wrist_above_shoulder: float | None,
+        wrist_below_shoulder: float | None,
         wrist_below_chest: float | None,
         torso_angle: float | None,
         knee_angle: float | None,
@@ -121,14 +160,21 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
         if wrist_height is None:
             return "unknown"
         wrist_delta = None if self.previous_wrist_height is None else wrist_height - self.previous_wrist_height
-        upright = torso_angle is None or abs(torso_angle) < self.hip_hinge_torso_angle_min
-        if wrist_above_shoulder is not None and wrist_above_shoulder >= self.top_wrist_above_shoulder_margin and upright:
+        if wrist_above_shoulder is not None and wrist_above_shoulder > self.top_wrist_above_shoulder_margin:
             return "top"
         if wrist_delta is not None and wrist_delta <= -WRIST_MOTION_MIN and self.stable_phase in {"bottom", "return"}:
             return "return"
-        hinged = torso_angle is not None and abs(torso_angle) >= self.hip_hinge_torso_angle_min
-        knees_flexed = knee_angle is not None and knee_angle < 155.0
-        if wrist_below_chest is not None and wrist_below_chest >= self.bottom_wrist_below_chest_margin and (hinged or knees_flexed):
+        bottom_endpoint = (
+            wrist_below_shoulder is not None
+            and wrist_below_shoulder >= self.bottom_wrist_below_shoulder_margin
+        ) or (
+            wrist_below_chest is not None
+            and wrist_below_chest >= self.bottom_wrist_below_chest_margin
+        )
+        # Rear views often preserve the wrist excursion while flattening the
+        # apparent torso hinge and intermittently losing one knee.  The endpoint
+        # therefore drives cycle counting; hinge/knee remain technique evidence.
+        if bottom_endpoint:
             return "bottom"
         if wrist_delta is not None and wrist_delta >= WRIST_MOTION_MIN:
             return "pull_down"
@@ -218,11 +264,26 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
         visible_score = self._visible_score(values)
         left_wrist_y = _safe_float(values.get("left_wrist_y"))
         right_wrist_y = _safe_float(values.get("right_wrist_y"))
-        wrist_height = _mean_metric(left_wrist_y, right_wrist_y)
+        wrist_height, selected_side = _best_side_value(
+            left_value=left_wrist_y,
+            right_value=right_wrist_y,
+            left_confidence=values.get("left_wrist_confidence"),
+            right_confidence=values.get("right_wrist_confidence"),
+        )
+        if selected_side is None:
+            wrist_height = _mean_metric(left_wrist_y, right_wrist_y)
         wrist_asymmetry = None if left_wrist_y is None or right_wrist_y is None else abs(left_wrist_y - right_wrist_y)
         left_above = _safe_float(values.get("left_wrist_above_shoulder"))
         right_above = _safe_float(values.get("right_wrist_above_shoulder"))
-        wrist_above_shoulder = None if left_above is None or right_above is None else min(left_above, right_above)
+        if selected_side == "left":
+            wrist_above_shoulder = left_above
+        elif selected_side == "right":
+            wrist_above_shoulder = right_above
+        else:
+            wrist_above_shoulder = _mean_metric(left_above, right_above)
+        wrist_below_shoulder = (
+            None if wrist_above_shoulder is None else -wrist_above_shoulder
+        )
         shoulder_y = _safe_float(values.get("shoulder_center_y"))
         hip_y = _safe_float(values.get("hip_center_y"))
         chest_y = None if shoulder_y is None or hip_y is None else (shoulder_y + hip_y) / 2.0
@@ -232,6 +293,7 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
         raw_phase = "unknown" if visible_score < self.min_visible_score else self._raw_phase(
             wrist_height=wrist_height,
             wrist_above_shoulder=wrist_above_shoulder,
+            wrist_below_shoulder=wrist_below_shoulder,
             wrist_below_chest=wrist_below_chest,
             torso_angle=torso_angle,
             knee_angle=knee_angle,
@@ -261,6 +323,10 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
                 "stable_phase": self.stable_phase,
                 "pull_count": self.rep_count,
                 "wrist_height_mean": wrist_height,
+                "selected_pose_side": selected_side,
+                "analysis_visible_score": visible_score,
+                "wrist_above_shoulder": wrist_above_shoulder,
+                "wrist_below_shoulder": wrist_below_shoulder,
                 "wrist_asymmetry": wrist_asymmetry,
                 "torso_angle": torso_angle,
                 "knee_angle_mean": knee_angle,

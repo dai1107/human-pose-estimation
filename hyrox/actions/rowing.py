@@ -9,7 +9,7 @@ from hyrox.violations import TemporalViolationTracker, ViolationResult
 
 
 SENSITIVITY_FRAME_DELTAS = {"low": 1, "medium": 0, "high": -1}
-KNEE_MOTION_MIN = 2.0
+KNEE_MOTION_MIN = 1.5
 
 
 def _safe_float(value: object) -> float | None:
@@ -43,6 +43,39 @@ def _min_metric(*values: object) -> float | None:
     return min(valid) if valid else None
 
 
+def _side_metric(
+    *,
+    left_value: object,
+    right_value: object,
+    left_confidence: object,
+    right_confidence: object,
+    fallback: str = "min",
+) -> tuple[float | None, str | None]:
+    """Select the better observed body side without averaging in an occluded side."""
+    left = _safe_float(left_value)
+    right = _safe_float(right_value)
+    left_score = _safe_float(left_confidence)
+    right_score = _safe_float(right_confidence)
+    candidates = [
+        (left_score, left, "left"),
+        (right_score, right, "right"),
+    ]
+    observed = [
+        (score, value, side)
+        for score, value, side in candidates
+        if score is not None and value is not None
+    ]
+    if observed:
+        _, value, side = max(observed, key=lambda item: item[0])
+        return value, side
+    values = [(left, "left"), (right, "right")]
+    values = [(value, side) for value, side in values if value is not None]
+    if not values:
+        return None, None
+    selector = max if fallback == "max" else min
+    return selector(values, key=lambda item: item[0])
+
+
 class RowingAnalyzer(BaseActionAnalyzer):
     """Approximate side-view rowing stroke analyzer based on body pose only."""
 
@@ -70,6 +103,14 @@ class RowingAnalyzer(BaseActionAnalyzer):
         self.config_name = str(config_name or values.get("config_name") or "rowing_default")
         self.catch_knee_angle_max = _resolved_float(values.get("catch_knee_angle_max"), 105.0)
         self.finish_knee_angle_min = _resolved_float(values.get("finish_knee_angle_min"), 145.0)
+        self.side_view_catch_knee_angle_max = _resolved_float(
+            values.get("side_view_catch_knee_angle_max"),
+            105.0,
+        )
+        self.side_view_finish_knee_angle_min = _resolved_float(
+            values.get("side_view_finish_knee_angle_min"),
+            145.0,
+        )
         self.finish_torso_lean_max = _resolved_float(values.get("finish_torso_lean_max"), 35.0)
         self.too_much_back_lean = _resolved_float(values.get("too_much_back_lean"), 45.0)
         self.early_arm_pull_elbow_angle = _resolved_float(values.get("early_arm_pull_elbow_angle"), 120.0)
@@ -138,7 +179,25 @@ class RowingAnalyzer(BaseActionAnalyzer):
         )
 
     def _visible_score(self, features: dict[str, object]) -> float:
-        score = _safe_float(features.get("visible_score"))
+        score = (
+            _safe_float(features.get("visible_score"))
+            if self.camera_view_profile == "side"
+            else None
+        )
+        if score is None:
+            score = max(
+            (
+                value
+                for value in (
+                    _safe_float(features.get("left_side_visible_score")),
+                    _safe_float(features.get("right_side_visible_score")),
+                )
+                if value is not None
+            ),
+            default=None,
+        )
+        if score is None:
+            score = _safe_float(features.get("visible_score"))
         return max(0.0, min(1.0, score or 0.0))
 
     def _raw_phase(
@@ -149,15 +208,42 @@ class RowingAnalyzer(BaseActionAnalyzer):
     ) -> str:
         if knee_angle is None:
             return "unknown"
+        catch_knee_angle_max = (
+            self.side_view_catch_knee_angle_max
+            if self.camera_view_profile == "side"
+            else self.catch_knee_angle_max
+        )
+        finish_knee_angle_min = (
+            self.side_view_finish_knee_angle_min
+            if self.camera_view_profile == "side"
+            else self.finish_knee_angle_min
+        )
         knee_delta = None if self.previous_knee_angle is None else knee_angle - self.previous_knee_angle
-        if knee_angle <= self.catch_knee_angle_max:
-            return "catch"
         if (
-            knee_angle >= self.finish_knee_angle_min
+            knee_angle >= finish_knee_angle_min
             and elbow_angle is not None
             and elbow_angle <= self.early_arm_pull_elbow_angle + 25.0
         ):
             return "finish"
+        if (
+            self.stable_phase == "recovery"
+            and knee_angle <= catch_knee_angle_max
+        ):
+            return "catch"
+        if (
+            self.stable_phase in {"catch", "drive"}
+            and knee_delta is not None
+            and knee_delta >= KNEE_MOTION_MIN
+        ):
+            return "drive"
+        if (
+            self.stable_phase in {"drive", "finish"}
+            and knee_delta is not None
+            and knee_delta <= -KNEE_MOTION_MIN
+        ):
+            return "recovery"
+        if knee_angle <= catch_knee_angle_max:
+            return "catch"
         if knee_delta is not None and knee_delta >= KNEE_MOTION_MIN:
             return "drive"
         if knee_delta is not None and knee_delta <= -KNEE_MOTION_MIN:
@@ -205,7 +291,7 @@ class RowingAnalyzer(BaseActionAnalyzer):
             self.incomplete_leg_drive = False
         elif self.stable_phase == "finish" and self.drive_seen:
             self.finish_seen = True
-            if sequence_completed:
+            if sequence_completed and self._cooldown_elapsed(timestamp_ms):
                 self.register_completed_sequence(
                     confidence=visible_score,
                     events={"terminal_phase": "finish"},
@@ -265,9 +351,22 @@ class RowingAnalyzer(BaseActionAnalyzer):
         visible_score = self._visible_score(values)
         left_knee = _safe_float(values.get("left_knee_angle"))
         right_knee = _safe_float(values.get("right_knee_angle"))
-        knee_angle = _min_metric(left_knee, right_knee)
-        hip_angle = _min_metric(values.get("left_hip_angle"), values.get("right_hip_angle"))
-        elbow_angle = _mean_metric(values.get("left_elbow_angle"), values.get("right_elbow_angle"))
+        knee_angle, selected_side = _side_metric(
+            left_value=left_knee,
+            right_value=right_knee,
+            left_confidence=values.get("left_knee_confidence"),
+            right_confidence=values.get("right_knee_confidence"),
+        )
+        if selected_side is None:
+            hip_angle = _min_metric(values.get("left_hip_angle"), values.get("right_hip_angle"))
+            elbow_angle = _mean_metric(values.get("left_elbow_angle"), values.get("right_elbow_angle"))
+        else:
+            hip_angle = _safe_float(values.get(f"{selected_side}_hip_angle"))
+            elbow_angle = _safe_float(values.get(f"{selected_side}_elbow_angle"))
+            if hip_angle is None:
+                hip_angle = _min_metric(values.get("left_hip_angle"), values.get("right_hip_angle"))
+            if elbow_angle is None:
+                elbow_angle = _mean_metric(values.get("left_elbow_angle"), values.get("right_elbow_angle"))
         torso_angle = _safe_float(values.get("torso_angle"))
         hip_center_y = _safe_float(values.get("hip_center_y"))
         hip_width = _safe_float(values.get("hip_width"))
@@ -364,6 +463,8 @@ class RowingAnalyzer(BaseActionAnalyzer):
                 "stroke_count": self.rep_count,
                 "left_knee_angle": left_knee,
                 "right_knee_angle": right_knee,
+                "selected_pose_side": selected_side,
+                "analysis_visible_score": visible_score,
                 "torso_angle": torso_angle,
                 "elbow_angle_mean": elbow_angle,
                 "phase_duration_ms": phase_duration,

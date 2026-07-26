@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#171816">
+  <title>HYROX 人工复核台</title>
+  <meta name="description" content="单人人工完成核心动作精标与 ONI Depth/IR 主体复核。">
+  <link rel="stylesheet" href="{{ url_for('static', filename='review.css') }}">
+</head>
+<body>
+  <header class="quick-topbar">
+    <a class="quick-brand" href="/"><span>HX</span><strong>人工复核台</strong></a>
+    <div class="quick-progress">
+      <span id="topProgressText">正在读取任务…</span>
+      <i><b id="topProgressBar"></b></i>
+    </div>
+    <div class="top-actions">
+      <span class="single-review-badge">当前：单人复核</span>
+      <button id="copyCodexButton" type="button">复制结果说明</button>
+      <button id="exportButton" class="accent-button" type="button">导出结果</button>
+    </div>
+  </header>
+
+  <main class="quick-layout">
+    <aside class="quick-sidebar">
+      <div class="task-switcher" role="tablist" aria-label="人工复核任务">
+        <button class="active" data-task="core" type="button">核心动作精标<small>15 段手机视频</small></button>
+        <button data-task="oni" type="button">ONI 主体复核<small>Depth / IR 独立</small></button>
+      </div>
+      <div class="sidebar-title">
+        <div><small id="queueEyebrow">复核队列</small><h1 id="queueTitle">15 段核心动作</h1></div>
+        <span id="completeCount">0/15</span>
+      </div>
+      <label class="quick-search"><span>⌕</span><input id="recordSearch" type="search" placeholder="搜索记录或动作"></label>
+      <div class="quick-filters">
+        <button class="active" data-filter="all" type="button">全部</button>
+        <button data-filter="pending" type="button">待完成</button>
+        <button data-filter="complete" type="button">已完成</button>
+      </div>
+      <div class="quick-record-list" id="recordList"></div>
+    </aside>
+
+    <section class="quick-main">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-mark">▶</div>
+        <h2>选择一条任务开始复核</h2>
+        <p>当前阶段由一名复核者完成即可。动作类型只允许人工切换；自动动作识别暂缓，不会自动更改你的选择。</p>
+      </div>
+
+      <div id="phoneReviewContent" hidden>
+        <div class="quick-record-head">
+          <div><small id="recordAction">—</small><h1 id="recordTitle">—</h1><p id="recordMeta">—</p></div>
+          <span class="save-indicator" id="saveIndicator">未保存</span>
+        </div>
+        <div class="manual-mode-note">正式动作类型：仅使用下方“确认动作”的人工选择。AI 候选只在点击载入后成为可编辑草稿。</div>
+
+        <div class="review-grid">
+          <section class="media-panel">
+            <div class="video-wrap">
+              <video id="reviewVideo" controls playsinline preload="metadata"></video>
+              <canvas id="trackCanvas"></canvas>
+              <div class="frame-badge"><span>帧</span><strong id="currentFrame">0</strong></div>
+            </div>
+            <div class="simple-player-controls">
+              <button type="button" data-step="-10">−10</button>
+              <button type="button" data-step="-1">上一帧</button>
+              <label>跳到 <input id="frameJump" type="number" min="0" value="0"></label>
+              <button id="jumpButton" type="button">定位</button>
+              <button type="button" data-step="1">下一帧</button>
+              <button type="button" data-step="10">+10</button>
+              <label><input id="trackToggle" type="checkbox"> 显示目标框</label>
+            </div>
+
+            <div class="reference-tabs">
+              <button class="active" type="button" data-tab="proposal">AI 候选（手动载入）</button>
+              <button type="button" data-tab="sheet">审阅图</button>
+            </div>
+            <div class="reference-pane active" data-pane="proposal">
+              <div class="proposal-warning">
+                <strong>这是 AI 候选，不是正确答案</strong>
+                <span>次数、边界和错误都可能不准。请核对视频，并只在你主动点击后载入草稿。</span>
+              </div>
+              <div class="proposal-summary" id="proposalSummary"></div>
+              <div class="proposal-imports">
+                <button id="importAllProposalButton" class="proposal-import-primary" type="button">载入全部 AI 候选</button>
+                <button id="importSegmentsButton" type="button">载入动作区间</button>
+                <button id="importRepsButton" type="button">载入候选次数</button>
+                <button id="importEventsButton" type="button">载入关键帧</button>
+                <small>载入不会自动保存，也不会改变“确认动作”。</small>
+              </div>
+              <div class="proposal-advice" id="proposalAdvice"></div>
+              <details><summary>查看完整 proposal JSON</summary><pre id="proposalJson"></pre></details>
+            </div>
+            <div class="reference-pane" data-pane="sheet">
+              <div class="sheet-switcher" id="sheetButtons"></div>
+              <img id="sheetImage" alt="复核审阅图">
+            </div>
+          </section>
+
+          <form class="quick-form" id="quickForm">
+            <section class="simple-section">
+              <div class="section-head"><span>01</span><div><h2>基础结论</h2><p>动作由人工选择，subject ID 当前可留空</p></div></div>
+              <div class="form-grid two">
+                <label>确认动作（手动）
+                  <select data-path="quick_review.action" id="actionSelect"></select>
+                </label>
+                <label>复核状态
+                  <select data-path="quick_review.status">
+                    <option value="draft">草稿</option>
+                    <option value="complete">已完成</option>
+                    <option value="blocked">有问题，暂不使用</option>
+                  </select>
+                </label>
+                <label>目标运动者
+                  <select data-path="quick_review.target_status">
+                    <option value="correct">正确</option><option value="needs_fix">需要修正</option><option value="unsure">无法确认</option>
+                  </select>
+                </label>
+                <label>视频可用性
+                  <select data-path="quick_review.video_usability">
+                    <option value="usable">可用</option><option value="partially_usable">部分可用</option><option value="unusable">不可用</option><option value="unsure">无法确认</option>
+                  </select>
+                </label>
+                <label>总体动作结论
+                  <select data-path="quick_review.overall_result">
+                    <option value="VALID">有效</option><option value="NO_REP">不构成一次</option><option value="UNSURE">无法确认</option>
+                  </select>
+                </label>
+                <label>关键证据可见性
+                  <select data-path="quick_review.observability">
+                    <option value="OBSERVABLE">可观察</option><option value="PARTIAL">部分可观察</option><option value="UNOBSERVABLE">不可观察</option><option value="UNKNOWN">未知</option>
+                  </select>
+                </label>
+                <label>subject ID（暂不考虑，可留空）<input data-path="quick_review.subject_id"></label>
+                <label>授权状态
+                  <select data-path="quick_review.authorization"><option value="confirmed">已确认，可用于全部已列用途</option><option value="pending">待确认</option><option value="not_allowed">不允许使用</option></select>
+                </label>
+              </div>
+              <label>可用帧范围
+                <div class="range-row">
+                  <input type="number" min="0" data-path="quick_review.usable_start_frame" placeholder="开始帧"><span>至</span>
+                  <input type="number" min="0" data-path="quick_review.usable_end_frame" placeholder="结束帧">
+                  <button id="useCurrentFrameButton" type="button">用当前帧</button>
+                </div>
+              </label>
+            </section>
+
+            <section class="simple-section">
+              <div class="section-head"><span>02</span><div><h2>动作区间</h2><p>标出整段目标动作的开始帧和结束帧</p></div><button class="add-button" type="button" data-add="segments">＋ 添加</button></div>
+              <div class="simple-table" data-list="segments"></div>
+            </section>
+
+            <section class="simple-section" id="repSection">
+              <div class="section-head"><span>03</span><div><h2>逐次边界</h2><p>每一次动作从几帧开始、到几帧结束</p></div><button class="add-button" type="button" data-add="reps">＋ 添加一次</button></div>
+              <div class="simple-table" data-list="reps"></div>
+            </section>
+
+            <section class="simple-section" id="phaseSection">
+              <div class="section-head"><span>04</span><div><h2>阶段与错误区间</h2><p>填写开始帧、结束帧、所属阶段和出现的错误；阶段和错误均为中文选项</p></div><button class="add-button" type="button" data-add="phaseIntervals">＋ 添加区间</button></div>
+              <div class="simple-table" data-list="phaseIntervals"></div>
+            </section>
+
+            <section class="simple-section">
+              <div class="section-head"><span>05</span><div><h2>关键事件帧</h2><p>记录起跳、落地、最低点、接触、完全伸展等事件</p></div><button class="add-button" type="button" data-add="events">＋ 添加事件</button></div>
+              <div class="simple-table" data-list="events"></div>
+            </section>
+
+            <section class="simple-section">
+              <div class="section-head"><span>06</span><div><h2>总结</h2><p>留下本条视频的人工结论</p></div></div>
+              <div class="form-grid two">
+                <label>AI 候选处理
+                  <select data-path="quick_review.proposal_decision"><option value="unresolved">尚未对照</option><option value="accept">接受</option><option value="modify">已修改</option><option value="reject">拒绝并人工重填</option></select>
+                </label>
+                <label>器械/场景
+                  <select data-path="quick_review.equipment_visibility"><option value="visible">可见</option><option value="partial">部分可见</option><option value="unobservable">不可观察</option><option value="unknown">未知</option></select>
+                </label>
+              </div>
+              <label>复核结论与后续建议<textarea data-path="quick_review.notes" placeholder="例如：第 2 次划分清楚，落地阶段有额外补步。"></textarea></label>
+            </section>
+            <div class="form-actions">
+              <button id="saveButton" type="button">保存当前结果</button>
+              <button id="saveNextButton" class="accent-button" type="button">保存并看下一条 →</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div id="oniReviewContent" hidden>
+        <div class="quick-record-head">
+          <div><small id="oniRecordAction">—</small><h1 id="oniRecordTitle">—</h1><p id="oniRecordMeta">—</p></div>
+          <span class="save-indicator" id="oniSaveIndicator">未保存</span>
+        </div>
+        <div class="manual-mode-note">Depth 与 IR 必须分别判断。这里只确认目标运动者及候选框，不做动作识别、不做 RGB–Depth 配准，也不复制手机标签。</div>
+        <div class="oni-grid">
+          <section class="oni-preview-panel">
+            <img id="oniPreviewImage" alt="ONI 主体候选检查点预览">
+            <p>预览图按 24 个抽样检查点排列。下方每一行对应原始 ONI 帧号。</p>
+          </section>
+          <form class="quick-form" id="oniForm">
+            <section class="simple-section">
+              <div class="section-head"><span>01</span><div><h2>模态总体结论</h2><p>当前是单人复核；subject ID 暂不作为门禁</p></div></div>
+              <div class="form-grid two">
+                <label>复核状态
+                  <select data-oni-path="status"><option value="draft">草稿</option><option value="complete">已完成</option><option value="blocked">暂不可用</option></select>
+                </label>
+                <label>全程是否同一目标
+                  <select data-oni-path="same_subject_throughout"><option value="unsure">无法确认</option><option value="yes">始终是同一目标</option><option value="no">发生目标切换</option></select>
+                </label>
+                <label>总体主体候选
+                  <select data-oni-path="overall_target_status"><option value="unsure">无法确认</option><option value="correct">总体正确</option><option value="wrong">总体选错人</option><option value="missing">总体缺失</option></select>
+                </label>
+                <label>总体可见性
+                  <select data-oni-path="observability"><option value="UNKNOWN">未知</option><option value="OBSERVABLE">可观察</option><option value="PARTIAL">部分可观察</option><option value="UNOBSERVABLE">不可观察</option></select>
+                </label>
+              </div>
+              <label>总体备注<textarea data-oni-path="notes" placeholder="例如：第 241 帧后候选框切换到背景人员。"></textarea></label>
+            </section>
+            <section class="simple-section">
+              <div class="section-head"><span>02</span><div><h2>24 个主体检查点</h2><p>逐帧确认目标身份、框位置和深度表面是否可靠</p></div></div>
+              <div class="oni-checkpoints" id="oniCheckpointList"></div>
+            </section>
+            <div class="form-actions">
+              <button id="oniSaveButton" type="button">保存当前结果</button>
+              <button id="oniSaveNextButton" class="accent-button" type="button">保存并看下一条 →</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <template id="rowTemplate">
+    <div class="simple-row"><div class="row-fields"></div><button class="remove-button" type="button" title="删除">×</button></div>
+  </template>
+  <div class="quick-toast" id="toast"></div>
+  <script src="{{ url_for('static', filename='review.js') }}" defer></script>
+</body>
+</html>

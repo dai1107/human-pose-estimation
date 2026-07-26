@@ -59,6 +59,7 @@ from webui.realtime import (
     validate_manual_floor_points,
 )
 from webui.sample_cache import load_sample_pose_backend
+from webui.review import create_review_blueprint
 
 
 PROJECT_ROOT = installation_root()
@@ -992,6 +993,7 @@ def create_app(
     realtime_factory: Any | None = None,
 ) -> Flask:
     app = Flask(__name__, template_folder="templates", static_folder="static")
+    app.register_blueprint(create_review_blueprint(PROJECT_ROOT))
     if os.environ.get("POSE_TRUST_PROXY", "").lower() in {"1", "true", "yes"}:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     app.secret_key = os.environ.get("POSE_WEB_SECRET") or secrets.token_hex(32)

@@ -1,0 +1,106 @@
+{
+  "schema_version": 1,
+  "program_version": "0.1.0.dev0",
+  "artifact_type": "hyrox_golden_video_report",
+  "status": "passed",
+  "case_count": 2,
+  "passed_count": 2,
+  "cases": [
+    {
+      "id": "skierg",
+      "status": "passed",
+      "failures": [],
+      "expectations": {
+        "total_frames": [
+          103.0,
+          103.0
+        ],
+        "pose_detected_rate": [
+          0.98,
+          1.0
+        ],
+        "candidate_count": [
+          1.0,
+          1.0
+        ],
+        "cycle_count": [
+          1.0,
+          1.0
+        ],
+        "rep_count": [
+          1.0,
+          1.0
+        ]
+      },
+      "observation": {
+        "case_id": "skierg",
+        "video": "HYROX视频/滑雪机.mp4",
+        "action": "skierg",
+        "total_frames": 103,
+        "pose_detected_frames": 103,
+        "pose_detected_rate": 1.0,
+        "candidate_count": 1,
+        "pose_valid_rep_count": 1,
+        "no_rep_count": 0,
+        "unsure_count": 0,
+        "cycle_count": 1,
+        "rep_count": 1,
+        "final_phase": "return"
+      }
+    },
+    {
+      "id": "rowing",
+      "status": "passed",
+      "failures": [],
+      "expectations": {
+        "total_frames": [
+          512.0,
+          512.0
+        ],
+        "pose_detected_rate": [
+          0.98,
+          1.0
+        ],
+        "candidate_count": [
+          5.0,
+          5.0
+        ],
+        "pose_valid_rep_count": [
+          4.0,
+          4.0
+        ],
+        "no_rep_count": [
+          0.0,
+          0.0
+        ],
+        "unsure_count": [
+          1.0,
+          1.0
+        ],
+        "cycle_count": [
+          4.0,
+          4.0
+        ],
+        "rep_count": [
+          4.0,
+          4.0
+        ]
+      },
+      "observation": {
+        "case_id": "rowing",
+        "video": "HYROX视频/划船机.mp4",
+        "action": "rowing",
+        "total_frames": 512,
+        "pose_detected_frames": 512,
+        "pose_detected_rate": 1.0,
+        "candidate_count": 5,
+        "pose_valid_rep_count": 4,
+        "no_rep_count": 0,
+        "unsure_count": 1,
+        "cycle_count": 4,
+        "rep_count": 4,
+        "final_phase": "drive"
+      }
+    }
+  ]
+}
