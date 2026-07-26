@@ -7,6 +7,34 @@ development builds use the `X.Y.Z.devN` form.
 
 ### Added
 
+- Added `pose-oni-research-round11` and a versioned offline-ONI safety
+  contract. All 32 Depth and IR recordings now have independent 24-checkpoint
+  subject-review proposals, separate JSONL tracks and 64 modality-specific
+  contact sheets. The run produced 380/768 Depth and 414/768 IR automatic
+  candidates while preserving every miss/low-confidence checkpoint and
+  keeping human-confirmed identity, verified errors and training eligibility
+  at zero.
+- Added scoped ONI evidence, phone-recapture and future synchronized-RGB-D
+  value reports. Metric Depth is limited to line-of-sight sensor-surface
+  distance; uncalibrated ground, contact, body-part and action-error claims
+  remain unobservable or research-only. The contract rejects RGB-Depth
+  registration, phone-ONI pairing, phone frame labels, IR-as-RGB, unpaired
+  distillation and silhouette-derived contact truth for the current data.
+- Added the Round 10 versioned action-gating, scoring/correction, coordinate-
+  space and realtime-latency contracts. Desktop and web results now expose
+  additive contract versions, manual/automatic provenance, traceable Evidence,
+  uncalibrated-score suppression, explicit 2D/relative-3D/camera-ray/metric-
+  depth semantics and stale pose/action/correction suppression.
+- Added a dependency-light multinomial Logistic Regression action-gating
+  baseline with causal body-canonical windows, normalization, balanced
+  training, temperature calibration, artifact hashes, group-exclusive cross
+  validation, idle/transition/unknown classes, entry/exit hysteresis, minimum
+  duration and cooldown. The replay sidecar is explicit and default-off, and
+  never switches the manually selected analyzer.
+- Added `pose-shadow-round10` and truthful A-F/readiness/failure-pool reports.
+  The current 30 records complete the engineering contract loop, but all 30
+  remain blocked by authorization, subject identity and independent human
+  truth; no model or performance claim is produced while those gates fail.
 - Added `pose-cache-round8` and a complete 30-record, 15,515-frame round-eight
   offline workflow. MediaPipe Lite and Full now retain separate target-bound
   raw image/world landmarks, bbox and RLE-mask provenance, model/software

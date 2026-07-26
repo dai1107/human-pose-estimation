@@ -1,0 +1,18 @@
+schema_version: 1
+contract_version: oni_research_v1
+mode: offline_oni
+sample_count_per_stream: 24
+minimum_component_area_px: 350
+maximum_component_area_ratio: 0.60
+depth_foreground_delta_mm: 120
+ir_mad_multiplier: 4.0
+proposal_confidence_threshold: 0.30
+require_independent_depth_ir_tracking: true
+require_human_identity_confirmation: true
+allow_rgb_depth_registration: false
+allow_phone_oni_pairing: false
+allow_phone_frame_labels: false
+allow_ir_as_rgb: false
+allow_uncalibrated_ground_plane: false
+allow_contact_truth_from_silhouette: false
+

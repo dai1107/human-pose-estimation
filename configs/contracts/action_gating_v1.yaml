@@ -1,0 +1,34 @@
+schema_version: 1
+contract_version: action_gating_v1
+enabled_by_default: false
+runtime_mode: shadow
+model_family: multinomial_logistic_regression
+feature_schema_version: body_canonical_window_v1
+classes:
+  - burpee_broad_jump
+  - farmers_carry
+  - lunge
+  - rowing
+  - skierg
+  - sled_pull
+  - sled_push
+  - wall_ball
+  - idle
+  - transition
+  - unknown
+enter_confidence: 0.72
+exit_confidence: 0.45
+unknown_confidence: 0.55
+minimum_margin: 0.12
+enter_duration_ms: 500
+exit_duration_ms: 300
+switch_cooldown_ms: 1000
+window_ms: 1000
+minimum_window_frames: 8
+maximum_window_frames: 60
+minimum_records_per_class: 2
+group_split_key: subject_id
+fallback_group_split_key: record_id
+low_confidence_output: unknown
+manual_override_allowed: true
+

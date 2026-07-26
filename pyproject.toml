@@ -60,6 +60,8 @@ pose-oni-sync = "tools.synchronize_oni_dataset:main"
 pose-phone-rgb-round6 = "tools.run_round6_phone_rgb:main"
 pose-tracking-round7 = "tools.run_round7_tracking:main"
 pose-cache-round8 = "tools.run_round8_pose_cache:main"
+pose-shadow-round10 = "tools.run_round10_shadow:main"
+pose-oni-research-round11 = "tools.run_round11_oni_research:main"
 pose-clean = "src.output_management:main"
 pose-reference-create = "src.tools.create_reference:main"
 pose-reference-list = "src.tools.list_references:main"
@@ -112,6 +114,14 @@ webui = [
   "configs/hyrox/sled_pull.yaml",
   "configs/hyrox/sled_push.yaml",
   "configs/hyrox/wall_ball.yaml",
+]
+"configs/contracts" = [
+  "configs/contracts/action_gating_v1.yaml",
+  "configs/contracts/scoring_correction_v1.yaml",
+  "configs/contracts/coordinate_spaces_v1.yaml",
+  "configs/contracts/realtime_latency_v1.yaml",
+  "configs/contracts/oni_research_v1.yaml",
+  "configs/contracts/README.md",
 ]
 "models" = [
   "models/pose_landmarker_lite.task",

@@ -1,0 +1,25 @@
+schema_version: 1
+contract_version: scoring_correction_v1
+rubric_version: round10_unfrozen_trial_v1
+validity_priority:
+  - NO_REP
+  - UNSURE
+  - VALID
+score_min: 0
+score_max: 100
+max_corrections: 2
+unobservable_score_policy: leave_null
+uncalibrated_score_policy: leave_null
+required_evidence_sources:
+  - rule
+  - pose
+  - three_d
+  - equipment
+  - temporal_model
+suppress_corrections_if:
+  - low_confidence
+  - target_lost
+  - unsupported_view
+  - unknown_action
+  - required_equipment_unobservable
+competition_judgement_claim: human_technique_only_unless_all_equipment_and_course_evidence_observable

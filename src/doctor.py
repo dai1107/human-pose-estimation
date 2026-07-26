@@ -29,6 +29,8 @@ from src.version import __version__
 from src.paths import installation_root, runtime_output_root
 from src.output_schema import artifact_metadata
 from src.product_pose import load_product_pose_config
+from src.contracts import load_contract_bundle
+from tools.dataset.round11_oni_research import load_oni_research_contract
 
 
 PROJECT_ROOT = installation_root()
@@ -159,6 +161,37 @@ def _product_pose_config_check(root: Path) -> CheckResult:
     )
 
 
+def _round10_contract_check(root: Path) -> CheckResult:
+    path = root / "configs" / "contracts"
+    try:
+        bundle = load_contract_bundle(path)
+    except (ConfigValidationError, FileNotFoundError, OSError, ValueError) as exc:
+        return CheckResult("config:round10-contracts", "fail", True, str(exc))
+    return CheckResult(
+        "config:round10-contracts",
+        "pass",
+        True,
+        ", ".join(bundle.versions.values()),
+    )
+
+
+def _round11_contract_check(root: Path) -> CheckResult:
+    path = root / "configs" / "contracts" / "oni_research_v1.yaml"
+    try:
+        contract = load_oni_research_contract(path)
+    except (ConfigValidationError, FileNotFoundError, OSError, ValueError) as exc:
+        return CheckResult("config:round11-oni-research", "fail", True, str(exc))
+    return CheckResult(
+        "config:round11-oni-research",
+        "pass",
+        True,
+        (
+            f"{contract.version}; mode={contract.mode}; "
+            "RGB-Depth/phone-ONI/phone-label generation disabled"
+        ),
+    )
+
+
 def _camera_check(camera_index: int) -> CheckResult:
     try:
         import cv2
@@ -205,6 +238,8 @@ def run_checks(
         _file_check("model:hand", project_root / "models" / "hand_landmarker.task", required=False, minimum_bytes=1024),
         _file_check("model:yolo-pose", project_root / "yolo11n-pose.pt", required=False, minimum_bytes=1024),
         _product_pose_config_check(project_root),
+        _round10_contract_check(project_root),
+        _round11_contract_check(project_root),
         _hyrox_config_check(project_root),
         _reference_config_check(project_root),
         _output_check(

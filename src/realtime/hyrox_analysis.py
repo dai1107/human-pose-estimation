@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 
 from hyrox.features import extract_basic_pose_features
 from hyrox.registry import create_action_analyzer
+from src.contracts import build_coordinate_output, extend_action_state, load_contract_bundle
 
 LOGGER = logging.getLogger("pose.desktop")
 
@@ -42,6 +43,7 @@ class HyroxAnalysisController:
         self.analyzer = None
         self.extraction_error_reported = False
         self.analysis_error_reported = False
+        self.contracts = load_contract_bundle()
         self.switch(action)
 
     @property
@@ -105,6 +107,34 @@ class HyroxAnalysisController:
             try:
                 state = self.analyzer.attach_view_context(
                     self.analyzer.update(features if has_pose else None, timestamp_ms=timestamp_ms)
+                )
+                phase = str(state.get("phase", "unknown")) if isinstance(state, Mapping) else "unknown"
+                manual_gate = {
+                    "action_probabilities": {self.action: 1.0},
+                    "predicted_action": self.action,
+                    "action_confidence": 1.0,
+                    "action_state": phase,
+                    "supported_view": None if self.camera_view == "unknown" else True,
+                    "equipment_context": "unknown",
+                    "switch_candidate_since_ms": None,
+                    "action_model_version": "manual_override",
+                    "action_model_hash": "",
+                    "action_source": "manual",
+                    "stale": False,
+                    "switch_committed": False,
+                    "switch_reason": "manual_override",
+                }
+                coordinate_output = build_coordinate_output(
+                    self.contracts.coordinate_spaces,
+                    three_d_kinematics=three_d_kinematics,
+                )
+                state = extend_action_state(
+                    state,
+                    bundle=self.contracts,
+                    action=self.action,
+                    action_source="manual",
+                    action_gate=manual_gate,
+                    coordinate_output=coordinate_output,
                 )
             except Exception as exc:
                 if not self.analysis_error_reported:

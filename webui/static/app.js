@@ -2367,6 +2367,12 @@ function updateState(state) {
       setWidthIfChanged("#progressBar", `${state.progress || 0}%`);
     }
     setTextIfChanged("#actionLabel", state.action_label || "动作指导关闭");
+    const actionSource = state.action_source === "auto"
+      ? "自动识别"
+      : state.action_source === "auto_shadow"
+        ? "影子自动 · 不参与判定"
+        : "人工指定";
+    setTextIfChanged("#actionSourceLabel", actionSource);
     const phase = state.phase || "idle";
     setTextIfChanged("#phaseValue", phaseLabels[phase] || phase.replaceAll("_", " "));
     renderCameraTip(state.action);

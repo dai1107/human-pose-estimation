@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import logging
 import sys
 from collections.abc import Iterable, Mapping, Sequence
@@ -18,8 +19,10 @@ from hyrox.base import BaseActionAnalyzer
 from hyrox.features import extract_basic_pose_features
 from hyrox.registry import create_action_analyzer
 from hyrox.view_policy import CAMERA_VIEWS
+from src.action_gating import AutoActionShadowRuntime, LogisticActionModel
 from src.backends.mediapipe_backend import MediaPipeBackend
 from src.configuration import ConfigValidationError
+from src.contracts import extend_action_state, load_contract_bundle
 from src.paths import resolve_asset
 from src.output_schema import versioned_csv_row
 from src.runtime_logging import (
@@ -126,6 +129,18 @@ DEBUG_CSV_COLUMNS = (
     "feedback_codes",
     "feedback_texts",
     *ANALYZER_DEBUG_CSV_COLUMNS,
+    "action_probabilities",
+    "predicted_action",
+    "action_confidence",
+    "action_state",
+    "supported_view",
+    "equipment_context",
+    "switch_candidate_since_ms",
+    "action_model_version",
+    "action_model_hash",
+    "action_source",
+    "action_stale",
+    "switch_committed",
     "schema_version",
     "program_version",
 )
@@ -147,6 +162,21 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pose-hold-frames", type=int, default=5, help="Hold the last valid pose across short detector drops. Default: 5.")
     parser.add_argument("--headless", action="store_true", help="Process without opening an OpenCV window; useful for batch validation.")
     parser.add_argument("--save-debug-csv", default="", help="Optional CSV path for per-frame features and analyzer outputs.")
+    parser.add_argument(
+        "--auto-action-shadow",
+        action="store_true",
+        help="Run a trained action gate as a default-off sidecar; never switches the formal analyzer.",
+    )
+    parser.add_argument(
+        "--auto-action-model",
+        default="",
+        help="Versioned Logistic Regression action model required by --auto-action-shadow.",
+    )
+    parser.add_argument(
+        "--save-shadow-json",
+        default="",
+        help="Optional per-frame shadow predictions; requires --auto-action-shadow.",
+    )
     return parser
 
 
@@ -200,6 +230,7 @@ def build_debug_row(
     has_pose: bool,
     features: Mapping[str, object] | None,
     state: Mapping[str, object] | None,
+    action_gate: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     row: dict[str, object] = {
         "frame_index": frame_index,
@@ -219,6 +250,27 @@ def build_debug_row(
         debug = {}
     for field in ANALYZER_DEBUG_CSV_COLUMNS:
         row[field] = debug.get(field)
+    gate = dict(action_gate or {})
+    probabilities = gate.get("action_probabilities")
+    row["action_probabilities"] = (
+        json.dumps(probabilities, ensure_ascii=False, sort_keys=True)
+        if isinstance(probabilities, Mapping)
+        else ""
+    )
+    for source, target in (
+        ("predicted_action", "predicted_action"),
+        ("action_confidence", "action_confidence"),
+        ("action_state", "action_state"),
+        ("supported_view", "supported_view"),
+        ("equipment_context", "equipment_context"),
+        ("switch_candidate_since_ms", "switch_candidate_since_ms"),
+        ("action_model_version", "action_model_version"),
+        ("action_model_hash", "action_model_hash"),
+        ("action_source", "action_source"),
+        ("stale", "action_stale"),
+        ("switch_committed", "switch_committed"),
+    ):
+        row[target] = gate.get(source)
     return versioned_csv_row(row)
 
 
@@ -252,6 +304,41 @@ def main(argv: list[str] | None = None) -> int:
     args.model = str(resolve_asset(args.model))
     if args.hyrox_config:
         args.hyrox_config = str(resolve_asset(args.hyrox_config))
+    if args.save_shadow_json and not args.auto_action_shadow:
+        error = AppError(
+            "CFG004",
+            "--save-shadow-json requires --auto-action-shadow",
+            exit_code=ExitCode.CONFIG_ERROR,
+        )
+        report_error(LOGGER, error, debug=bool(args.debug))
+        return int(error.exit_code)
+
+    try:
+        contract_bundle = load_contract_bundle()
+        action_shadow = None
+        if args.auto_action_shadow:
+            if not args.auto_action_model:
+                raise ConfigValidationError(
+                    "--auto-action-model is required when action shadow is enabled"
+                )
+            model_path = resolve_asset(args.auto_action_model)
+            if not model_path.is_file():
+                raise ConfigValidationError(
+                    "action model file does not exist",
+                    path=model_path,
+                )
+            action_shadow = AutoActionShadowRuntime(
+                LogisticActionModel.load(model_path),
+                contract_bundle.action_gating,
+            )
+    except (FileNotFoundError, OSError, ValueError, ConfigValidationError) as exc:
+        error = AppError(
+            getattr(exc, "error_code", "CFG001"),
+            str(exc),
+            exit_code=ExitCode.CONFIG_ERROR,
+        )
+        report_error(LOGGER, error, debug=bool(args.debug))
+        return int(error.exit_code)
 
     video_path = Path(args.video)
     if not video_path.exists():
@@ -293,6 +380,7 @@ def main(argv: list[str] | None = None) -> int:
     csv_rows: list[dict[str, object]] | None = [] if args.save_debug_csv else None
     frame_index = 0
     final_state: Mapping[str, object] | None = None
+    shadow_rows: list[dict[str, object]] | None = [] if args.save_shadow_json else None
 
     exit_code = ExitCode.SUCCESS
     try:
@@ -319,8 +407,35 @@ def main(argv: list[str] | None = None) -> int:
                     image_height=height,
                     segmentation_mask=result.extra.get("segmentation_mask"),
                 )
-            state = analyzer.attach_view_context(analyzer.update(features if has_pose else None, timestamp_ms=timestamp_ms))
+            raw_state = analyzer.attach_view_context(analyzer.update(features if has_pose else None, timestamp_ms=timestamp_ms))
+            action_gate = (
+                action_shadow.update(
+                    features,
+                    timestamp_ms=timestamp_ms,
+                    stale=not has_pose,
+                    supported_view=None if args.camera_view == "unknown" else True,
+                )
+                if action_shadow is not None
+                else None
+            )
+            state = extend_action_state(
+                raw_state,
+                bundle=contract_bundle,
+                action=args.hyrox_action,
+                action_source="manual",
+                action_gate=action_gate,
+            )
             final_state = state
+            if shadow_rows is not None and action_gate is not None:
+                shadow_rows.append(
+                    {
+                        "frame_index": frame_index,
+                        "timestamp_ms": timestamp_ms,
+                        **action_gate,
+                        "formal_action": args.hyrox_action,
+                        "formal_analyzer_switched": False,
+                    }
+                )
 
             if not args.headless:
                 annotated = frame.copy()
@@ -345,6 +460,7 @@ def main(argv: list[str] | None = None) -> int:
                         has_pose=has_pose,
                         features=features,
                         state=state,
+                        action_gate=action_gate,
                     )
                 )
             if not args.headless:
@@ -388,6 +504,31 @@ def main(argv: list[str] | None = None) -> int:
             report_error(LOGGER, error, debug=bool(args.debug))
             return int(error.exit_code)
         LOGGER.info("Debug CSV saved: %s", output_path)
+    if args.save_shadow_json:
+        output_path = Path(args.save_shadow_json)
+        try:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "artifact_type": "auto_action_shadow_replay",
+                        "contract_version": contract_bundle.action_gating.version,
+                        "formal_action": args.hyrox_action,
+                        "formal_analyzer_switched": False,
+                        "predictions": shadow_rows or [],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            error = OutputWriteError(f"could not save shadow JSON: {output_path}")
+            report_error(LOGGER, error, debug=bool(args.debug))
+            return int(error.exit_code)
+        LOGGER.info("Action shadow JSON saved: %s", output_path)
     final_phase = "unknown" if final_state is None else str(final_state.get("phase", "unknown"))
     final_rep_count = 0 if final_state is None else int(final_state.get("rep_count", 0))
     LOGGER.info(

@@ -321,6 +321,17 @@ python main.py --help
 python tools/replay_hyrox_video.py --video "HYROX视频\药球.mp4" --hyrox-action wall_ball --camera-view front
 ```
 
+第 10 轮的自动动作门控只提供默认关闭的影子回放。当前没有通过人工真值门，因此仓库不会
+生成或启用正式动作模型；先运行下面的命令查看真实的数据就绪失败项：
+
+```powershell
+python -m tools.run_round10_shadow
+```
+
+人工复核完成且该命令生成版本化模型后，才可显式加入
+`--auto-action-shadow --auto-action-model PATH --save-shadow-json PATH`。影子预测只写审计输出，
+不会切换 `--hyrox-action` 指定的正式分析器；`--hyrox-action auto` 目前故意不可用。
+
 多摄像头时间同步检查可运行 `python tools/check_multicamera.py --camera 0:front --camera 1:side`。正式使用前先运行 `python -m src.doctor` 做模型和运行环境健康检查。
 
 ## 个人参考动作与 DTW 比较
@@ -349,7 +360,8 @@ pose-reference-export --reference outputs\references\REFERENCE_ID
 
 启动桌面版或视频回放时会严格校验 YAML：未知字段、重复字段、错误类型、越界值、
 错误 `action_name` 和不支持的 YAML 结构都会立即停止启动，并显示 `CFG001` 错误。
-`python -m src.doctor` 同时验证 8 个动作配置、3 个 HYROX 共享配置和 2 个参考动作配置。
+`python -m src.doctor` 同时验证 8 个动作配置、3 个 HYROX 共享配置、2 个参考动作配置和
+4 个第 10 轮产品契约。
 自定义动作配置仍可只写需要覆盖的字段，但字段本身必须合法。
 
 桌面版、网页版和视频回放默认把运行信息写入 `outputs/logs/` 下的滚动日志，单个日志
@@ -617,6 +629,42 @@ python tools\synchronize_oni_dataset.py
 Color–Depth 配对为 0，所有记录均标为 `video_level_only` 并排除出需要精确 RGB–Depth
 同步的事件训练；没有把 IR 当作 Color，也没有生成 ONI—手机配对。报告位于
 `datasets/hyrox/reports/oni_export/` 和 `datasets/hyrox/reports/oni_sync/`。
+
+第 11 轮 ONI Depth + IR 主体审计与辅助研究使用：
+
+```powershell
+pose-oni-research-round11
+
+# 或直接运行；只重建结构化报告时可跳过派生复核图
+python -m tools.run_round11_oni_research
+python -m tools.run_round11_oni_research --no-previews
+```
+
+工具在每条记录的 Depth、IR 流上各自均匀抽取 24 个检查点，独立生成自动主体候选，
+不使用另一模态的框作兜底，也不把候选写成已确认身份。当前 32 条记录共形成 1,536 个
+检查点；Depth 380/768、IR 414/768 达到自动候选门，未命中或低置信帧原样保留供人工
+复核。64 张模态独立复核图明确标注 `HUMAN REVIEW REQUIRED`；当前人工确认主体数、
+已验证动作错误数和训练可用记录数仍均为 0。
+
+Depth 的公制字段只表示已选表面沿传感器视线的距离，不代表人体关节、公制场地坐标、
+地面距离或比赛行进距离。当前没有相机/地面标定、身体部位与器械标注，因此地面、
+身体/器械接触以及 12 类具体错误均不得作为可靠真值；粗轮廓与空间运动仅是完成人工
+主体复核后的研究候选。结构化输出位于：
+
+```text
+datasets/hyrox/oni_tracks/{record_id}/{depth,ir}_target_proposals.jsonl
+datasets/hyrox/reports/round11_subject_previews/{record_id}/
+datasets/hyrox/reports/oni_subject_audit_v1.json
+datasets/hyrox/reports/oni_modality_observability_v1.json
+datasets/hyrox/reports/oni_phone_recapture_plan_v1.json
+datasets/hyrox/reports/oni_future_rgbd_value_v1.json
+datasets/hyrox/reports/round11_implementation_summary.json
+```
+
+`configs/contracts/oni_research_v1.yaml` 强制禁止为当前数据生成 RGB–Depth 配准、手机—ONI
+配对、手机逐帧标签、IR 充当 RGB、未标定地面真值和从轮廓推断接触真值。未来 RGB-D
+价值报告只建议同一设备硬件同步 Color+Depth、保存内外参并独立人工确认主体；不会
+把当前未配对数据改造成同步训练数据。
 
 耐久报告包含平均 FPS、P95 端到端帧延迟、起止/峰值进程内存、内存增长、视频循环
 次数、异常读帧率、完成状态和帧/延迟记录完整性。默认阈值可通过命令行覆盖，便于不同

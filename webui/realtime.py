@@ -32,6 +32,7 @@ from src.backends.base import Keypoint, PoseResult
 from src.backends.yolo_guided_mediapipe_backend import YoloGuidedMediaPipeBackend
 from src.backends.yolo_pose_backend import YoloPoseBackend
 from src.backends.yolo_rtmw_backend import YoloRtmwWholeBodyBackend
+from src.contracts import build_coordinate_output, extend_action_state, load_contract_bundle
 from src.utils.backend_policy import resolve_backend_choice
 from src.utils.device import resolve_torch_device
 from src.utils.smoothing import KeypointSmoother
@@ -744,6 +745,7 @@ class RealtimePoseSession:
             else three_d_quality_config
         )
         self._max_pose_age_ms = max(0.0, float(max_pose_age_ms))
+        self._round10_contracts = load_contract_bundle()
         self._frames = LatestFrameQueue()
         self._results: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
         self._lock = threading.RLock()
@@ -764,6 +766,7 @@ class RealtimePoseSession:
             "backend": "-",
             "action": "lunge",
             "action_label": ACTION_LABELS["lunge"],
+            "action_source": "manual",
             "camera_view": "side",
             "sensitivity": "medium",
             "pose_detected": False,
@@ -1533,6 +1536,9 @@ class RealtimePoseSession:
                                 "fps": message["metrics"]["fps"],
                                 "inference_ms": message["metrics"]["inference_ms"],
                                 "phase": message["phase"],
+                                "action_source": message.get("action_source", "manual"),
+                                "action_gating": message.get("action_gating", {}),
+                                "contract_versions": message.get("contract_versions", {}),
                                 "reps": message["reps"],
                                 "candidate_count": message["candidate_count"],
                                 "pose_valid_rep_count": message["pose_valid_rep_count"],
@@ -1696,7 +1702,9 @@ class RealtimePoseSession:
             connection_generation=packet.connection_generation,
         ):
             raise StaleFrameContext
-        has_pose = bool(result.success and result.keypoints)
+        pose_age_before_analysis_ms = (time.monotonic() - packet.received_at) * 1000.0
+        stale_pose = pose_age_before_analysis_ms > self._max_pose_age_ms
+        has_pose = bool(result.success and result.keypoints and not stale_pose)
         next_analyzer_key = (str(settings["action"]), str(settings["sensitivity"]), str(settings["camera_view"]))
         if next_analyzer_key != analyzer_key:
             analyzer = (
@@ -1734,6 +1742,43 @@ class RealtimePoseSession:
                 analyzer.update(features, timestamp_ms=inference_timestamp_ms)
             )
 
+        formal_action = str(settings["action"])
+        manual_gate = {
+            "action_probabilities": (
+                {"unknown": 1.0}
+                if stale_pose or formal_action == "none"
+                else {formal_action: 1.0}
+            ),
+            "predicted_action": "unknown" if stale_pose or formal_action == "none" else formal_action,
+            "action_confidence": 0.0 if stale_pose else 1.0,
+            "action_state": (
+                "unknown" if stale_pose or formal_action == "none"
+                else str(action_state.get("phase", "unknown")) if isinstance(action_state, Mapping)
+                else "unknown"
+            ),
+            "supported_view": None if str(settings["camera_view"]) == "unknown" else True,
+            "equipment_context": "unknown",
+            "switch_candidate_since_ms": None,
+            "action_model_version": "manual_override",
+            "action_model_hash": "",
+            "action_source": "manual",
+            "stale": stale_pose,
+            "switch_committed": False,
+            "switch_reason": "stale_pose" if stale_pose else "manual_override",
+        }
+        coordinate_contract = build_coordinate_output(
+            self._round10_contracts.coordinate_spaces,
+            three_d_kinematics=three_d_result.as_dict(),
+        )
+        contracted_state = extend_action_state(
+            action_state,
+            bundle=self._round10_contracts,
+            action=formal_action,
+            action_source="manual",
+            action_gate=manual_gate,
+            coordinate_output=coordinate_contract,
+        )
+
         all_names = {point.name for point in result.keypoints}
         visible_names = _profile_names(
             str(settings["landmark_profile"]),
@@ -1749,18 +1794,23 @@ class RealtimePoseSession:
                 "visibility": round(float(point.confidence), 4),
             }
             for point in result.keypoints
-            if point.name in visible_names and math.isfinite(float(point.x)) and math.isfinite(float(point.y))
+            if has_pose
+            and point.name in visible_names and math.isfinite(float(point.x)) and math.isfinite(float(point.y))
         ]
         names_by_index = [point.name for point in result.keypoints]
         connections = [
             [names_by_index[start], names_by_index[end]]
             for start, end in result.connections
-            if start < len(names_by_index)
+            if has_pose
+            and start < len(names_by_index)
             and end < len(names_by_index)
             and names_by_index[start] in visible_names
             and names_by_index[end] in visible_names
         ]
         hand_keypoints, hand_connections = serialize_hand_overlay(hand_detections)
+        if stale_pose:
+            hand_keypoints = []
+            hand_connections = []
         keypoints.extend(hand_keypoints)
         connections.extend(hand_connections)
         phase = "idle" if action_state is None else str(action_state.get("phase", "unknown"))
@@ -1808,15 +1858,53 @@ class RealtimePoseSession:
         detected_issues = _feedback_items(action_state)
         feedback = visible_feedback(detected_issues, evaluation_phase)
         assessment = assess_action(str(settings["action"]), evaluation_phase, features, feedback)
-        voice_feedback = self._voice_feedback.update(
-            action=str(settings["action"]),
-            reps=reps,
-            assessment=assessment,
-            detected_issues=detected_issues,
-            timestamp_ms=int(time.time() * 1000),
-        )
+        if stale_pose:
+            phase = "unknown"
+            floor_reference = {}
+            contacts = {}
+            foot_events = {}
+            last_rep_decision = {}
+            last_rep_observability = {}
+            last_three_d_assist = {}
+            detected_issues = []
+            feedback = []
+            assessment = {
+                "status": "UNSURE",
+                "reason_codes": ["STALE_POSE"],
+            }
+            voice_feedback = None
+            contracted_state["evidence"] = []
+            scoring = dict(contracted_state.get("scoring_correction") or {})
+            scoring["validity"] = "UNSURE"
+            scoring["corrections"] = []
+            scoring["suppressed_reason"] = "stale_pose"
+            contracted_state["scoring_correction"] = scoring
+        else:
+            voice_feedback = self._voice_feedback.update(
+                action=str(settings["action"]),
+                reps=reps,
+                assessment=assessment,
+                detected_issues=detected_issues,
+                timestamp_ms=int(time.time() * 1000),
+            )
         server_ms = (time.perf_counter() - started) * 1000.0
         pose_age_ms = (time.monotonic() - packet.received_at) * 1000.0
+        latency_contract = {
+            "capture_timestamp": packet.client_capture_ms,
+            "pose_input_timestamp": inference_start_ms,
+            "pose_finished_timestamp": inference_end_ms,
+            "analysis_timestamp": int(time.time() * 1000),
+            "render_timestamp": None,
+            "pose_age_ms": round(pose_age_ms, 1),
+            "prediction_horizon_ms": 0.0,
+            "source_frame_id": packet.sequence,
+            "stale": stale_pose,
+            "analysis_uses_prediction": False,
+            "display_prediction_only": True,
+            "suppress_pose": stale_pose,
+            "suppress_action": stale_pose,
+            "suppress_correction": stale_pose,
+        }
         latency_timing = {
             **packet.timing,
             "inference_start_ms": inference_start_ms,
@@ -1838,6 +1926,9 @@ class RealtimePoseSession:
             "latency_timing": latency_timing,
             "timestamp_unix_ms": int(time.time() * 1000),
             "action": settings["action"],
+            "action_source": "manual",
+            "action_gating": manual_gate,
+            "contract_versions": self._round10_contracts.versions,
             "camera_view": settings["camera_view"],
             "request_backend": settings["backend"],
             "action_label": ACTION_LABELS[str(settings["action"])],
@@ -1853,6 +1944,10 @@ class RealtimePoseSession:
             "last_rep_decision": last_rep_decision,
             "last_rep_observability": last_rep_observability,
             "last_three_d_assist": last_three_d_assist,
+            "evidence": contracted_state.get("evidence", []),
+            "scoring_correction": contracted_state.get("scoring_correction", {}),
+            "coordinate_contract": coordinate_contract,
+            "latency_contract": latency_contract,
             "pose_detected": has_pose,
             "hands_detected": bool(hand_keypoints),
             "feedback": feedback,
