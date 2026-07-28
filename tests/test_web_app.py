@@ -142,6 +142,16 @@ def test_web_home_and_options_are_available() -> None:
     assert lite_model.mimetype == "application/octet-stream"
 
 
+@pytest.mark.skipif(
+    not (
+        Path(__file__).resolve().parents[1]
+        / "datasets"
+        / "hyrox"
+        / "manifests"
+        / "phone_records.json"
+    ).is_file(),
+    reason="local HYROX review dataset is not available",
+)
 def test_human_review_workspace_loads_real_queue_and_quick_review_materials() -> None:
     client = create_app(FakeEngine()).test_client()
 

@@ -43,13 +43,13 @@
                   },
                   {
                       "path":  "OpenNI2/Drivers/OniFile.ini",
-                      "sha256":  "768ec608fc73a058e146761283eed863b520d88df120039a7375b77090d646b3",
-                      "bytes":  216
+                      "sha256":  "f50a20ca76350f8e5e81b50477714f9a1b1db9b49047f5089b90644526ba9505",
+                      "bytes":  210
                   },
                   {
                       "path":  "OPENNI2_LICENSE.txt",
-                      "sha256":  "1eb85fc97224598dad1852b5d6483bbcf0aa8608790dcc657a5a2a761ae9c8c6",
-                      "bytes":  11558
+                      "sha256":  "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+                      "bytes":  11357
                   },
                   {
                       "path":  "MINGW_W64_RUNTIME_LICENSE.txt",

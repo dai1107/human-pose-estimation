@@ -748,6 +748,34 @@ class IdleEngine:
         return None
 
 
+def test_websocket_rejects_invalid_csrf() -> None:
+    app = create_app(engine_factory=lambda _session_id: IdleEngine())
+    http_client = app.test_client()
+    assert http_client.get("/api/options").status_code == 200
+    session_cookie = http_client.get_cookie("pose_session")
+    assert session_cookie is not None
+    server = make_server("127.0.0.1", 0, app, threaded=True)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    rejected = None
+    try:
+        rejected = Client.connect(
+            f"ws://127.0.0.1:{server.server_port}/ws/pose?csrf=invalid",
+            headers={"Cookie": f"pose_session={session_cookie.value}"},
+        )
+        rejection = receive_json_message(rejected)
+        assert rejection["type"] == "error"
+        assert rejection["code"] == "csrf_failed"
+    finally:
+        if rejected is not None:
+            try:
+                rejected.close()
+            except Exception:
+                pass
+        server.shutdown()
+        server_thread.join(timeout=2)
+
+
 def test_websocket_handshake_start_frame_result_and_stop() -> None:
     def realtime_factory(session_id: str, gate: threading.BoundedSemaphore) -> RealtimePoseSession:
         return RealtimePoseSession(
@@ -768,18 +796,6 @@ def test_websocket_handshake_start_frame_result_and_stop() -> None:
     server_thread.start()
     socket = None
     try:
-        rejected = Client.connect(
-            f"ws://127.0.0.1:{server.server_port}/ws/pose?csrf=invalid",
-            headers={"Cookie": f"pose_session={session_cookie.value}"},
-        )
-        rejection = receive_json_message(rejected)
-        assert rejection["type"] == "error"
-        assert rejection["code"] == "csrf_failed"
-        try:
-            rejected.close()
-        except Exception:
-            pass
-
         socket = Client.connect(
             f"ws://127.0.0.1:{server.server_port}/ws/pose?csrf={csrf}",
             headers={"Cookie": f"pose_session={session_cookie.value}"},
