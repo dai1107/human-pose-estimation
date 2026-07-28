@@ -27,7 +27,7 @@ name, the bridge creates a process-scoped ASCII hard link in the Windows temp
 directory, opens that link, and removes only that link with POSIX delete
 semantics. The original ONI remains read-only and unchanged.
 
-The 2026-07-24 full scan opened and completely replayed all 32 files. Every
+The complete validation scan opened and replayed all 32 files. Every
 record contains Depth + IR and no Color (`A=0, B=32, C=0, D=0, E=0`), with no
 decode or timeline anomalies. This is a stream-integrity result only; it does
 not confirm recording-intent labels or target-athlete identity.

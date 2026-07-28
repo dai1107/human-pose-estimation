@@ -290,7 +290,7 @@ development builds use the `X.Y.Z.devN` form.
   camera backend and physical sensor-to-photon results remain device-site
   acceptance work and are not synthesized by automated tests.
 
-## [0.1.0.dev0] - 2026-07-20
+## [0.1.0.dev0]
 
 ### Added
 
