@@ -2,3 +2,32 @@ config_name: observability_default
 required_landmark_confidence: 0.60
 rep_mean_confidence: 0.65
 decisive_rule_confidence: 0.72
+# Selectors are action__camera-view__rule. "default" is a wildcard.
+# These phone-RGB values are deliberately a little more tolerant of 2D pose
+# confidence while still requiring repeated evidence for a decisive result.
+required_landmark_confidence_overrides:
+  burpee_broad_jump__front__default: 0.52
+  burpee_broad_jump__front__chest_ground_contact: 0.50
+  burpee_broad_jump__front__simultaneous_takeoff: 0.48
+  burpee_broad_jump__front__simultaneous_landing: 0.48
+  lunge__front__default: 0.52
+  lunge__front__trailing_knee_contact: 0.50
+  lunge__front__full_knee_extension: 0.52
+  lunge__front__full_hip_extension: 0.52
+  wall_ball__side__default: 0.54
+  wall_ball__side__bilateral_throw_proxy: 0.52
+  wall_ball__rear__default: 0.54
+rep_mean_confidence_overrides:
+  burpee_broad_jump__front__default: 0.56
+  burpee_broad_jump__front__chest_ground_contact: 0.54
+  lunge__front__default: 0.56
+  lunge__front__trailing_knee_contact: 0.54
+  wall_ball__side__default: 0.58
+  wall_ball__rear__default: 0.58
+decisive_rule_confidence_overrides:
+  burpee_broad_jump__front__default: 0.68
+  burpee_broad_jump__front__chest_ground_contact: 0.66
+  lunge__front__default: 0.68
+  lunge__front__trailing_knee_contact: 0.64
+  wall_ball__side__default: 0.68
+  wall_ball__rear__default: 0.68

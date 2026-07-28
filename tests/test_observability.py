@@ -51,6 +51,44 @@ def test_observability_config_uses_round_nine_thresholds() -> None:
     assert config["required_landmark_confidence"] == 0.60
     assert config["rep_mean_confidence"] == 0.65
     assert config["decisive_rule_confidence"] == 0.72
+    assert (
+        config["rep_mean_confidence_overrides"][
+            "lunge__front__default"
+        ]
+        == 0.56
+    )
+
+
+def test_observability_thresholds_resolve_by_action_view_and_rule() -> None:
+    policy = ObservabilityPolicy.from_mapping(
+        {
+            **DEFAULT_OBSERVABILITY_CONFIG,
+            "rep_mean_confidence_overrides": {
+                "lunge__front__default": 0.56,
+                "lunge__front__full_hip_extension": 0.54,
+            },
+        }
+    )
+
+    hip = policy.thresholds_for(
+        "lunge",
+        "front",
+        "full_hip_extension",
+    )
+    knee = policy.thresholds_for(
+        "lunge",
+        "front",
+        "full_knee_extension",
+    )
+    side = policy.thresholds_for(
+        "lunge",
+        "side",
+        "full_hip_extension",
+    )
+
+    assert hip["rep_mean_confidence"] == 0.54
+    assert knee["rep_mean_confidence"] == 0.56
+    assert side["rep_mean_confidence"] == 0.65
 
 
 def test_low_rep_mean_confidence_downgrades_valid_to_unsure() -> None:
@@ -168,7 +206,7 @@ def test_invalid_floor_or_known_unsuitable_view_is_unsure() -> None:
 
 def test_only_known_incompatible_camera_view_is_rejected() -> None:
     assert action_view_suitability("Lunge", "side") is True
-    assert action_view_suitability("Lunge", "front") is False
+    assert action_view_suitability("Lunge", "front") is True
     assert action_view_suitability("Lunge", "unknown") is None
     assert action_view_suitability("Wall Ball", "front") is True
 

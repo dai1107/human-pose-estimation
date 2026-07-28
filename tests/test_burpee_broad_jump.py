@@ -143,6 +143,94 @@ def test_burpee_sequence_waits_for_next_hands_before_rule_validation() -> None:
     assert landing["debug"]["body_center_delta_x"] == pytest.approx(0.11)
 
 
+def test_burpee_stream_end_finalizes_last_landed_candidate_once() -> None:
+    analyzer = _analyzer()
+    analyzer.update(_features(), 0)
+    analyzer.update(_hands_down(), 150)
+    analyzer.update(_chest_down(), 300)
+    analyzer.update(_step_in(), 450)
+    analyzer.update(_takeoff(), 600)
+    analyzer.update(
+        _features(
+            body_center_x=0.33,
+            body_center_y=0.47,
+            left_knee_angle=165,
+            right_knee_angle=166,
+        ),
+        700,
+    )
+    analyzer.update(
+        _features(
+            body_center_x=0.38,
+            body_center_y=0.52,
+            left_knee_angle=135,
+            right_knee_angle=137,
+        ),
+        850,
+    )
+
+    decision = analyzer.finalize_pending_candidate()
+
+    assert decision is not None
+    assert analyzer.candidate_count == 1
+    assert analyzer.last_rep_candidate is not None
+    assert (
+        analyzer.last_rep_candidate.events["validation_boundary"]
+        == "stream_end"
+    )
+    assert analyzer.finalize_pending_candidate() is None
+
+
+def test_burpee_ground_enrichment_drives_feet_hands_and_chest_same_frame() -> None:
+    analyzer = _analyzer()
+    supported = _hands_down() | {
+        "skeleton_height_estimate_norm": 0.70,
+        "lower_body_visible_score": 0.95,
+        "left_heel_x": 0.30,
+        "left_heel_y": 0.90,
+        "left_heel_confidence": 0.95,
+        "right_heel_x": 0.55,
+        "right_heel_y": 0.90,
+        "right_heel_confidence": 0.95,
+        "left_foot_index_x": 0.35,
+        "left_foot_index_y": 0.90,
+        "left_foot_index_confidence": 0.95,
+        "right_foot_index_x": 0.60,
+        "right_foot_index_y": 0.90,
+        "right_foot_index_confidence": 0.95,
+        "left_wrist_x": 0.38,
+        "left_wrist_confidence": 0.95,
+        "right_wrist_x": 0.48,
+        "right_wrist_confidence": 0.95,
+    }
+    analyzer.update(supported, 100)
+    chest = _chest_down() | supported | {
+        "body_height_norm": 0.25,
+        "torso_angle": 80.0,
+        "left_shoulder_x": 0.38,
+        "left_shoulder_y": 0.82,
+        "left_shoulder_confidence": 0.95,
+        "right_shoulder_x": 0.48,
+        "right_shoulder_y": 0.82,
+        "right_shoulder_confidence": 0.95,
+        "left_hip_x": 0.39,
+        "left_hip_y": 0.80,
+        "left_hip_confidence": 0.95,
+        "right_hip_x": 0.49,
+        "right_hip_y": 0.80,
+        "right_hip_confidence": 0.95,
+    }
+    state = analyzer.update(chest, 200)
+
+    assert state["debug"]["floor_reference"]["status"] == "READY"
+    assert state["debug"]["foot_events"]["left"]["observable"] is True
+    assert (
+        state["debug"]["legal_hand_placement_proxy"]["status"]
+        != "NOT_OBSERVABLE"
+    )
+    assert state["debug"]["chest_contact"]["surface_height_ratio"] is not None
+
+
 def test_burpee_consecutive_sequence_finalizes_previous_at_next_chest_boundary() -> None:
     analyzer = _analyzer()
 

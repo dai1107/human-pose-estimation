@@ -139,6 +139,26 @@ pose-reference-export --help
 
 MediaPipe world landmarks 当前处于严格的 `assist` 模式：系统并行计算膝、髋、肘、肩的 3D 角度并执行 visibility/presence、骨段、z 跳变、角速度、身份交换、姿态年龄和观测间隔门控。网页画面显示通过质量门的 3D 角度并明确标注 `3D`；缺失或不可靠的角度不显示。所有用于动作状态机的 `selected_angle` 仍取二维值，动作阶段和规则 PASS/FAIL 仍使用原有二维阈值；可靠且与二维一致的 3D 只提高映射角度规则的置信度，原本 `UNSURE` 的规则不会被越级改为 `VALID`，严重 2D/3D 冲突会将相关候选降为 `UNSURE`，3D 缺失或不可靠时则保持完全二维回退。触地、地板、髋膝图像高度、腕部位置与同步、起跳、落地、补步和距离规则不使用 3D。网页和桌面报告继续保存 2D/3D 差值、Assist 状态、冲突比例与失败原因；这些统计依赖实际视频，程序不会伪造硬件或动作结论。
 
+另有一个默认不进入产品判定的 `2D + 3D` 影子证据实验。它在保留二维局部地板线的同时提取髋补偿后的膝/脚高度变化、腿部深度排序、3D 膝髋角、脚速/停留/左右事件时间差，以及躯干俯卧和肩髋空间关系；3D 只可调整置信度、修正 Lunge 腿侧/主侧或在冲突时降为 `UNSURE`。实验有硬保护：不创建候选、不修改二维事件锚点、不独立推断触地，也不能把非 `VALID` 的二维结果升格为 `VALID`。运行：
+
+```powershell
+python -m tools.run_2d_3d_shadow_evidence
+```
+
+工具对 15 条已人工复核的核心 RGB 视频执行逐视频留一阈值和消融选择，并生成 `datasets/hyrox/reports/internal_2d_3d_shadow_evidence_lovo_v2.{json,md}`。第二版不再把伴随低可见度、几何失败或时间跳变的角度差当成可信冲突，并要求角度冲突至少持续 5 帧且占可观察证据的 50%；每折还会在质量门回退、仅身体时序、仅角度和组合证据间选择。当前 15 折都判定三种 3D 候选未在其余视频上稳定胜过 2D，因此自动选择精确 2D 回退：candidate recall 保持 `74.29%`，状态准确率保持 `32.69%`，`UNSURE` rate 保持 `65.38%`，事件帧 MAE 保持 `42.77` 帧，规则 FP/FN 也与 2D 相同。第一版的整体退化已经消除，但目前仍没有可信的净提升证据，所以继续保持影子实验，不能据此启用正式裁决。逐视频留一只减少同视频直接调参与评估泄漏，本结果仍是小样本、单人工复核内部实验，不构成独立测试或跨主体泛化结论。
+
+阶段、站立基线、接触代理和规则置信度另有一套同样不进入产品默认值的轻量时序实验。运行：
+
+```powershell
+python -m tools.run_temporal_evidence_experiment
+```
+
+v2 报告位于 `datasets/hyrox/reports/internal_temporal_evidence_lovo_v2.{json,md}`。在 29 段视频逐视频留一中，Ridge 逐帧阶段模型加因果 HMM 将边界 precision 从 `32.70%` 提到 `71.18%`，frame accuracy 从 `49.90%` 提到 `51.60%`，但边界 recall 从 `73.37%` 降到 `64.94%`，MAE 从 `4.65` 增到 `5.10` 帧。允许训练折校准最多缺失两个中间阶段后，阶段流候选 recall 从 `15.89%` 提到 `31.31%`、precision 为 `94.37%`、终点 MAE 为 `24.31` 帧；召回仍不足以替代现有规则候选链，所以只建议作为去抖、合并和结算侧车。
+
+每视频站立基线现在必须同时通过角度合理性、低髋速度、角度/身高稳定和双侧一致性门；8 段 Lunge/Wall Ball 中仅 2 段通过，另外 6 段自动回退固定阈值，不会把正面 Lunge 中约 `67°–101°` 的错误膝角当作站立基线。质量门控个体基线的帧级 F1 为 `20.44%`，固定阈值为 `0.44%`，但仍有 15 个 FP，故没有接入正式 analyzer。
+
+接触消融继续只表示人工复核的接触代理：纯 2D 的 `UNSURE` 为 `88.24%`、零 FP、事件 MAE `14.43` 帧；分割虽把 `UNSURE` 降到 `78.43%`，却产生 2 个 FP；分割加身体相对 3D 有 1 个 FP、事件 MAE `12.10` 帧。安全影子融合因此保留二维接触状态，只用分割和 3D 修正事件锚点，维持零新增 FP 并把事件 MAE 降到 `12.10` 帧，但不降低 `UNSURE`，也不声称物理触地。规则置信度校准要求每条规则至少 5 个正例、3 段训练视频且训练零误报；原始 LOVO 会把 `UNSURE` 从 `65.38%` 降到 `55.77%`，但 `VALID/UNSURE → NO_REP` 从 3 增至 8，误报硬门未通过，最终自动回退基线。该结果说明当前标注尚不支持安全压低这部分 `UNSURE`。
+
 页面中的三类结果含义不同：
 
 | 结果层 | 判断对象 | 用途 |
@@ -174,13 +194,13 @@ MediaPipe world landmarks 当前处于严格的 `assist` 模式：系统并行�
 | Rowing / SkiErg / Sled Push / Sled Pull | `cycle_count` 是划动、拉动或推动步分析周期；通用计数字段为兼容现有界面保留，必须结合 `count_semantics: analysis_cycle` 与 `official_rep_count_supported: false` 解读。 |
 | Farmers Carry | `count_semantics: continuous_monitor`；`cycle_count` 和 `rep_count` 保持 0，应查看 `carrying/rest`、技术反馈和持续违规状态。 |
 
-最终计数前还会执行统一可观测性门控。整次动作平均可见度低于 `0.65`、必需关键点置信度低于 `0.60`、决定性规则置信度低于 `0.72`、局部地板失效、已知拍摄视角不适合或失败只出现一个异常帧时，结论统一降级为 `UNSURE`。逐规则结果仍保留原始 `PASS/FAIL`，降级依据可在 `last_rep_observability` 查看；持续多帧且证据充分的明确失败仍记为 `NO_REP`。
+最终计数前还会执行按“动作 × 拍摄视角 × 具体规则”校准的可观测性门控；未配置的组合才回退到整次平均可见度 `0.65`、必需关键点置信度 `0.60` 和决定性规则置信度 `0.72`。每条规则只检查实际参与判断的身体侧与证据帧，局部地板失效、视角不适合或失败只出现一个异常帧时仍降级为 `UNSURE`。逐规则门槛与降级依据可在 `last_rep_observability.thresholds_by_rule` 查看；持续多帧且证据充分的明确失败仍记为 `NO_REP`。
 
-负重箭步蹲已接入五项必需人体规则：后膝触地、触地后的膝部伸展、触地后的髋部伸展、有效触地腿交替，以及无额外调整步。系统会综合人体前进方向、脚位置和双膝离地高度确定前后腿；清晰的近地膝证据可纠正侧视图中的左右误配。正面证据要求双侧伸展；推荐的侧面视角使用置信度更高的同侧腿链并保留 3° 二维测量容差。只有 `VALID` 动作会更新上一条触地腿，遮挡或地板不可靠会记为 `UNSURE`。
+负重箭步蹲已接入五项必需人体规则：后膝触地、触地后的膝部伸展、触地后的髋部伸展、有效触地腿交替，以及无额外调整步。系统会综合人体前进方向、脚位置和双膝离地高度确定前后腿；清晰的近地膝证据可纠正侧视图中的左右误配。正面证据要求双侧伸展；推荐的侧面视角使用置信度更高的同侧腿链并保留 3° 二维测量容差。一次动作经过最低点后不会仅因短暂回到站立阶段就立即结算：系统会继续等待膝、髋完全伸展得到确认，并只在完全伸展、下一次下降或有限视频结束时形成最终候选。只有 `VALID` 动作会更新上一条触地腿，遮挡或地板不可靠会记为 `UNSURE`。
 
-Burpee Broad Jump 已接入八项必需人体规则：通用胸部触地代理、双脚同步起落、起跳与落地错位代理、`LEGAL_HAND_PLACEMENT_PROXY`、落地后无额外步或碎步，以及身体中心和双脚均发生同向前移。落地只生成待验证候选并显示 `AWAITING_NEXT_HANDS`；系统会继续观察到下一次 hands-down/chest-down，再把该候选记为 `VALID`、`NO_REP` 或 `UNSURE`。脚部错位和手部位置都按本人脚长归一化，不代表精确测得官方厘米距离。
+Burpee Broad Jump 已接入八项必需人体规则：通用胸部触地代理、双脚同步起落、起跳与落地错位代理、`LEGAL_HAND_PLACEMENT_PROXY`、落地后无额外步或碎步，以及身体中心和双脚均发生同向前移。局部地板增强结果会在同一帧同时提供给脚部事件、手部位置和胸部触地代理，避免阶段已识别但最终证据仍读取旧特征。落地只生成待验证候选并显示 `AWAITING_NEXT_HANDS`；系统会继续观察到下一次 hands-down/chest-down，或在有限视频结束时结算最后一个待定候选。脚部错位和手部位置都按本人脚长归一化，不代表精确测得官方厘米距离。
 
-Wall Ball 已接入四项必需人体规则：站直起始、基于局部地板的髋低于膝、投掷端点向上完全伸展，以及 `BILATERAL_THROW_PROXY`。双腕代理要求双手从胸部附近同步上升并均到达肩部以上，峰值时间差采用 `120/220 ms` 视频容差；它只能确认双手投掷样式，不能确认球、目标或命中结果。地板或任一手腕证据不足时记为 `UNSURE`。
+Wall Ball 已接入四项必需人体规则：站直起始、基于局部地板的髋低于膝、投掷端点向上完全伸展，以及 `BILATERAL_THROW_PROXY`。正面视角保留双侧证据；侧面、后方和斜视角会在动作开始时固定更可靠的一侧，阶段触发、伸展、腕部轨迹、脚跟提示和最终规则都复用同一策略，避免阶段按一侧触发而结算改看另一侧。投掷代理只能确认人体投掷样式，不能确认球、目标或命中结果；关键人体证据不足时记为 `UNSURE`。
 
 距离动作不产生人体姿态意义上的官方有效次数。Rowing、SkiErg、Sled Push 和 Sled Pull 的兼容 `rep_count` 只代表动作分析周期，并同时输出 `cycle_count`、`count_semantics: analysis_cycle` 与 `official_rep_count_supported: false`；Farmers Carry 使用 `count_semantics: continuous_monitor`。人体违规检测只覆盖可见且规则明确的部分：Rowing 在用户开始至停止分析的训练区间内检测持续站起代理 `ROWING_EARLY_STAND_PROXY`；Sled Pull 检测 `SLED_PULL_KNEELING_VIOLATION`、`SLED_PULL_SEATED_VIOLATION`，证据不足的可能坐姿输出 `UNSURE_POSSIBLE_SEATED_PULL`；Farmers Carry 检测 `ARM_NOT_EXTENDED_VIOLATION` 和 `ARM_NOT_BY_SIDE_VIOLATION`。所有明确违规均要求持续多帧，关键点或视角不足时降级为 `UNSURE`。SkiErg 不因脚离地判违规，Sled Push 不因固定关节角度或躯干姿势判违规。
 
@@ -229,13 +249,68 @@ RTMW 属于可选高精度依赖。安装 CPU 或 NVIDIA GPU 运行时（二选�
 
 人工复核台位于 `http://127.0.0.1:5000/review`，当前采用单人复核，包含：
 
+- “人工 4 · 其余 RGB”：其余 15 段手机视频已完成终态人工复核；
+- “人工 4 · 高分歧片段”：供后续主动学习和姿态后端故障分析使用，不是手机 RGB
+  精标导入门；当前可延期；
 - 15 段核心动作逐次/事件精标：逐次填写开始帧、结束帧，并用中文下拉框填写阶段和错误；
 - 32 条 ONI 的 64 个 Depth/IR 独立主体任务：每个模态逐项复核 24 个主体检查点；
+- 独立的 ONI 视角先验任务：人工纠正正面、背面、侧面、斜前方或斜后方，并逐项填写
+  动作规则可观察性、适用区间与证据帧；
+- 独立的 ONI 错误真值任务：只对录制意图错误做选择性裁决，不可观察时禁止确认错误发生；
 - 动作类型仅手动切换；自动动作识别暂缓，AI 候选只有在人工点击载入后才进入可编辑草稿。
 
+页面默认进入人工 4。SkiErg 和 Sled Push 使用两个临时 subject 分组，其余动作各使用一个
+临时分组；这些分组只用于当前小数据集的开发/验证组织，不代表跨动作身份已独立核验。
+
 手机结果保存在 `datasets/hyrox/reviews/human_v1/reviewer_a/records/`，ONI 模态结果保存在
-`datasets/hyrox/reviews/human_v1/reviewer_a/oni_records/`。Depth 与 IR 结论必须独立，
-不得做当前 ONI—手机配对或把 IR 当作 RGB。
+`datasets/hyrox/reviews/human_v1/reviewer_a/oni_records/`、`view_prior_records/` 和
+`error_truth_records/`。Depth 与 IR 只同步定位检查点，主体、视角和错误结论始终独立保存，
+不得做当前 ONI—手机配对或把 IR 当作 RGB。页面可分别导出
+`view_observability_review_v1.json`、`oni_subject_review_v1.json`、
+`oni_error_truth_review_v1.json` 和动作 × 视角 × 判断项汇总。
+
+导入本次手机 RGB 精标并复现基线/优化对比：
+
+```powershell
+python -m tools.apply_human_review `
+  --review-bundle hyrox_human_review_a_20260728_170359 `
+  --phone-only-authorization `
+  --accept-fine-rgb-calibration `
+  --force-phone-observable `
+  --confirm-fine-rgb-human-reviewed `
+  --derive-missing-noncore-events `
+  --confirm-valid-proposal-record phone_skierg_002
+python -m tools.evaluate_reviewed_rgb_guidance --profile both
+python -m tools.build_reviewed_rgb_error_library --export-media
+```
+
+导入器会校验视频帧界、闭区间、rep、连续阶段、事件归属和审计版本，并把原始
+`UNKNOWN/PARTIAL` 可观察性保存在覆盖审计中。生成的
+`human_rgb_fine_annotations_v1.json` 记录 30/30 条终态人工结论和 29 条可用精标；
+`phone_sled_push_005` 按人工“视频不可用”结论排除。`phone_skierg_002` 的 73 个分析周期
+按用户明确确认记为有效；缺失的非核心关键事件只从已人工核对的阶段边界确定性派生，并
+保留来源审计。这些标签可用于内部 RGB 规则标定和监督实验，但仍不是独立测试集，也不
+代表跨主体或生产泛化。
+本轮对比明确记录 `oni_used=false`，未完成的 ONI Depth/IR 主体复核不会阻断手机 RGB
+试验，也不会被推断或补齐。
+
+数据角色清单位于 `datasets/hyrox/manifests/data_roles_v1.json`：当前 27 条
+`development`、3 条 `validation`，其中 27 条可训练、2 条可评估，另 1 条 validation
+因视频不可用被排除；训练/评估记录和临时 subject 均无角色重叠。核心三动作仍全部属于
+development，因此不能把当前报告称为独立验证。最后一条命令会生成
+`datasets/hyrox/reviews/error_library_v1/index.json` 及 75 个最长 1 秒的
+TP/FP/FN/`UNSURE`/状态不匹配片段，并保存源数据、实现代码和配置哈希。
+
+如需复现当前“先按未审核 ONI 试一遍”的隔离实验，在上述命令之后运行：
+
+```powershell
+python -m tools.evaluate_unreviewed_oni_auxiliary
+```
+
+报告会读取 32 条 ONI 的 64 路 Depth/IR 自动主体提议，只比较粗粒度运动证据和研究场景
+覆盖。输出固定标记 `unreviewed=true`、`training_eligible=false`、
+`release_eligible=false` 和 `runtime_defaults_changed=false`；不会把 IR 当 RGB、不会建立
+手机—ONI 配对，也不会把录制意图当作错误真值。
 
 ### 逐次动作语音提示
 

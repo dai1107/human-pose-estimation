@@ -12,6 +12,10 @@ import numpy as np
 
 from src.backends.base import Keypoint, PoseResult
 from src.product_pose import ThreeDKinematicsConfig, ThreeDQualityConfig
+from src.biomechanics.shadow_evidence_3d import (
+    BodyRelative3DTracker,
+    ShadowEvidence3DConfig,
+)
 
 
 ANGLE_DEFINITIONS_3D: Mapping[str, tuple[str, str, str]] = {
@@ -59,6 +63,7 @@ class ThreeDKinematicsResult:
     three_d_conflict_ratio: float
     measurements: Mapping[str, AngleMeasurement]
     quality_reasons: tuple[str, ...]
+    body_relative: Mapping[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
         angles_2d: dict[str, float | None] = {}
@@ -110,6 +115,7 @@ class ThreeDKinematicsResult:
             "angle_differences_deg": differences,
             "angle_reliability": reliability,
             "measurements": measurements,
+            "body_relative": dict(self.body_relative),
             "quality_reasons": list(self.quality_reasons),
             **flattened,
         }
@@ -163,6 +169,7 @@ class ThreeDKinematicsTracker:
         quality_config: ThreeDQualityConfig | None = None,
         *,
         max_pose_age_ms: float = 150.0,
+        shadow_evidence_config: ShadowEvidence3DConfig | None = None,
     ) -> None:
         self.kinematics_config = kinematics_config or ThreeDKinematicsConfig()
         self.quality_config = quality_config or ThreeDQualityConfig()
@@ -171,12 +178,14 @@ class ThreeDKinematicsTracker:
         self._previous_world: dict[str, np.ndarray] = {}
         self._previous_bone_lengths: dict[tuple[str, str], float] = {}
         self._previous_angles: dict[str, float] = {}
+        self._body_relative = BodyRelative3DTracker(shadow_evidence_config)
 
     def reset(self) -> None:
         self._previous_timestamp_ns = None
         self._previous_world.clear()
         self._previous_bone_lengths.clear()
         self._previous_angles.clear()
+        self._body_relative.reset()
 
     def update(
         self,
@@ -195,6 +204,12 @@ class ThreeDKinematicsTracker:
             if (array := _xyz(point)) is not None
         }
         world_available = bool(world_arrays)
+        body_relative = self._body_relative.update(
+            result.keypoints,
+            raw_world if isinstance(raw_world, (list, tuple)) else (),
+            timestamp_ms=result.timestamp_ms,
+            camera_view=str(result.extra.get("camera_view", "unknown")),
+        )
 
         gap_exceeded = False
         dt_seconds: float | None = None
@@ -360,6 +375,7 @@ class ThreeDKinematicsTracker:
             three_d_conflict_ratio=conflict_ratio,
             measurements=measurements,
             quality_reasons=tuple(sorted(all_reasons)),
+            body_relative=body_relative,
         )
 
     def attach(

@@ -497,6 +497,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if exit_code not in {ExitCode.SUCCESS, ExitCode.INTERRUPTED}:
         return int(exit_code)
+    finalize_pending = getattr(analyzer, "finalize_pending_candidate", None)
+    if callable(finalize_pending) and finalize_pending() is not None:
+        updated_state = dict(final_state or {})
+        analyzer.finalize_state(updated_state)
+        final_state = extend_action_state(
+            updated_state,
+            bundle=contract_bundle,
+            action=args.hyrox_action,
+            action_source="manual",
+        )
     if args.save_debug_csv:
         output_path = Path(args.save_debug_csv)
         try:

@@ -66,6 +66,129 @@ _REQUIRED_LANDMARKS: dict[str, tuple[str, ...]] = {
         "right_wrist",
     ),
 }
+_RULE_REQUIRED_LANDMARKS: dict[
+    str,
+    dict[str, tuple[str, ...]],
+] = {
+    "burpee_broad_jump": {
+        "chest_ground_contact": (
+            "left_shoulder",
+            "right_shoulder",
+            "left_hip",
+            "right_hip",
+        ),
+        "simultaneous_takeoff": (
+            "left_heel",
+            "right_heel",
+            "left_foot_index",
+            "right_foot_index",
+        ),
+        "simultaneous_landing": (
+            "left_heel",
+            "right_heel",
+            "left_foot_index",
+            "right_foot_index",
+        ),
+        "takeoff_stagger_proxy": (
+            "left_heel",
+            "right_heel",
+            "left_foot_index",
+            "right_foot_index",
+        ),
+        "landing_stagger_proxy": (
+            "left_heel",
+            "right_heel",
+            "left_foot_index",
+            "right_foot_index",
+        ),
+        "no_extra_step_or_shuffle": (
+            "left_heel",
+            "right_heel",
+            "left_foot_index",
+            "right_foot_index",
+        ),
+        "legal_hand_placement_proxy": (
+            "left_wrist",
+            "right_wrist",
+            "left_heel",
+            "right_heel",
+            "left_foot_index",
+            "right_foot_index",
+        ),
+        "forward_jump_detected": (
+            "left_hip",
+            "right_hip",
+            "left_heel",
+            "right_heel",
+            "left_foot_index",
+            "right_foot_index",
+        ),
+    },
+    "lunge": {
+        "trailing_knee_contact": (
+            "left_knee",
+            "right_knee",
+            "left_ankle",
+            "right_ankle",
+        ),
+        "full_knee_extension": (
+            "left_hip",
+            "right_hip",
+            "left_knee",
+            "right_knee",
+            "left_ankle",
+            "right_ankle",
+        ),
+        "full_hip_extension": (
+            "left_shoulder",
+            "right_shoulder",
+            "left_hip",
+            "right_hip",
+            "left_knee",
+            "right_knee",
+        ),
+        "alternating_contact_leg": (
+            "left_knee",
+            "right_knee",
+            "left_foot_index",
+            "right_foot_index",
+        ),
+        "no_extra_step_or_shuffle": (
+            "left_heel",
+            "right_heel",
+            "left_foot_index",
+            "right_foot_index",
+        ),
+    },
+    "wall_ball": {
+        "tall_start": (
+            "left_shoulder",
+            "right_shoulder",
+            "left_hip",
+            "right_hip",
+            "left_knee",
+            "right_knee",
+        ),
+        "hip_below_knee": (
+            "left_hip",
+            "right_hip",
+            "left_knee",
+            "right_knee",
+        ),
+        "upward_extension": (
+            "left_hip",
+            "right_hip",
+            "left_knee",
+            "right_knee",
+        ),
+        "bilateral_throw_proxy": (
+            "left_shoulder",
+            "right_shoulder",
+            "left_wrist",
+            "right_wrist",
+        ),
+    },
+}
 
 
 class PhaseSequenceTracker:
@@ -284,9 +407,20 @@ class BaseActionAnalyzer:
         self._candidate_frames: list[Mapping[str, object]] = []
         self._candidate_phases: set[str] = set()
         floor_action = str(self.action).strip().lower().replace(" ", "_")
-        self.floor_reference = LocalFloorReference(
-            allow_supported_pose_calibration=floor_action in {"lunge", "wall_ball"}
-        )
+        floor_kwargs: dict[str, object] = {
+            "allow_supported_pose_calibration": (
+                floor_action in _FLOOR_REQUIRED_ACTIONS
+            )
+        }
+        if floor_action == "burpee_broad_jump":
+            # Phone clips often begin at the first hand-down frame rather than
+            # with a long standing calibration lead-in.
+            floor_kwargs.update(
+                min_samples=2,
+                min_landmark_confidence=0.45,
+                stable_foot_y_tolerance=0.025,
+            )
+        self.floor_reference = LocalFloorReference(**floor_kwargs)
         self.last_floor_reference: FloorReferenceResult = self.floor_reference.last_result
         self.last_timestamp_ms: int | None = None
         self.contact_detectors = ContactDetectorSuite(
@@ -381,11 +515,16 @@ class BaseActionAnalyzer:
             policy=self.observability_policy,
             required_rules=required_rules,
             required_landmarks=_REQUIRED_LANDMARKS.get(action_key, ()),
+            required_landmarks_by_rule=_RULE_REQUIRED_LANDMARKS.get(
+                action_key
+            ),
             floor_required=action_key in _FLOOR_REQUIRED_ACTIONS,
             camera_view_suitable=action_view_suitability(
                 self.action,
                 self.camera_view,
             ),
+            action=action_key,
+            camera_view=self.camera_view,
         )
         self.candidate_count += 1
         if decision.status == "VALID":

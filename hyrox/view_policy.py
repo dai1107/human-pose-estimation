@@ -5,7 +5,16 @@ from dataclasses import dataclass
 from hyrox.feedback import FeedbackMessage
 
 
-CAMERA_VIEWS = ("unknown", "front", "side", "front_left", "front_right")
+CAMERA_VIEWS = (
+    "unknown",
+    "front",
+    "rear",
+    "side",
+    "front_left",
+    "front_right",
+    "oblique_front",
+    "oblique_rear",
+)
 
 
 def normalize_camera_view(value: str | None) -> str:
@@ -15,7 +24,19 @@ def normalize_camera_view(value: str | None) -> str:
 
 def view_profile(value: str | None) -> str:
     normalized = normalize_camera_view(value)
-    return "front" if normalized in {"front", "front_left", "front_right"} else normalized
+    return (
+        "front"
+        if normalized
+        in {
+            "front",
+            "rear",
+            "front_left",
+            "front_right",
+            "oblique_front",
+            "oblique_rear",
+        }
+        else normalized
+    )
 
 
 def next_camera_view(value: str | None) -> str:
@@ -32,14 +53,14 @@ class ActionViewPolicy:
 
 _POLICIES: dict[str, ActionViewPolicy] = {
     "lunge": ActionViewPolicy(
-        frozenset({"side"}),
-        frozenset({"STAND_EXTENSION", "LOW_VISIBILITY"}),
+        frozenset({"front", "side"}),
+        frozenset({"NOT_DEEP_ENOUGH", "LEAN_TOO_MUCH", "STAND_EXTENSION", "LOW_VISIBILITY"}),
         frozenset({"NOT_DEEP_ENOUGH", "LEAN_TOO_MUCH", "STAND_EXTENSION", "LOW_VISIBILITY"}),
     ),
     "wall_ball": ActionViewPolicy(
         frozenset({"front", "side"}),
-        frozenset({"KNEES_CAVE_IN", "NOT_FULL_EXTENSION", "LOW_VISIBILITY"}),
-        frozenset({"SQUAT_NOT_DEEP", "NOT_FULL_EXTENSION", "LOW_VISIBILITY"}),
+        frozenset({"KNEES_CAVE_IN", "HEEL_RISE", "NOT_FULL_EXTENSION", "LOW_VISIBILITY"}),
+        frozenset({"SQUAT_NOT_DEEP", "HEEL_RISE", "NOT_FULL_EXTENSION", "LOW_VISIBILITY"}),
     ),
     "farmers_carry": ActionViewPolicy(
         frozenset({"front"}),
@@ -57,8 +78,8 @@ _POLICIES: dict[str, ActionViewPolicy] = {
         frozenset({"ARMS_NOT_HIGH_ENOUGH", "NO_HIP_HINGE", "TOO_MUCH_SQUAT", "RUSHED_RETURN", "LOW_VISIBILITY"}),
     ),
     "burpee_broad_jump": ActionViewPolicy(
-        frozenset({"side"}),
-        frozenset({"FEET_STAGGERED", "EXTRA_STEPS", "LOW_VISIBILITY"}),
+        frozenset({"front", "side"}),
+        frozenset({"CHEST_NOT_LOW", "FEET_STAGGERED", "EXTRA_STEPS", "HIPS_TOO_HIGH_IN_BOTTOM", "LOW_VISIBILITY"}),
         frozenset({"CHEST_NOT_LOW", "EXTRA_STEPS", "NO_BROAD_JUMP", "HIPS_TOO_HIGH_IN_BOTTOM", "LOW_VISIBILITY"}),
     ),
     "sled_push": ActionViewPolicy(

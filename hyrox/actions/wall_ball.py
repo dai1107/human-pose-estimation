@@ -165,12 +165,22 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         )
         self.throw_wrist_rise_body_ratio_min = _resolved_float(
             config_data.get("throw_wrist_rise_body_ratio_min"),
-            0.12,
+            0.08,
+            minimum=0.0,
+        )
+        self.rear_throw_wrist_rise_body_ratio_min = _resolved_float(
+            config_data.get("rear_throw_wrist_rise_body_ratio_min"),
+            0.03,
             minimum=0.0,
         )
         self.throw_wrist_chest_band_body_ratio = _resolved_float(
             config_data.get("throw_wrist_chest_band_body_ratio"),
-            0.25,
+            0.35,
+            minimum=0.0,
+        )
+        self.rear_throw_wrist_chest_band_body_ratio = _resolved_float(
+            config_data.get("rear_throw_wrist_chest_band_body_ratio"),
+            0.48,
             minimum=0.0,
         )
         self.throw_wrist_midline_body_ratio_max = _resolved_float(
@@ -183,6 +193,16 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         )
         self.minimum_frontal_ankle_width = _resolved_float(
             config_data.get("minimum_frontal_ankle_width"), 0.08, minimum=0.0
+        )
+        self.heel_rise_relative_to_toe_body_ratio_min = _resolved_float(
+            config_data.get("heel_rise_relative_to_toe_body_ratio_min"),
+            0.07,
+            minimum=0.0,
+        )
+        self.heel_rise_hold_frames = _resolved_int(
+            config_data.get("heel_rise_hold_frames"),
+            3,
+            minimum=1,
         )
         self.motion_tolerance = _resolved_float(config_data.get("motion_tolerance"), 3.0, minimum=0.0)
         self.hip_motion_tolerance = _resolved_float(
@@ -243,6 +263,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         }
         self._pending_wrist_start_observable = False
         self._pending_wrists_near_chest = False
+        self._pending_wrist_chest_distance_best: float | None = None
         self._pending_wrist_start_evidence: list[int] = []
         self._cycle_wrist_start_y: dict[str, float | None] = {
             "left": None,
@@ -250,6 +271,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         }
         self._cycle_wrist_start_observable = False
         self._cycle_wrists_near_chest = False
+        self._cycle_wrist_chest_distance_best: float | None = None
         self._cycle_wrist_start_evidence: list[int] = []
         self._wrist_peak_y: dict[str, float | None] = {
             "left": None,
@@ -276,6 +298,9 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         self._upward_extension_evidence: list[int] = []
         self._last_wall_ball_rules: tuple[BodyRuleResult, ...] = ()
         self._last_wall_ball_validation_state = "UNKNOWN"
+        self._heel_rise_frames = 0
+        self._heel_rise_active = False
+        self._pose_side: Literal["left", "right"] | None = None
         self.rep_sequence = PhaseSequenceTracker(
             ("stand", "squat_down", "bottom", "drive", "throw_extension"),
             optional_phases=("squat_down", "drive"),
@@ -294,16 +319,72 @@ class WallBallAnalyzer(BaseActionAnalyzer):
                 return value
         return None
 
-    @staticmethod
+    def _select_pose_side(
+        self,
+        features: Mapping[str, object],
+    ) -> Literal["left", "right"] | None:
+        if self.camera_view not in {
+            "side",
+            "rear",
+            "oblique_front",
+            "oblique_rear",
+            "front_left",
+            "front_right",
+        }:
+            return None
+        if self._pose_side is not None:
+            return self._pose_side
+        scores: list[tuple[float, int, Literal["left", "right"]]] = []
+        for side in ("left", "right"):
+            confidences = [
+                value
+                for name in ("shoulder", "wrist", "hip", "knee", "ankle")
+                for value in (
+                    _safe_float(features.get(f"{side}_{name}_confidence")),
+                )
+                if value is not None
+            ]
+            available = sum(
+                _safe_float(features.get(f"{side}_{metric}")) is not None
+                for metric in (
+                    "knee_angle",
+                    "hip_angle",
+                    "elbow_angle",
+                    "wrist_y",
+                )
+            )
+            if confidences or available:
+                scores.append(
+                    (
+                        min(confidences) if confidences else 0.0,
+                        available,
+                        side,
+                    )
+                )
+        if scores:
+            self._pose_side = max(scores)[2]
+        return self._pose_side
+
+    def _rule_sides(
+        self,
+        features: Mapping[str, object],
+    ) -> tuple[Literal["left", "right"], ...]:
+        selected = self._select_pose_side(features)
+        return (selected,) if selected is not None else ("left", "right")
+
     def _all_side_values(
+        self,
         features: Mapping[str, object],
         metric: str,
-    ) -> tuple[float, float] | None:
-        left = _safe_float(features.get(f"left_{metric}"))
-        right = _safe_float(features.get(f"right_{metric}"))
-        if left is None or right is None:
-            return None
-        return left, right
+    ) -> tuple[float, ...] | None:
+        sides = self._rule_sides(features)
+        values = tuple(
+            value
+            for side in sides
+            for value in (_safe_float(features.get(f"{side}_{metric}")),)
+            if value is not None
+        )
+        return values if len(values) == len(sides) else None
 
     def _capture_pending_tall_rule(
         self,
@@ -341,33 +422,47 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         self,
         features: Mapping[str, object],
     ) -> None:
-        left_y = _safe_float(features.get("left_wrist_y"))
-        right_y = _safe_float(features.get("right_wrist_y"))
         shoulder_y = _safe_float(features.get("shoulder_center_y"))
         hip_y = _safe_float(features.get("hip_center_y"))
         body_height = self._body_height(features)
+        wrist_y = {
+            side: _safe_float(features.get(f"{side}_wrist_y"))
+            for side in self._rule_sides(features)
+        }
         if (
-            left_y is None
-            or right_y is None
+            any(value is None for value in wrist_y.values())
             or shoulder_y is None
             or hip_y is None
             or body_height is None
         ):
             return
         chest_y = (shoulder_y + hip_y) / 2.0
-        tolerance = self.throw_wrist_chest_band_body_ratio * body_height
-        near_chest = (
-            abs(left_y - chest_y) <= tolerance
-            and abs(right_y - chest_y) <= tolerance
+        chest_band_ratio = (
+            self.rear_throw_wrist_chest_band_body_ratio
+            if self.camera_view == "rear"
+            else self.throw_wrist_chest_band_body_ratio
         )
+        tolerance = chest_band_ratio * body_height
+        near_chest = all(
+            abs(float(value) - chest_y) <= tolerance
+            for value in wrist_y.values()
+        )
+        chest_distance_ratio = max(
+            abs(float(value) - chest_y) / body_height
+            for value in wrist_y.values()
+        )
+        if (
+            self._pending_wrist_chest_distance_best is None
+            or chest_distance_ratio
+            < self._pending_wrist_chest_distance_best
+        ):
+            self._pending_wrist_chest_distance_best = chest_distance_ratio
         self._pending_wrist_start_observable = True
         if self.frame_index not in self._pending_wrist_start_evidence:
             self._pending_wrist_start_evidence.append(self.frame_index)
         if near_chest or not self._pending_wrists_near_chest:
-            self._pending_wrist_start_y = {
-                "left": left_y,
-                "right": right_y,
-            }
+            for side, value in wrist_y.items():
+                self._pending_wrist_start_y[side] = value
         self._pending_wrists_near_chest = (
             self._pending_wrists_near_chest or near_chest
         )
@@ -388,6 +483,9 @@ class WallBallAnalyzer(BaseActionAnalyzer):
             self._pending_wrist_start_observable
         )
         self._cycle_wrists_near_chest = self._pending_wrists_near_chest
+        self._cycle_wrist_chest_distance_best = (
+            self._pending_wrist_chest_distance_best
+        )
         self._cycle_wrist_start_evidence = list(
             self._pending_wrist_start_evidence
         )
@@ -409,6 +507,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         self._cycle_wrist_start_y = {"left": None, "right": None}
         self._cycle_wrist_start_observable = False
         self._cycle_wrists_near_chest = False
+        self._cycle_wrist_chest_distance_best = None
         self._cycle_wrist_start_evidence = []
         self._wrist_peak_y = {"left": None, "right": None}
         self._wrist_peak_x = {"left": None, "right": None}
@@ -419,11 +518,13 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         self._throw_body_center_x = None
         self._upward_extension_evidence = []
         if clear_pending:
+            self._pose_side = None
             self._pending_tall_rule = None
             self._pending_tall_evidence = []
             self._pending_wrist_start_y = {"left": None, "right": None}
             self._pending_wrist_start_observable = False
             self._pending_wrists_near_chest = False
+            self._pending_wrist_chest_distance_best = None
             self._pending_wrist_start_evidence = []
 
     def _observe_hip_depth(self, features: Mapping[str, object]) -> None:
@@ -454,7 +555,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
             self._throw_body_height = body_height
         if body_center_x is not None:
             self._throw_body_center_x = body_center_x
-        for side in ("left", "right"):
+        for side in self._rule_sides(features):
             wrist_y = _safe_float(features.get(f"{side}_wrist_y"))
             wrist_x = _safe_float(features.get(f"{side}_wrist_x"))
             above = _safe_float(
@@ -483,16 +584,25 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         knees = self._all_side_values(features, "knee_angle")
         hips = self._all_side_values(features, "hip_angle")
         if knees is None or hips is None:
-            self._upward_extension_rule = BodyRuleResult(
-                "upward_extension",
-                "UNSURE",
-                0.0,
-                reason_code="UPWARD_EXTENSION_NOT_OBSERVABLE",
-                evidence_frames=tuple(self._upward_extension_evidence),
-            )
+            if self._upward_extension_rule is None:
+                self._upward_extension_rule = BodyRuleResult(
+                    "upward_extension",
+                    "UNSURE",
+                    0.0,
+                    reason_code="UPWARD_EXTENSION_NOT_OBSERVABLE",
+                    evidence_frames=tuple(self._upward_extension_evidence),
+                )
             return
         minimum_knee = min(knees)
         minimum_hip = min(hips)
+        extension_value = min(minimum_knee, minimum_hip)
+        previous_value = (
+            _safe_float(self._upward_extension_rule.value)
+            if self._upward_extension_rule is not None
+            else None
+        )
+        if previous_value is not None and previous_value > extension_value:
+            return
         passed = (
             minimum_knee >= self.full_extension_knee_angle
             and minimum_hip >= self.full_extension_hip_angle
@@ -501,9 +611,16 @@ class WallBallAnalyzer(BaseActionAnalyzer):
             "upward_extension",
             "PASS" if passed else "FAIL",
             0.95,
-            value=min(minimum_knee, minimum_hip),
+            value=extension_value,
             reason_code=None if passed else "UPWARD_EXTENSION_INCOMPLETE",
             evidence_frames=tuple(self._upward_extension_evidence),
+        )
+
+    def _terminal_throw_evidence_ready(self) -> bool:
+        return bool(
+            self._upward_extension_rule is not None
+            and self._upward_extension_rule.status == "PASS"
+            and self._bilateral_throw_rule().status == "PASS"
         )
 
     def _visible_score(self, features: Mapping[str, object] | None) -> float:
@@ -608,6 +725,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         )
 
     def _bilateral_throw_rule(self) -> BodyRuleResult:
+        sides = self._rule_sides(self._current_features)
         throw_evidence = tuple(
             sorted(
                 {
@@ -634,12 +752,13 @@ class WallBallAnalyzer(BaseActionAnalyzer):
                 "bilateral_throw_proxy",
                 "FAIL",
                 0.90,
+                value=self._cycle_wrist_chest_distance_best,
                 reason_code="WRISTS_DID_NOT_START_NEAR_CHEST",
                 evidence_frames=throw_evidence,
             )
         endpoint_values = tuple(
             _safe_float(self._current_features.get(f"{side}_{metric}"))
-            for side in ("left", "right")
+            for side in sides
             for metric in (
                 "wrist_x",
                 "wrist_y",
@@ -655,29 +774,22 @@ class WallBallAnalyzer(BaseActionAnalyzer):
                 evidence_frames=throw_evidence,
             )
 
-        start_left = self._cycle_wrist_start_y["left"]
-        start_right = self._cycle_wrist_start_y["right"]
-        peak_left = self._wrist_peak_y["left"]
-        peak_right = self._wrist_peak_y["right"]
-        peak_left_x = self._wrist_peak_x["left"]
-        peak_right_x = self._wrist_peak_x["right"]
-        left_ms = self._wrist_peak_ms["left"]
-        right_ms = self._wrist_peak_ms["right"]
-        left_above = self._wrist_above_shoulder_peak["left"]
-        right_above = self._wrist_above_shoulder_peak["right"]
+        starts = {side: self._cycle_wrist_start_y[side] for side in sides}
+        peaks = {side: self._wrist_peak_y[side] for side in sides}
+        peak_x = {side: self._wrist_peak_x[side] for side in sides}
+        peak_ms = {side: self._wrist_peak_ms[side] for side in sides}
+        above = {
+            side: self._wrist_above_shoulder_peak[side]
+            for side in sides
+        }
         body_height = self._throw_body_height
         body_center_x = self._throw_body_center_x
         required_values = (
-            start_left,
-            start_right,
-            peak_left,
-            peak_right,
-            peak_left_x,
-            peak_right_x,
-            left_ms,
-            right_ms,
-            left_above,
-            right_above,
+            *starts.values(),
+            *peaks.values(),
+            *peak_x.values(),
+            *peak_ms.values(),
+            *above.values(),
             body_height,
             body_center_x,
         )
@@ -689,20 +801,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
                 reason_code="BILATERAL_THROW_NOT_OBSERVABLE",
                 evidence_frames=throw_evidence,
             )
-        assert (
-            start_left is not None
-            and start_right is not None
-            and peak_left is not None
-            and peak_right is not None
-            and peak_left_x is not None
-            and peak_right_x is not None
-            and left_ms is not None
-            and right_ms is not None
-            and left_above is not None
-            and right_above is not None
-            and body_height is not None
-            and body_center_x is not None
-        )
+        assert body_height is not None and body_center_x is not None
         if body_height <= 1e-6:
             return BodyRuleResult(
                 "bilateral_throw_proxy",
@@ -712,25 +811,40 @@ class WallBallAnalyzer(BaseActionAnalyzer):
                 evidence_frames=throw_evidence,
             )
 
-        left_rise = (start_left - peak_left) / body_height
-        right_rise = (start_right - peak_right) / body_height
-        both_above = (
-            left_above >= self.wrist_above_shoulder_min
-            and right_above >= self.wrist_above_shoulder_min
+        rises = {
+            side: (float(starts[side]) - float(peaks[side])) / body_height
+            for side in sides
+        }
+        both_above = all(
+            float(above[side]) >= self.wrist_above_shoulder_min
+            for side in sides
         )
         if not self.both_wrists_above_shoulders_required:
-            both_above = max(left_above, right_above) >= self.wrist_above_shoulder_min
-        wrists_centered = (
-            abs(peak_left_x - body_center_x) / body_height
+            both_above = (
+                max(float(value) for value in above.values())
+                >= self.wrist_above_shoulder_min
+            )
+        wrists_centered = all(
+            abs(float(peak_x[side]) - body_center_x) / body_height
             <= self.throw_wrist_midline_body_ratio_max
-            and abs(peak_right_x - body_center_x) / body_height
-            <= self.throw_wrist_midline_body_ratio_max
+            for side in sides
         )
-        rise_ok = (
-            left_rise >= self.throw_wrist_rise_body_ratio_min
-            and right_rise >= self.throw_wrist_rise_body_ratio_min
+        wrist_rise_threshold = (
+            self.rear_throw_wrist_rise_body_ratio_min
+            if self.camera_view == "rear"
+            else self.throw_wrist_rise_body_ratio_min
         )
-        peak_diff_ms = abs(left_ms - right_ms)
+        rise_ok = all(
+            rise >= wrist_rise_threshold
+            for rise in rises.values()
+        )
+        peak_diff_ms = (
+            0
+            if len(sides) == 1
+            else abs(
+                int(peak_ms[sides[0]]) - int(peak_ms[sides[1]])
+            )
+        )
         if not both_above:
             status = "FAIL"
             reason = "BOTH_WRISTS_NOT_ABOVE_SHOULDERS"
@@ -749,11 +863,16 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         else:
             status = "FAIL"
             reason = "WRIST_PEAKS_NOT_SYNCHRONIZED"
+        reported_value: float | int = (
+            min(rises.values())
+            if reason == "BILATERAL_WRIST_RISE_TOO_SMALL"
+            else peak_diff_ms
+        )
         return BodyRuleResult(
             "bilateral_throw_proxy",
             status,  # type: ignore[arg-type]
             0.95 if status == "PASS" else 0.75 if status == "UNSURE" else 0.90,
-            value=peak_diff_ms,
+            value=reported_value,
             reason_code=reason,
             evidence_frames=throw_evidence,
         )
@@ -761,7 +880,11 @@ class WallBallAnalyzer(BaseActionAnalyzer):
     def _validate_wall_ball_candidate(
         self,
         visible_score: float,
+        *,
+        validation_boundary: str = "throw_extension_confirmed",
     ) -> RepDecision:
+        pose_side = self._pose_side
+        active_sides = self._rule_sides(self._current_features)
         rules = (
             self._cycle_tall_rule
             or BodyRuleResult(
@@ -788,15 +911,23 @@ class WallBallAnalyzer(BaseActionAnalyzer):
                 "terminal_phase": "throw_extension",
                 "hip_below_knee_ratio": self._hip_depth_best_ratio,
                 "wrist_peak_time_diff_ms": (
-                    None
-                    if self._wrist_peak_ms["left"] is None
-                    or self._wrist_peak_ms["right"] is None
+                    0
+                    if len(active_sides) == 1
+                    else None
+                    if self._wrist_peak_ms[active_sides[0]] is None
+                    or self._wrist_peak_ms[active_sides[1]] is None
                     else abs(
-                        self._wrist_peak_ms["left"]
-                        - self._wrist_peak_ms["right"]
+                        int(self._wrist_peak_ms[active_sides[0]])
+                        - int(self._wrist_peak_ms[active_sides[1]])
                     )
                 ),
                 "throw_proxy_name": "BILATERAL_THROW_PROXY",
+                "validation_boundary": validation_boundary,
+                "pose_side_strategy": (
+                    f"selected_{pose_side}"
+                    if pose_side is not None
+                    else "bilateral"
+                ),
                 "visible_score": visible_score,
             },
         )
@@ -807,11 +938,70 @@ class WallBallAnalyzer(BaseActionAnalyzer):
             if decision.status == "VALID"
             else "RULE_VALIDATION"
         )
+        terminal_tall_rule = (
+            None
+            if self._upward_extension_rule is None
+            else BodyRuleResult(
+                "tall_start",
+                self._upward_extension_rule.status,
+                self._upward_extension_rule.confidence,
+                value=self._upward_extension_rule.value,
+                reason_code=(
+                    None
+                    if self._upward_extension_rule.status == "PASS"
+                    else "TALL_START_REQUIREMENTS_NOT_MET"
+                ),
+                evidence_frames=(
+                    self._upward_extension_rule.evidence_frames
+                ),
+            )
+        )
         self._clear_rule_candidate(clear_pending=True)
-        # In continuous wall balls, the fully extended throw endpoint also
-        # serves as the upright starting posture for the next repetition.
-        self._pending_tall_evidence = [self.frame_index]
-        self._capture_pending_tall_rule(self._current_features)
+        if (
+            validation_boundary == "next_descent"
+            and terminal_tall_rule is not None
+        ):
+            # The current frame belongs to the next squat.  Carry forward the
+            # already observed throw endpoint instead of mislabeling this
+            # bottom frame as the next repetition's tall start.
+            self._pending_tall_rule = terminal_tall_rule
+            self._pending_tall_evidence = list(
+                terminal_tall_rule.evidence_frames
+            )
+            self._observe_pending_wrist_start(self._current_features)
+        else:
+            # In continuous wall balls, the fully extended throw endpoint also
+            # serves as the upright starting posture for the next repetition.
+            self._pending_tall_evidence = [self.frame_index]
+            self._capture_pending_tall_rule(self._current_features)
+        return decision
+
+    def finalize_pending_candidate(self) -> RepDecision | None:
+        """Settle a complete final throw whose stable endpoint was truncated.
+
+        Finite phone clips can end after a sampled overhead throw pose but
+        before it survives the normal phase debounce.  Require a started
+        candidate, confirmed bottom evidence, an observed wrist peak and an
+        upward-extension rule so a partial squat or setup pose is never
+        promoted to a repetition.
+        """
+
+        if (
+            not self._candidate_rule_active
+            or not self.bottom_seen
+            or self._upward_extension_rule is None
+            or not any(
+                frame is not None
+                for frame in self._wrist_peak_frame.values()
+            )
+        ):
+            return None
+        decision = self._validate_wall_ball_candidate(
+            self._visible_score(self._current_features),
+            validation_boundary="stream_end",
+        )
+        self.just_finished_attempt = True
+        self.just_completed_rep = decision.status == "VALID"
         return decision
 
     def _validation_state(self, raw_phase: str) -> str:
@@ -820,7 +1010,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         if raw_phase == "throw_extension" and all(
             (self._wrist_above_shoulder_peak[side] or 0.0)
             >= self.wrist_above_shoulder_min
-            for side in ("left", "right")
+            for side in self._rule_sides(self._current_features)
         ):
             return "BILATERAL_THROW_CONFIRMED"
         if raw_phase in {"drive", "stand"} and self._candidate_rule_active:
@@ -860,6 +1050,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         ankle_width: float | None,
         min_knee: float | None,
         hip_angle: float | None,
+        heel_rise_active: bool,
     ) -> list[FeedbackMessage]:
         messages: list[FeedbackMessage] = []
         if stable_phase == "bottom" and not depth_met:
@@ -902,7 +1093,48 @@ class WallBallAnalyzer(BaseActionAnalyzer):
                     confidence=0.7,
                 )
             )
+        if heel_rise_active:
+            messages.append(
+                FeedbackMessage(
+                    level="warn",
+                    code="HEEL_RISE",
+                    text="下蹲和发力时脚跟抬起，请保持全脚掌稳定接触地面",
+                    confidence=0.85,
+                )
+            )
         return self.limit_feedback(sorted(messages, key=_feedback_sort_key))
+
+    def _update_heel_rise(self, phase: str) -> bool:
+        if phase not in {"squat_down", "bottom", "drive"}:
+            self._heel_rise_frames = 0
+            self._heel_rise_active = False
+            return False
+        relative_lifts: list[float] = []
+        for side in self._rule_sides(self._current_features):
+            heel = _safe_float(
+                self._current_features.get(
+                    f"{side}_heel_height_to_floor_body_ratio"
+                )
+            )
+            toe = _safe_float(
+                self._current_features.get(
+                    f"{side}_foot_index_height_to_floor_body_ratio"
+                )
+            )
+            if heel is not None and toe is not None:
+                relative_lifts.append(heel - toe)
+        raised = bool(
+            relative_lifts
+            and max(relative_lifts)
+            >= self.heel_rise_relative_to_toe_body_ratio_min
+        )
+        self._heel_rise_frames = (
+            self._heel_rise_frames + 1 if raised else 0
+        )
+        self._heel_rise_active = (
+            self._heel_rise_frames >= self.heel_rise_hold_frames
+        )
+        return self._heel_rise_active
 
     def _debug(
         self,
@@ -949,6 +1181,11 @@ class WallBallAnalyzer(BaseActionAnalyzer):
             "rep_cooldown_ms": self.rep_cooldown_ms,
             "sensitivity": self.sensitivity,
             "config_name": self.config_name,
+            "pose_side_strategy": (
+                f"selected_{self._pose_side}"
+                if self._pose_side is not None
+                else "bilateral"
+            ),
             **self.rep_sequence.debug(),
         }
 
@@ -960,27 +1197,43 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         self.rep_sequence.just_completed = False
         resolved_features = self._current_features
         visible_score = self._visible_score(resolved_features)
-        min_knee = _minimum_feature(
-            resolved_features, "left_knee_angle", "right_knee_angle"
-        )
-        hip_angle = _maximum_feature(
-            resolved_features, "left_hip_angle", "right_hip_angle"
-        )
-        elbow_angle = _maximum_feature(
-            resolved_features, "left_elbow_angle", "right_elbow_angle"
+        self._select_pose_side(resolved_features)
+        knees = self._all_side_values(resolved_features, "knee_angle")
+        hips = self._all_side_values(resolved_features, "hip_angle")
+        elbows = self._all_side_values(resolved_features, "elbow_angle")
+        min_knee = None if knees is None else min(knees)
+        hip_angle = None if hips is None else min(hips)
+        elbow_angle = (
+            _maximum_feature(
+                resolved_features,
+                "left_elbow_angle",
+                "right_elbow_angle",
+            )
+            if self._pose_side is None
+            else None if elbows is None else max(elbows)
         )
         hip_center_y = _safe_float(resolved_features.get("hip_center_y"))
         hip_knee_depth = _safe_float(resolved_features.get("hip_knee_depth"))
-        wrist_above_shoulder = _maximum_feature(
+        wrist_values = self._all_side_values(
             resolved_features,
             "wrist_above_shoulder",
-            "left_wrist_above_shoulder",
-            "right_wrist_above_shoulder",
+        )
+        wrist_above_shoulder = (
+            _maximum_feature(
+                resolved_features,
+                "wrist_above_shoulder",
+                "left_wrist_above_shoulder",
+                "right_wrist_above_shoulder",
+            )
+            if self._pose_side is None
+            else None if wrist_values is None else max(wrist_values)
         )
         knee_width = _safe_float(resolved_features.get("knee_width"))
         ankle_width = _safe_float(resolved_features.get("ankle_width"))
 
         if visible_score < self.min_visible_score:
+            self._heel_rise_frames = 0
+            self._heel_rise_active = False
             raw_phase = "no_pose" if visible_score <= 0.0 else "low_visibility"
             previous, stable = self._advance_phase(raw_phase)
             if stable != previous and stable in {"no_pose", "low_visibility"}:
@@ -1018,6 +1271,25 @@ class WallBallAnalyzer(BaseActionAnalyzer):
             wrist_above_shoulder=wrist_above_shoulder,
         )
         previous, stable = self._advance_phase(raw_phase)
+        if (
+            self._candidate_rule_active
+            and self.bottom_seen
+            and stable != previous
+            and stable in {"squat_down", "bottom"}
+            and self._terminal_throw_evidence_ready()
+        ):
+            # A short overhead endpoint may never become a stable
+            # `throw_extension`.  The next descent is an unambiguous boundary
+            # once bottom, wrist and full-extension evidence all exist.
+            self._validate_wall_ball_candidate(
+                visible_score,
+                validation_boundary="next_descent",
+            )
+            self.just_finished_attempt = True
+            self.bottom_seen = False
+            self.bottom_depth_met = False
+            self.extension_pending = False
+        heel_rise_active = self._update_heel_rise(raw_phase)
         depth_met = hip_knee_depth is not None and hip_knee_depth >= self.hip_below_knee_margin
 
         if not self._candidate_rule_active:
@@ -1040,7 +1312,19 @@ class WallBallAnalyzer(BaseActionAnalyzer):
             self._observe_wrist_peaks(resolved_features)
             if raw_phase == "bottom" or stable == "bottom":
                 self._observe_hip_depth(resolved_features)
-            if raw_phase == "throw_extension":
+            drive_has_full_extension = bool(
+                knees is not None
+                and hips is not None
+                and min(knees) >= self.full_extension_knee_angle
+                and min(hips) >= self.full_extension_hip_angle
+            )
+            if (
+                raw_phase == "throw_extension"
+                or (
+                    raw_phase in {"drive", "stand"}
+                    and drive_has_full_extension
+                )
+            ):
                 self._capture_upward_extension_rule(resolved_features)
 
         if stable == "bottom" and self._candidate_rule_active:
@@ -1087,6 +1371,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
             ankle_width=ankle_width,
             min_knee=min_knee,
             hip_angle=hip_angle,
+            heel_rise_active=heel_rise_active,
         )
         return self.finalize_state({
             "action": self.action,

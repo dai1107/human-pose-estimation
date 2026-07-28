@@ -1,0 +1,938 @@
+{
+  "schema_version": 1,
+  "artifact_type": "oni_modality_subject_human_review",
+  "protocol_version": "human_review_v1.0",
+  "review_policy": "single_human_review_sufficient_for_current_stage",
+  "reviewer_role": "reviewer_a",
+  "reviewer_id": "quick_reviewer",
+  "reviewer_type": "human",
+  "record_id": "oni_burpee_broad_jump_005",
+  "modality": "depth",
+  "revision": 4,
+  "review_started_at": "2026-07-27T07:35:58.518732+00:00",
+  "review_finished_at": "2026-07-27T07:37:47.372861+00:00",
+  "review": {
+    "checkpoints": [
+      {
+        "frame_index": 1,
+        "target_status": "missing",
+        "bbox_status": "missing",
+        "surface_reliable": "unsure",
+        "notes": ""
+      },
+      {
+        "frame_index": 24,
+        "target_status": "missing",
+        "bbox_status": "missing",
+        "surface_reliable": "unsure",
+        "notes": ""
+      },
+      {
+        "frame_index": 47,
+        "target_status": "wrong",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 70,
+        "target_status": "wrong",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 93,
+        "target_status": "wrong",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 116,
+        "target_status": "wrong",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 140,
+        "target_status": "missing",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 163,
+        "target_status": "missing",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 186,
+        "target_status": "missing",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 209,
+        "target_status": "missing",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 232,
+        "target_status": "wrong",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 255,
+        "target_status": "wrong",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 278,
+        "target_status": "wrong",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 301,
+        "target_status": "wrong",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 324,
+        "target_status": "correct",
+        "bbox_status": "too_small",
+        "surface_reliable": "yes",
+        "notes": ""
+      },
+      {
+        "frame_index": 347,
+        "target_status": "wrong",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 370,
+        "target_status": "missing",
+        "bbox_status": "missing",
+        "surface_reliable": "unsure",
+        "notes": ""
+      },
+      {
+        "frame_index": 393,
+        "target_status": "missing",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 417,
+        "target_status": "missing",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": ""
+      },
+      {
+        "frame_index": 440,
+        "target_status": "correct",
+        "bbox_status": "correct",
+        "surface_reliable": "yes",
+        "notes": ""
+      },
+      {
+        "frame_index": 463,
+        "target_status": "correct",
+        "bbox_status": "correct",
+        "surface_reliable": "yes",
+        "notes": ""
+      },
+      {
+        "frame_index": 486,
+        "target_status": "correct",
+        "bbox_status": "too_small",
+        "surface_reliable": "yes",
+        "notes": ""
+      },
+      {
+        "frame_index": 509,
+        "target_status": "missing",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": "不适用，可删去"
+      },
+      {
+        "frame_index": 532,
+        "target_status": "missing",
+        "bbox_status": "wrong_target",
+        "surface_reliable": "no",
+        "notes": "不适用，可删去"
+      }
+    ],
+    "notes": "详情见主体检查点标注",
+    "observability": "OBSERVABLE",
+    "overall_target_status": "correct",
+    "same_subject_throughout": "no",
+    "status": "complete"
+  },
+  "audit_log": [
+    {
+      "revision": 1,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-27T07:35:58.518732+00:00",
+      "reason": "single human ONI modality subject review",
+      "evidence_frames": [
+        1,
+        24,
+        47,
+        70,
+        93,
+        116,
+        140,
+        163,
+        186,
+        209,
+        232,
+        255,
+        278,
+        301,
+        324,
+        347,
+        370,
+        393,
+        417,
+        440,
+        463,
+        486,
+        509,
+        532
+      ],
+      "changes": [
+        {
+          "path": "checkpoints[0].bbox_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "checkpoints[0].frame_index",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "checkpoints[0].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[0].surface_reliable",
+          "old_value": null,
+          "new_value": "unsure"
+        },
+        {
+          "path": "checkpoints[0].target_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "checkpoints[10].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[10].frame_index",
+          "old_value": null,
+          "new_value": 232
+        },
+        {
+          "path": "checkpoints[10].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[10].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[10].target_status",
+          "old_value": null,
+          "new_value": "wrong"
+        },
+        {
+          "path": "checkpoints[11].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[11].frame_index",
+          "old_value": null,
+          "new_value": 255
+        },
+        {
+          "path": "checkpoints[11].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[11].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[11].target_status",
+          "old_value": null,
+          "new_value": "wrong"
+        },
+        {
+          "path": "checkpoints[12].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[12].frame_index",
+          "old_value": null,
+          "new_value": 278
+        },
+        {
+          "path": "checkpoints[12].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[12].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[12].target_status",
+          "old_value": null,
+          "new_value": "wrong"
+        },
+        {
+          "path": "checkpoints[13].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[13].frame_index",
+          "old_value": null,
+          "new_value": 301
+        },
+        {
+          "path": "checkpoints[13].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[13].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[13].target_status",
+          "old_value": null,
+          "new_value": "wrong"
+        },
+        {
+          "path": "checkpoints[14].bbox_status",
+          "old_value": null,
+          "new_value": "too_small"
+        },
+        {
+          "path": "checkpoints[14].frame_index",
+          "old_value": null,
+          "new_value": 324
+        },
+        {
+          "path": "checkpoints[14].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[14].surface_reliable",
+          "old_value": null,
+          "new_value": "yes"
+        },
+        {
+          "path": "checkpoints[14].target_status",
+          "old_value": null,
+          "new_value": "correct"
+        },
+        {
+          "path": "checkpoints[15].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[15].frame_index",
+          "old_value": null,
+          "new_value": 347
+        },
+        {
+          "path": "checkpoints[15].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[15].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[15].target_status",
+          "old_value": null,
+          "new_value": "wrong"
+        },
+        {
+          "path": "checkpoints[16].bbox_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "checkpoints[16].frame_index",
+          "old_value": null,
+          "new_value": 370
+        },
+        {
+          "path": "checkpoints[16].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[16].surface_reliable",
+          "old_value": null,
+          "new_value": "unsure"
+        },
+        {
+          "path": "checkpoints[16].target_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "checkpoints[17].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[17].frame_index",
+          "old_value": null,
+          "new_value": 393
+        },
+        {
+          "path": "checkpoints[17].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[17].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[17].target_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "checkpoints[18].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[18].frame_index",
+          "old_value": null,
+          "new_value": 417
+        },
+        {
+          "path": "checkpoints[18].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[18].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[18].target_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "checkpoints[19].bbox_status",
+          "old_value": null,
+          "new_value": "correct"
+        },
+        {
+          "path": "checkpoints[19].frame_index",
+          "old_value": null,
+          "new_value": 440
+        },
+        {
+          "path": "checkpoints[19].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[19].surface_reliable",
+          "old_value": null,
+          "new_value": "yes"
+        },
+        {
+          "path": "checkpoints[19].target_status",
+          "old_value": null,
+          "new_value": "correct"
+        },
+        {
+          "path": "checkpoints[1].bbox_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "checkpoints[1].frame_index",
+          "old_value": null,
+          "new_value": 24
+        },
+        {
+          "path": "checkpoints[1].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[1].surface_reliable",
+          "old_value": null,
+          "new_value": "unsure"
+        },
+        {
+          "path": "checkpoints[1].target_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "checkpoints[20].bbox_status",
+          "old_value": null,
+          "new_value": "correct"
+        },
+        {
+          "path": "checkpoints[20].frame_index",
+          "old_value": null,
+          "new_value": 463
+        },
+        {
+          "path": "checkpoints[20].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[20].surface_reliable",
+          "old_value": null,
+          "new_value": "yes"
+        },
+        {
+          "path": "checkpoints[20].target_status",
+          "old_value": null,
+          "new_value": "correct"
+        },
+        {
+          "path": "checkpoints[21].bbox_status",
+          "old_value": null,
+          "new_value": "too_small"
+        },
+        {
+          "path": "checkpoints[21].frame_index",
+          "old_value": null,
+          "new_value": 486
+        },
+        {
+          "path": "checkpoints[21].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[21].surface_reliable",
+          "old_value": null,
+          "new_value": "yes"
+        },
+        {
+          "path": "checkpoints[21].target_status",
+          "old_value": null,
+          "new_value": "correct"
+        },
+        {
+          "path": "checkpoints[22].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[22].frame_index",
+          "old_value": null,
+          "new_value": 509
+        },
+        {
+          "path": "checkpoints[22].notes",
+          "old_value": null,
+          "new_value": "不适用，可删去"
+        },
+        {
+          "path": "checkpoints[22].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[22].target_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "checkpoints[23].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[23].frame_index",
+          "old_value": null,
+          "new_value": 532
+        },
+        {
+          "path": "checkpoints[23].notes",
+          "old_value": null,
+          "new_value": "不适用，可删去"
+        },
+        {
+          "path": "checkpoints[23].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[23].target_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "checkpoints[2].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[2].frame_index",
+          "old_value": null,
+          "new_value": 47
+        },
+        {
+          "path": "checkpoints[2].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[2].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[2].target_status",
+          "old_value": null,
+          "new_value": "wrong"
+        },
+        {
+          "path": "checkpoints[3].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[3].frame_index",
+          "old_value": null,
+          "new_value": 70
+        },
+        {
+          "path": "checkpoints[3].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[3].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[3].target_status",
+          "old_value": null,
+          "new_value": "wrong"
+        },
+        {
+          "path": "checkpoints[4].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[4].frame_index",
+          "old_value": null,
+          "new_value": 93
+        },
+        {
+          "path": "checkpoints[4].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[4].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[4].target_status",
+          "old_value": null,
+          "new_value": "wrong"
+        },
+        {
+          "path": "checkpoints[5].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[5].frame_index",
+          "old_value": null,
+          "new_value": 116
+        },
+        {
+          "path": "checkpoints[5].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[5].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[5].target_status",
+          "old_value": null,
+          "new_value": "wrong"
+        },
+        {
+          "path": "checkpoints[6].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[6].frame_index",
+          "old_value": null,
+          "new_value": 140
+        },
+        {
+          "path": "checkpoints[6].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[6].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[6].target_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "checkpoints[7].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[7].frame_index",
+          "old_value": null,
+          "new_value": 163
+        },
+        {
+          "path": "checkpoints[7].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[7].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[7].target_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "checkpoints[8].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[8].frame_index",
+          "old_value": null,
+          "new_value": 186
+        },
+        {
+          "path": "checkpoints[8].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[8].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[8].target_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "checkpoints[9].bbox_status",
+          "old_value": null,
+          "new_value": "wrong_target"
+        },
+        {
+          "path": "checkpoints[9].frame_index",
+          "old_value": null,
+          "new_value": 209
+        },
+        {
+          "path": "checkpoints[9].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "checkpoints[9].surface_reliable",
+          "old_value": null,
+          "new_value": "no"
+        },
+        {
+          "path": "checkpoints[9].target_status",
+          "old_value": null,
+          "new_value": "missing"
+        },
+        {
+          "path": "notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "overall_target_status",
+          "old_value": null,
+          "new_value": "unsure"
+        },
+        {
+          "path": "same_subject_throughout",
+          "old_value": null,
+          "new_value": "unsure"
+        },
+        {
+          "path": "status",
+          "old_value": null,
+          "new_value": "draft"
+        }
+      ]
+    },
+    {
+      "revision": 2,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-27T07:37:47.372861+00:00",
+      "reason": "audit chain repair: historical payload revision existed without an audit entry",
+      "evidence_frames": [],
+      "changes": [],
+      "repair_metadata": {
+        "repaired_at": "2026-07-28T00:00:00+00:00",
+        "content_changes_reconstructed": false
+      }
+    },
+    {
+      "revision": 3,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-27T07:37:47.372861+00:00",
+      "reason": "audit chain repair: historical payload revision existed without an audit entry",
+      "evidence_frames": [],
+      "changes": [],
+      "repair_metadata": {
+        "repaired_at": "2026-07-28T00:00:00+00:00",
+        "content_changes_reconstructed": false
+      }
+    },
+    {
+      "revision": 4,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-27T07:37:47.372861+00:00",
+      "reason": "single human ONI modality subject review",
+      "evidence_frames": [
+        1,
+        24,
+        47,
+        70,
+        93,
+        116,
+        140,
+        163,
+        186,
+        209,
+        232,
+        255,
+        278,
+        301,
+        324,
+        347,
+        370,
+        393,
+        417,
+        440,
+        463,
+        486,
+        509,
+        532
+      ],
+      "changes": [
+        {
+          "path": "notes",
+          "old_value": "",
+          "new_value": "详情见主体检查点标注"
+        },
+        {
+          "path": "observability",
+          "old_value": "UNKNOWN",
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "overall_target_status",
+          "old_value": "unsure",
+          "new_value": "correct"
+        },
+        {
+          "path": "same_subject_throughout",
+          "old_value": "unsure",
+          "new_value": "no"
+        },
+        {
+          "path": "status",
+          "old_value": "draft",
+          "new_value": "complete"
+        }
+      ]
+    }
+  ],
+  "source_artifacts_unchanged": true,
+  "eligibility_overrides_written": false,
+  "saved_at": "2026-07-27T07:37:47.372861+00:00"
+}

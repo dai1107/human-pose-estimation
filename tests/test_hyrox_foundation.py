@@ -265,7 +265,7 @@ def test_put_text_renders_chinese_feedback_without_crashing() -> None:
     assert np.count_nonzero(frame) > 0
 
 
-def test_lunge_without_contact_evidence_is_unsure_and_reports_extension_feedback() -> None:
+def test_lunge_without_contact_evidence_stays_pending_until_stream_end() -> None:
     analyzer = LungeAnalyzer()
 
     stand = {
@@ -310,16 +310,20 @@ def test_lunge_without_contact_evidence_is_unsure_and_reports_extension_feedback
     assert analyzer.update(ascent, timestamp_ms=650)["phase"] == "ascent"
 
     analyzer.update(shallow_stand, timestamp_ms=700)
-    completed = analyzer.update(shallow_stand, timestamp_ms=750)
+    pending_completion = analyzer.update(shallow_stand, timestamp_ms=750)
 
-    assert completed["phase"] == "stand"
+    assert pending_completion["phase"] == "stand"
+    assert pending_completion["candidate_count"] == 0
+    assert analyzer.finalize_pending_candidate() is not None
+    completed = analyzer.finalize_state(pending_completion)
+
     assert completed["rep_count"] == 0
     assert completed["candidate_count"] == 1
     assert completed["unsure_count"] == 1
     assert completed["last_rep_decision"]["status"] == "UNSURE"
     assert completed["debug"]["rep_completed"] is True
-    assert completed["debug"]["last_rep_time_ms"] == 750
-    assert {message.code for message in completed["feedback_messages"]} == {"STAND_EXTENSION"}
+    assert analyzer.last_rep_time_ms == 750
+    assert completed["last_rep_candidate"]["events"]["validation_boundary"] == "stream_end"
 
 
 def test_lunge_analyzer_emits_depth_lean_and_visibility_feedback() -> None:

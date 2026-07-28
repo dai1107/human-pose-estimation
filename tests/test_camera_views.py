@@ -17,13 +17,26 @@ def _message(code: str) -> FeedbackMessage:
 
 
 def test_front_and_side_profiles_use_different_wall_ball_rules() -> None:
-    messages = [_message("SQUAT_NOT_DEEP"), _message("KNEES_CAVE_IN"), _message("NOT_FULL_EXTENSION")]
+    messages = [
+        _message("SQUAT_NOT_DEEP"),
+        _message("KNEES_CAVE_IN"),
+        _message("HEEL_RISE"),
+        _message("NOT_FULL_EXTENSION"),
+    ]
 
     front, front_limited = filter_feedback_for_view("wall_ball", "front", messages)
     side, side_limited = filter_feedback_for_view("wall_ball", "side", messages)
 
-    assert {message.code for message in front} == {"KNEES_CAVE_IN", "NOT_FULL_EXTENSION"}
-    assert {message.code for message in side} == {"SQUAT_NOT_DEEP", "NOT_FULL_EXTENSION"}
+    assert {message.code for message in front} == {
+        "KNEES_CAVE_IN",
+        "HEEL_RISE",
+        "NOT_FULL_EXTENSION",
+    }
+    assert {message.code for message in side} == {
+        "SQUAT_NOT_DEEP",
+        "HEEL_RISE",
+        "NOT_FULL_EXTENSION",
+    }
     assert front_limited is False
     assert side_limited is False
 

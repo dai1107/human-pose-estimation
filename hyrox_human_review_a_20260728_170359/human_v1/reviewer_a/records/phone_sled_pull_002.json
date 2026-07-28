@@ -1,0 +1,2084 @@
+{
+  "schema_version": 1,
+  "artifact_type": "human_review_record",
+  "protocol_version": "human_review_v1.0",
+  "reviewer_role": "reviewer_a",
+  "reviewer_id": "quick_reviewer",
+  "reviewer_type": "human",
+  "record_id": "phone_sled_pull_002",
+  "revision": 4,
+  "review_started_at": "2026-07-26T10:02:14.466144+00:00",
+  "review_finished_at": "2026-07-28T09:00:45.191507+00:00",
+  "blind_review": {},
+  "review": {
+    "quick_review": {
+      "action": "sled_pull",
+      "authorization": "confirmed",
+      "correction": "",
+      "equipment_visibility": "visible",
+      "events": [],
+      "notes": "标准的拉雪橇动作视频，但目标框在505-525帧处脱离目标",
+      "observability": "OBSERVABLE",
+      "overall_result": "VALID",
+      "proposal_decision": "modify",
+      "reps": [
+        {
+          "rep_id": "cycle_001",
+          "start_frame": 0,
+          "end_frame": 730,
+          "validity": "VALID",
+          "notes": "姿态状态机生成的分析周期候选，非人工真值",
+          "phase_gap_reason": "候选阶段可能存在低可见度或 unknown 空白，待人工核对"
+        },
+        {
+          "rep_id": "cycle_002",
+          "start_frame": 133,
+          "end_frame": 308,
+          "validity": "VALID",
+          "notes": "人工真值",
+          "phase_gap_reason": "已人工核对"
+        },
+        {
+          "rep_id": "cycle_003",
+          "start_frame": 309,
+          "end_frame": 550,
+          "validity": "VALID",
+          "notes": "人工真值",
+          "phase_gap_reason": "已人工核对"
+        },
+        {
+          "rep_id": "cycle_004",
+          "start_frame": 551,
+          "end_frame": 736,
+          "validity": "VALID",
+          "notes": "人工真值",
+          "phase_gap_reason": "已人工核对"
+        }
+      ],
+      "score": null,
+      "segments": [],
+      "status": "complete",
+      "subject_id": "subject_group_sled_pull_01",
+      "target_status": "correct",
+      "usable_end_frame": 736,
+      "usable_start_frame": 0,
+      "video_usability": "usable",
+      "phase_error_intervals": [
+        {
+          "rep_id": "cycle_001",
+          "start_frame": 0,
+          "end_frame": 81,
+          "phase": "pull",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "低置信度等分阶段脚手架，必须人工核对"
+        },
+        {
+          "rep_id": "cycle_001",
+          "start_frame": 82,
+          "end_frame": 90,
+          "phase": "recover",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "低置信度等分阶段脚手架，必须人工核对"
+        },
+        {
+          "rep_id": "cycle_001",
+          "start_frame": 91,
+          "end_frame": 132,
+          "phase": "reach",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "低置信度等分阶段脚手架，必须人工核对"
+        },
+        {
+          "rep_id": "cycle_002",
+          "start_frame": 133,
+          "end_frame": 160,
+          "phase": "ready",
+          "error_code": "NO_ERROR",
+          "observability": "OBSERVABLE",
+          "notes": "已人工核对"
+        },
+        {
+          "rep_id": "cycle_002",
+          "start_frame": 161,
+          "end_frame": 261,
+          "phase": "pull",
+          "error_code": "NO_ERROR",
+          "observability": "OBSERVABLE",
+          "notes": "已人工核对"
+        },
+        {
+          "rep_id": "cycle_002",
+          "start_frame": 262,
+          "end_frame": 270,
+          "phase": "recover",
+          "error_code": "NO_ERROR",
+          "observability": "OBSERVABLE",
+          "notes": "已人工核对"
+        },
+        {
+          "rep_id": "cycle_002",
+          "start_frame": 271,
+          "end_frame": 308,
+          "phase": "reach",
+          "error_code": "NO_ERROR",
+          "observability": "OBSERVABLE",
+          "notes": "已人工核对"
+        },
+        {
+          "rep_id": "cycle_003",
+          "start_frame": 309,
+          "end_frame": 345,
+          "phase": "ready",
+          "error_code": "NO_ERROR",
+          "observability": "OBSERVABLE",
+          "notes": "已人工核对"
+        },
+        {
+          "rep_id": "cycle_003",
+          "start_frame": 346,
+          "end_frame": 487,
+          "phase": "pull",
+          "error_code": "NO_ERROR",
+          "observability": "OBSERVABLE",
+          "notes": "已人工核对"
+        },
+        {
+          "rep_id": "cycle_003",
+          "start_frame": 488,
+          "end_frame": 510,
+          "phase": "recover",
+          "error_code": "NO_ERROR",
+          "observability": "OBSERVABLE",
+          "notes": "已人工核对"
+        },
+        {
+          "rep_id": "cycle_003",
+          "start_frame": 511,
+          "end_frame": 550,
+          "phase": "reach",
+          "error_code": "NO_ERROR",
+          "observability": "OBSERVABLE",
+          "notes": "已人工核对"
+        },
+        {
+          "rep_id": "cycle_004",
+          "start_frame": 551,
+          "end_frame": 580,
+          "phase": "ready",
+          "error_code": "NO_ERROR",
+          "observability": "OBSERVABLE",
+          "notes": "已人工核对"
+        },
+        {
+          "rep_id": "cycle_004",
+          "start_frame": 581,
+          "end_frame": 695,
+          "phase": "pull",
+          "error_code": "NO_ERROR",
+          "observability": "OBSERVABLE",
+          "notes": "已人工核对"
+        },
+        {
+          "rep_id": "cycle_004",
+          "start_frame": 696,
+          "end_frame": 716,
+          "phase": "recover",
+          "error_code": "NO_ERROR",
+          "observability": "OBSERVABLE",
+          "notes": "已人工核对"
+        },
+        {
+          "rep_id": "cycle_004",
+          "start_frame": 717,
+          "end_frame": 736,
+          "phase": "reach",
+          "error_code": "NO_ERROR",
+          "observability": "OBSERVABLE",
+          "notes": "已人工核对"
+        }
+      ],
+      "fine_annotation_status": "complete",
+      "dataset_role": "development",
+      "disagreement_clips": [
+        {
+          "anchor_frame_count": 9,
+          "anchor_frames": [
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            10,
+            11,
+            14
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_001_0_25",
+          "duration_seconds": 0.867,
+          "end_frame": 25,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.15441633570073993,
+          "review_status": "pending",
+          "start_frame": 0
+        },
+        {
+          "anchor_frame_count": 1,
+          "anchor_frames": [
+            65
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_002_54_76",
+          "duration_seconds": 0.767,
+          "end_frame": 76,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 1.25,
+          "review_status": "pending",
+          "start_frame": 54
+        },
+        {
+          "anchor_frame_count": 1,
+          "anchor_frames": [
+            103
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_003_92_114",
+          "duration_seconds": 0.767,
+          "end_frame": 114,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.08610013679700872,
+          "review_status": "pending",
+          "start_frame": 92
+        },
+        {
+          "anchor_frame_count": 1,
+          "anchor_frames": [
+            119
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_004_108_130",
+          "duration_seconds": 0.767,
+          "end_frame": 130,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.06122921267236567,
+          "review_status": "pending",
+          "start_frame": 108
+        },
+        {
+          "anchor_frame_count": 1,
+          "anchor_frames": [
+            162
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_005_151_173",
+          "duration_seconds": 0.767,
+          "end_frame": 173,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.09358437181972461,
+          "review_status": "pending",
+          "start_frame": 151
+        },
+        {
+          "anchor_frame_count": 1,
+          "anchor_frames": [
+            278
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_006_267_289",
+          "duration_seconds": 0.767,
+          "end_frame": 289,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.08124219526619071,
+          "review_status": "pending",
+          "start_frame": 267
+        },
+        {
+          "anchor_frame_count": 2,
+          "anchor_frames": [
+            301,
+            307
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_007_290_318",
+          "duration_seconds": 0.967,
+          "end_frame": 318,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 1.25,
+          "review_status": "pending",
+          "start_frame": 290
+        },
+        {
+          "anchor_frame_count": 2,
+          "anchor_frames": [
+            316,
+            323
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_008_305_334",
+          "duration_seconds": 1,
+          "end_frame": 334,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.12387809146247251,
+          "review_status": "pending",
+          "start_frame": 305
+        },
+        {
+          "anchor_frame_count": 1,
+          "anchor_frames": [
+            523
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_009_512_534",
+          "duration_seconds": 0.767,
+          "end_frame": 534,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.059484966165766935,
+          "review_status": "pending",
+          "start_frame": 512
+        },
+        {
+          "anchor_frame_count": 2,
+          "anchor_frames": [
+            538,
+            544
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_010_527_555",
+          "duration_seconds": 0.967,
+          "end_frame": 555,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.7697099695500927,
+          "review_status": "pending",
+          "start_frame": 527
+        },
+        {
+          "anchor_frame_count": 1,
+          "anchor_frames": [
+            548
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_011_537_559",
+          "duration_seconds": 0.767,
+          "end_frame": 559,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 1,
+          "review_status": "pending",
+          "start_frame": 537
+        },
+        {
+          "anchor_frame_count": 1,
+          "anchor_frames": [
+            560
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_012_549_571",
+          "duration_seconds": 0.767,
+          "end_frame": 571,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.08549854543836491,
+          "review_status": "pending",
+          "start_frame": 549
+        },
+        {
+          "anchor_frame_count": 2,
+          "anchor_frames": [
+            666,
+            668
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_013_655_679",
+          "duration_seconds": 0.833,
+          "end_frame": 679,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.13073583973135913,
+          "review_status": "pending",
+          "start_frame": 655
+        },
+        {
+          "anchor_frame_count": 2,
+          "anchor_frames": [
+            730,
+            736
+          ],
+          "clip_id": "phone_sled_pull_002_disagreement_014_719_736",
+          "duration_seconds": 0.6,
+          "end_frame": 736,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.07892665668603364,
+          "review_status": "pending",
+          "start_frame": 719
+        }
+      ],
+      "no_rep_reason": ""
+    }
+  },
+  "audit_log": [
+    {
+      "revision": 1,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-26T10:02:14.466144+00:00",
+      "reason": "quick human review update",
+      "evidence_frames": [],
+      "changes": [
+        {
+          "path": "quick_review.action",
+          "old_value": null,
+          "new_value": "sled_pull"
+        },
+        {
+          "path": "quick_review.authorization",
+          "old_value": null,
+          "new_value": "confirmed"
+        },
+        {
+          "path": "quick_review.correction",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.equipment_visibility",
+          "old_value": null,
+          "new_value": "visible"
+        },
+        {
+          "path": "quick_review.events",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.notes",
+          "old_value": null,
+          "new_value": "标准的拉雪橇动作视频，但目标框在505-525帧处脱离目标"
+        },
+        {
+          "path": "quick_review.observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.overall_result",
+          "old_value": null,
+          "new_value": "VALID"
+        },
+        {
+          "path": "quick_review.proposal_decision",
+          "old_value": null,
+          "new_value": "unresolved"
+        },
+        {
+          "path": "quick_review.reps",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.segments",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.status",
+          "old_value": null,
+          "new_value": "complete"
+        },
+        {
+          "path": "quick_review.subject_id",
+          "old_value": null,
+          "new_value": "subject_pending"
+        },
+        {
+          "path": "quick_review.target_status",
+          "old_value": null,
+          "new_value": "correct"
+        },
+        {
+          "path": "quick_review.usable_end_frame",
+          "old_value": null,
+          "new_value": 736
+        },
+        {
+          "path": "quick_review.usable_start_frame",
+          "old_value": null,
+          "new_value": 0
+        },
+        {
+          "path": "quick_review.video_usability",
+          "old_value": null,
+          "new_value": "usable"
+        }
+      ]
+    },
+    {
+      "revision": 2,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-28T08:57:20.104413+00:00",
+      "reason": "single human core fine annotation initial review",
+      "evidence_frames": [],
+      "changes": [
+        {
+          "path": "quick_review.dataset_role",
+          "old_value": null,
+          "new_value": "development"
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].anchor_frame_count",
+          "old_value": null,
+          "new_value": 9
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 2
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].anchor_frames[1]",
+          "old_value": null,
+          "new_value": 3
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].anchor_frames[2]",
+          "old_value": null,
+          "new_value": 4
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].anchor_frames[3]",
+          "old_value": null,
+          "new_value": 5
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].anchor_frames[4]",
+          "old_value": null,
+          "new_value": 6
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].anchor_frames[5]",
+          "old_value": null,
+          "new_value": 7
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].anchor_frames[6]",
+          "old_value": null,
+          "new_value": 10
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].anchor_frames[7]",
+          "old_value": null,
+          "new_value": 11
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].anchor_frames[8]",
+          "old_value": null,
+          "new_value": 14
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_001_0_25"
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].duration_seconds",
+          "old_value": null,
+          "new_value": 0.867
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].end_frame",
+          "old_value": null,
+          "new_value": 25
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].priority_score",
+          "old_value": null,
+          "new_value": 0.15441633570073993
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].start_frame",
+          "old_value": null,
+          "new_value": 0
+        },
+        {
+          "path": "quick_review.disagreement_clips[10].anchor_frame_count",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[10].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 548
+        },
+        {
+          "path": "quick_review.disagreement_clips[10].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_011_537_559"
+        },
+        {
+          "path": "quick_review.disagreement_clips[10].duration_seconds",
+          "old_value": null,
+          "new_value": 0.767
+        },
+        {
+          "path": "quick_review.disagreement_clips[10].end_frame",
+          "old_value": null,
+          "new_value": 559
+        },
+        {
+          "path": "quick_review.disagreement_clips[10].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[10].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[10].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[10].priority_score",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[10].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[10].start_frame",
+          "old_value": null,
+          "new_value": 537
+        },
+        {
+          "path": "quick_review.disagreement_clips[11].anchor_frame_count",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[11].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 560
+        },
+        {
+          "path": "quick_review.disagreement_clips[11].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_012_549_571"
+        },
+        {
+          "path": "quick_review.disagreement_clips[11].duration_seconds",
+          "old_value": null,
+          "new_value": 0.767
+        },
+        {
+          "path": "quick_review.disagreement_clips[11].end_frame",
+          "old_value": null,
+          "new_value": 571
+        },
+        {
+          "path": "quick_review.disagreement_clips[11].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[11].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[11].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[11].priority_score",
+          "old_value": null,
+          "new_value": 0.08549854543836491
+        },
+        {
+          "path": "quick_review.disagreement_clips[11].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[11].start_frame",
+          "old_value": null,
+          "new_value": 549
+        },
+        {
+          "path": "quick_review.disagreement_clips[12].anchor_frame_count",
+          "old_value": null,
+          "new_value": 2
+        },
+        {
+          "path": "quick_review.disagreement_clips[12].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 666
+        },
+        {
+          "path": "quick_review.disagreement_clips[12].anchor_frames[1]",
+          "old_value": null,
+          "new_value": 668
+        },
+        {
+          "path": "quick_review.disagreement_clips[12].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_013_655_679"
+        },
+        {
+          "path": "quick_review.disagreement_clips[12].duration_seconds",
+          "old_value": null,
+          "new_value": 0.833
+        },
+        {
+          "path": "quick_review.disagreement_clips[12].end_frame",
+          "old_value": null,
+          "new_value": 679
+        },
+        {
+          "path": "quick_review.disagreement_clips[12].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[12].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[12].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[12].priority_score",
+          "old_value": null,
+          "new_value": 0.13073583973135913
+        },
+        {
+          "path": "quick_review.disagreement_clips[12].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[12].start_frame",
+          "old_value": null,
+          "new_value": 655
+        },
+        {
+          "path": "quick_review.disagreement_clips[13].anchor_frame_count",
+          "old_value": null,
+          "new_value": 2
+        },
+        {
+          "path": "quick_review.disagreement_clips[13].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 730
+        },
+        {
+          "path": "quick_review.disagreement_clips[13].anchor_frames[1]",
+          "old_value": null,
+          "new_value": 736
+        },
+        {
+          "path": "quick_review.disagreement_clips[13].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_014_719_736"
+        },
+        {
+          "path": "quick_review.disagreement_clips[13].duration_seconds",
+          "old_value": null,
+          "new_value": 0.6
+        },
+        {
+          "path": "quick_review.disagreement_clips[13].end_frame",
+          "old_value": null,
+          "new_value": 736
+        },
+        {
+          "path": "quick_review.disagreement_clips[13].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[13].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[13].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[13].priority_score",
+          "old_value": null,
+          "new_value": 0.07892665668603364
+        },
+        {
+          "path": "quick_review.disagreement_clips[13].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[13].start_frame",
+          "old_value": null,
+          "new_value": 719
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].anchor_frame_count",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 65
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_002_54_76"
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].duration_seconds",
+          "old_value": null,
+          "new_value": 0.767
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].end_frame",
+          "old_value": null,
+          "new_value": 76
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].priority_score",
+          "old_value": null,
+          "new_value": 1.25
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].start_frame",
+          "old_value": null,
+          "new_value": 54
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].anchor_frame_count",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 103
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_003_92_114"
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].duration_seconds",
+          "old_value": null,
+          "new_value": 0.767
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].end_frame",
+          "old_value": null,
+          "new_value": 114
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].priority_score",
+          "old_value": null,
+          "new_value": 0.08610013679700872
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].start_frame",
+          "old_value": null,
+          "new_value": 92
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].anchor_frame_count",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 119
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_004_108_130"
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].duration_seconds",
+          "old_value": null,
+          "new_value": 0.767
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].end_frame",
+          "old_value": null,
+          "new_value": 130
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].priority_score",
+          "old_value": null,
+          "new_value": 0.06122921267236567
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].start_frame",
+          "old_value": null,
+          "new_value": 108
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].anchor_frame_count",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 162
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_005_151_173"
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].duration_seconds",
+          "old_value": null,
+          "new_value": 0.767
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].end_frame",
+          "old_value": null,
+          "new_value": 173
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].priority_score",
+          "old_value": null,
+          "new_value": 0.09358437181972461
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].start_frame",
+          "old_value": null,
+          "new_value": 151
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].anchor_frame_count",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 278
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_006_267_289"
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].duration_seconds",
+          "old_value": null,
+          "new_value": 0.767
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].end_frame",
+          "old_value": null,
+          "new_value": 289
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].priority_score",
+          "old_value": null,
+          "new_value": 0.08124219526619071
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].start_frame",
+          "old_value": null,
+          "new_value": 267
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].anchor_frame_count",
+          "old_value": null,
+          "new_value": 2
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 301
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].anchor_frames[1]",
+          "old_value": null,
+          "new_value": 307
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_007_290_318"
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].duration_seconds",
+          "old_value": null,
+          "new_value": 0.967
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].end_frame",
+          "old_value": null,
+          "new_value": 318
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].priority_score",
+          "old_value": null,
+          "new_value": 1.25
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].start_frame",
+          "old_value": null,
+          "new_value": 290
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].anchor_frame_count",
+          "old_value": null,
+          "new_value": 2
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 316
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].anchor_frames[1]",
+          "old_value": null,
+          "new_value": 323
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_008_305_334"
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].duration_seconds",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].end_frame",
+          "old_value": null,
+          "new_value": 334
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].priority_score",
+          "old_value": null,
+          "new_value": 0.12387809146247251
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].start_frame",
+          "old_value": null,
+          "new_value": 305
+        },
+        {
+          "path": "quick_review.disagreement_clips[8].anchor_frame_count",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[8].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 523
+        },
+        {
+          "path": "quick_review.disagreement_clips[8].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_009_512_534"
+        },
+        {
+          "path": "quick_review.disagreement_clips[8].duration_seconds",
+          "old_value": null,
+          "new_value": 0.767
+        },
+        {
+          "path": "quick_review.disagreement_clips[8].end_frame",
+          "old_value": null,
+          "new_value": 534
+        },
+        {
+          "path": "quick_review.disagreement_clips[8].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[8].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[8].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[8].priority_score",
+          "old_value": null,
+          "new_value": 0.059484966165766935
+        },
+        {
+          "path": "quick_review.disagreement_clips[8].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[8].start_frame",
+          "old_value": null,
+          "new_value": 512
+        },
+        {
+          "path": "quick_review.disagreement_clips[9].anchor_frame_count",
+          "old_value": null,
+          "new_value": 2
+        },
+        {
+          "path": "quick_review.disagreement_clips[9].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 538
+        },
+        {
+          "path": "quick_review.disagreement_clips[9].anchor_frames[1]",
+          "old_value": null,
+          "new_value": 544
+        },
+        {
+          "path": "quick_review.disagreement_clips[9].clip_id",
+          "old_value": null,
+          "new_value": "phone_sled_pull_002_disagreement_010_527_555"
+        },
+        {
+          "path": "quick_review.disagreement_clips[9].duration_seconds",
+          "old_value": null,
+          "new_value": 0.967
+        },
+        {
+          "path": "quick_review.disagreement_clips[9].end_frame",
+          "old_value": null,
+          "new_value": 555
+        },
+        {
+          "path": "quick_review.disagreement_clips[9].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[9].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[9].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[9].priority_score",
+          "old_value": null,
+          "new_value": 0.7697099695500927
+        },
+        {
+          "path": "quick_review.disagreement_clips[9].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[9].start_frame",
+          "old_value": null,
+          "new_value": 527
+        },
+        {
+          "path": "quick_review.fine_annotation_status",
+          "old_value": null,
+          "new_value": "draft"
+        },
+        {
+          "path": "quick_review.no_rep_reason",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].end_frame",
+          "old_value": null,
+          "new_value": 81
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].notes",
+          "old_value": null,
+          "new_value": "低置信度等分阶段脚手架，必须人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].phase",
+          "old_value": null,
+          "new_value": "pull"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].rep_id",
+          "old_value": null,
+          "new_value": "cycle_001"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].start_frame",
+          "old_value": null,
+          "new_value": 0
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].end_frame",
+          "old_value": null,
+          "new_value": 550
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].notes",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].phase",
+          "old_value": null,
+          "new_value": "reach"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].rep_id",
+          "old_value": null,
+          "new_value": "cycle_003"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].start_frame",
+          "old_value": null,
+          "new_value": 511
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].end_frame",
+          "old_value": null,
+          "new_value": 90
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].notes",
+          "old_value": null,
+          "new_value": "低置信度等分阶段脚手架，必须人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].phase",
+          "old_value": null,
+          "new_value": "recover"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].rep_id",
+          "old_value": null,
+          "new_value": "cycle_001"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].start_frame",
+          "old_value": null,
+          "new_value": 82
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].end_frame",
+          "old_value": null,
+          "new_value": 132
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].notes",
+          "old_value": null,
+          "new_value": "低置信度等分阶段脚手架，必须人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].phase",
+          "old_value": null,
+          "new_value": "reach"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].rep_id",
+          "old_value": null,
+          "new_value": "cycle_001"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].start_frame",
+          "old_value": null,
+          "new_value": 91
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].end_frame",
+          "old_value": null,
+          "new_value": 160
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].notes",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].phase",
+          "old_value": null,
+          "new_value": "ready"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].rep_id",
+          "old_value": null,
+          "new_value": "cycle_002"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].start_frame",
+          "old_value": null,
+          "new_value": 133
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].end_frame",
+          "old_value": null,
+          "new_value": 261
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].notes",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].phase",
+          "old_value": null,
+          "new_value": "pull"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].rep_id",
+          "old_value": null,
+          "new_value": "cycle_002"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].start_frame",
+          "old_value": null,
+          "new_value": 161
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].end_frame",
+          "old_value": null,
+          "new_value": 270
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].notes",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].phase",
+          "old_value": null,
+          "new_value": "recover"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].rep_id",
+          "old_value": null,
+          "new_value": "cycle_002"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].start_frame",
+          "old_value": null,
+          "new_value": 262
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].end_frame",
+          "old_value": null,
+          "new_value": 308
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].notes",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].phase",
+          "old_value": null,
+          "new_value": "reach"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].rep_id",
+          "old_value": null,
+          "new_value": "cycle_002"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].start_frame",
+          "old_value": null,
+          "new_value": 271
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].end_frame",
+          "old_value": null,
+          "new_value": 345
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].notes",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].phase",
+          "old_value": null,
+          "new_value": "ready"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].rep_id",
+          "old_value": null,
+          "new_value": "cycle_003"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].start_frame",
+          "old_value": null,
+          "new_value": 309
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].end_frame",
+          "old_value": null,
+          "new_value": 487
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].notes",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].phase",
+          "old_value": null,
+          "new_value": "pull"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].rep_id",
+          "old_value": null,
+          "new_value": "cycle_003"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].start_frame",
+          "old_value": null,
+          "new_value": 346
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].end_frame",
+          "old_value": null,
+          "new_value": 510
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].notes",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].phase",
+          "old_value": null,
+          "new_value": "recover"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].rep_id",
+          "old_value": null,
+          "new_value": "cycle_003"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].start_frame",
+          "old_value": null,
+          "new_value": 488
+        },
+        {
+          "path": "quick_review.reps",
+          "old_value": [],
+          "new_value": null
+        },
+        {
+          "path": "quick_review.reps[0].end_frame",
+          "old_value": null,
+          "new_value": 730
+        },
+        {
+          "path": "quick_review.reps[0].notes",
+          "old_value": null,
+          "new_value": "姿态状态机生成的分析周期候选，非人工真值"
+        },
+        {
+          "path": "quick_review.reps[0].phase_gap_reason",
+          "old_value": null,
+          "new_value": "候选阶段可能存在低可见度或 unknown 空白，待人工核对"
+        },
+        {
+          "path": "quick_review.reps[0].rep_id",
+          "old_value": null,
+          "new_value": "cycle_001"
+        },
+        {
+          "path": "quick_review.reps[0].start_frame",
+          "old_value": null,
+          "new_value": 0
+        },
+        {
+          "path": "quick_review.reps[0].validity",
+          "old_value": null,
+          "new_value": "VALID"
+        },
+        {
+          "path": "quick_review.reps[1].end_frame",
+          "old_value": null,
+          "new_value": 308
+        },
+        {
+          "path": "quick_review.reps[1].notes",
+          "old_value": null,
+          "new_value": "人工真值"
+        },
+        {
+          "path": "quick_review.reps[1].phase_gap_reason",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.reps[1].rep_id",
+          "old_value": null,
+          "new_value": "cycle_002"
+        },
+        {
+          "path": "quick_review.reps[1].start_frame",
+          "old_value": null,
+          "new_value": 133
+        },
+        {
+          "path": "quick_review.reps[1].validity",
+          "old_value": null,
+          "new_value": "VALID"
+        },
+        {
+          "path": "quick_review.reps[2].notes",
+          "old_value": null,
+          "new_value": "人工真值"
+        },
+        {
+          "path": "quick_review.reps[2].phase_gap_reason",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.reps[2].rep_id",
+          "old_value": null,
+          "new_value": "cycle_003"
+        },
+        {
+          "path": "quick_review.reps[2].start_frame",
+          "old_value": null,
+          "new_value": 309
+        },
+        {
+          "path": "quick_review.reps[2].validity",
+          "old_value": null,
+          "new_value": "VALID"
+        },
+        {
+          "path": "quick_review.status",
+          "old_value": "complete",
+          "new_value": "draft"
+        },
+        {
+          "path": "quick_review.subject_id",
+          "old_value": "subject_pending",
+          "new_value": "subject_group_sled_pull_01"
+        }
+      ]
+    },
+    {
+      "revision": 3,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-28T09:00:40.309028+00:00",
+      "reason": "共完成四次动作，均为标准有效动作",
+      "evidence_frames": [],
+      "changes": [
+        {
+          "path": "quick_review.phase_error_intervals[11].end_frame",
+          "old_value": null,
+          "new_value": 580
+        },
+        {
+          "path": "quick_review.phase_error_intervals[11].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[11].notes",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[11].observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[11].phase",
+          "old_value": null,
+          "new_value": "ready"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[11].rep_id",
+          "old_value": null,
+          "new_value": "cycle_004"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[11].start_frame",
+          "old_value": null,
+          "new_value": 551
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].end_frame",
+          "old_value": null,
+          "new_value": 695
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].notes",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].phase",
+          "old_value": null,
+          "new_value": "pull"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].rep_id",
+          "old_value": null,
+          "new_value": "cycle_004"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].start_frame",
+          "old_value": null,
+          "new_value": 581
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].end_frame",
+          "old_value": null,
+          "new_value": 716
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].notes",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].phase",
+          "old_value": null,
+          "new_value": "recover"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].rep_id",
+          "old_value": null,
+          "new_value": "cycle_004"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].start_frame",
+          "old_value": null,
+          "new_value": 696
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].end_frame",
+          "old_value": null,
+          "new_value": 736
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].notes",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].phase",
+          "old_value": null,
+          "new_value": "reach"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].rep_id",
+          "old_value": null,
+          "new_value": "cycle_004"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].start_frame",
+          "old_value": null,
+          "new_value": 717
+        },
+        {
+          "path": "quick_review.proposal_decision",
+          "old_value": "unresolved",
+          "new_value": "modify"
+        },
+        {
+          "path": "quick_review.reps[2].end_frame",
+          "old_value": null,
+          "new_value": 550
+        },
+        {
+          "path": "quick_review.reps[3].end_frame",
+          "old_value": null,
+          "new_value": 736
+        },
+        {
+          "path": "quick_review.reps[3].notes",
+          "old_value": null,
+          "new_value": "人工真值"
+        },
+        {
+          "path": "quick_review.reps[3].phase_gap_reason",
+          "old_value": null,
+          "new_value": "已人工核对"
+        },
+        {
+          "path": "quick_review.reps[3].rep_id",
+          "old_value": null,
+          "new_value": "cycle_004"
+        },
+        {
+          "path": "quick_review.reps[3].start_frame",
+          "old_value": null,
+          "new_value": 551
+        },
+        {
+          "path": "quick_review.reps[3].validity",
+          "old_value": null,
+          "new_value": "VALID"
+        }
+      ]
+    },
+    {
+      "revision": 4,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-28T09:00:45.191507+00:00",
+      "reason": "single human core fine annotation initial review",
+      "evidence_frames": [],
+      "changes": [
+        {
+          "path": "quick_review.fine_annotation_status",
+          "old_value": "draft",
+          "new_value": "complete"
+        },
+        {
+          "path": "quick_review.status",
+          "old_value": "draft",
+          "new_value": "complete"
+        }
+      ]
+    }
+  ],
+  "source_artifacts_unchanged": true,
+  "eligibility_overrides_written": false,
+  "saved_at": "2026-07-28T09:00:45.191507+00:00"
+}

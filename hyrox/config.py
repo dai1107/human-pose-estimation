@@ -21,6 +21,9 @@ DEFAULT_OBSERVABILITY_CONFIG: dict[str, Any] = {
     "required_landmark_confidence": 0.60,
     "rep_mean_confidence": 0.65,
     "decisive_rule_confidence": 0.72,
+    "required_landmark_confidence_overrides": {},
+    "rep_mean_confidence_overrides": {},
+    "decisive_rule_confidence_overrides": {},
 }
 
 DEFAULT_LUNGE_CONFIG: dict[str, Any] = {
@@ -40,6 +43,8 @@ DEFAULT_LUNGE_CONFIG: dict[str, Any] = {
     "motion_tolerance": 3.0,
     "hip_motion_tolerance": 0.004,
     "hip_drop_min": 0.035,
+    "stand_hip_return_tolerance": 0.029,
+    "rgb_stand_height_proxy_enabled": True,
     "stable_frames": 2,
     "rep_cooldown_ms": 400,
     "knee_surface_radius_shank_ratio": 0.25,
@@ -54,25 +59,29 @@ DEFAULT_WALL_BALL_CONFIG: dict[str, Any] = {
     "visibility_min": 0.45,
     "stand_knee_angle_min": 150.0,
     "stand_hip_angle_min": 145.0,
-    "tall_start_knee_angle_min": 165.0,
-    "tall_start_hip_angle_min": 165.0,
+    "tall_start_knee_angle_min": 150.0,
+    "tall_start_hip_angle_min": 150.0,
     "tall_start_trunk_from_vertical_max_deg": 25.0,
     "bottom_knee_angle_max": 110.0,
-    "hip_below_knee_margin": 0.01,
+    "hip_below_knee_margin": -0.02,
     "throw_knee_angle_min": 150.0,
     "throw_hip_angle_min": 145.0,
     "throw_elbow_angle_min": 125.0,
     "wrist_above_shoulder_min": 0.03,
-    "full_extension_knee_angle_min": 165.0,
-    "full_extension_hip_angle_min": 165.0,
+    "full_extension_knee_angle_min": 152.0,
+    "full_extension_hip_angle_min": 152.0,
     "wrist_peak_time_diff_ms_pass": 120,
     "wrist_peak_time_diff_ms_unsure": 220,
     "both_wrists_above_shoulders_required": True,
-    "throw_wrist_rise_body_ratio_min": 0.12,
-    "throw_wrist_chest_band_body_ratio": 0.25,
+    "throw_wrist_rise_body_ratio_min": 0.08,
+    "rear_throw_wrist_rise_body_ratio_min": 0.03,
+    "throw_wrist_chest_band_body_ratio": 0.35,
+    "rear_throw_wrist_chest_band_body_ratio": 0.48,
     "throw_wrist_midline_body_ratio_max": 0.60,
     "knee_cave_ratio_max": 0.72,
     "minimum_frontal_ankle_width": 0.08,
+    "heel_rise_relative_to_toe_body_ratio_min": 0.07,
+    "heel_rise_hold_frames": 3,
     "motion_tolerance": 3.0,
     "hip_motion_tolerance": 0.004,
     "stable_frames": 2,
@@ -148,6 +157,7 @@ DEFAULT_BURPEE_BROAD_JUMP_CONFIG: dict[str, Any] = {
     "hand_placement_unsure_foot_length_ratio": 1.45,
     "forward_jump_min_com_displacement_leg_ratio": 0.20,
     "forward_jump_min_both_feet_displacement_leg_ratio": 0.15,
+    "forward_jump_min_scale_change_ratio": 0.06,
 }
 
 DEFAULT_SLED_PUSH_CONFIG: dict[str, Any] = {
@@ -321,7 +331,7 @@ def _validated_scalar(
             or "ratio" in key
             or "confidence" in key
             or "visibility" in key
-            or "margin" in key
+            or ("margin" in key and key != "hip_below_knee_margin")
             or "tolerance" in key
             or "delta" in key
         ) and resolved < 0:
@@ -484,15 +494,49 @@ def validate_observability_config(
     path: str | Path | None = None,
 ) -> dict[str, Any]:
     reject_unknown_fields(values, set(DEFAULT_OBSERVABILITY_CONFIG), path=path)
-    validated = {
-        key: _validated_scalar(
-            key,
-            value,
-            DEFAULT_OBSERVABILITY_CONFIG[key],
-            path=path,
-        )
-        for key, value in values.items()
+    override_fields = {
+        "required_landmark_confidence_overrides",
+        "rep_mean_confidence_overrides",
+        "decisive_rule_confidence_overrides",
     }
+    validated: dict[str, Any] = {}
+    for key, value in values.items():
+        if key not in override_fields:
+            validated[key] = _validated_scalar(
+                key,
+                value,
+                DEFAULT_OBSERVABILITY_CONFIG[key],
+                path=path,
+            )
+            continue
+        if not isinstance(value, Mapping):
+            raise ConfigValidationError(
+                "expected a nested mapping",
+                path=path,
+                key=key,
+            )
+        overrides: dict[str, float] = {}
+        for selector, threshold in value.items():
+            parts = str(selector).split("__")
+            if len(parts) != 3 or any(not part for part in parts):
+                raise ConfigValidationError(
+                    "selector must be action__view__rule",
+                    path=path,
+                    key=f"{key}.{selector}",
+                )
+            overrides[str(selector)] = _validated_scalar(
+                f"{key}.{selector}",
+                threshold,
+                0.0,
+                path=path,
+            )
+            if overrides[str(selector)] > 1:
+                raise ConfigValidationError(
+                    "confidence/visibility must be between 0 and 1",
+                    path=path,
+                    key=f"{key}.{selector}",
+                )
+        validated[key] = overrides
     merged = dict(DEFAULT_OBSERVABILITY_CONFIG)
     merged.update(validated)
     return merged

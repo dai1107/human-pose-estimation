@@ -155,6 +155,10 @@ def _run_cycle(
             ),
             timestamp_ms=timestamp,
         )
+    # A finite one-cycle fixture has no following descent to close an
+    # incomplete terminal extension, so explicitly provide the stream boundary.
+    if analyzer.finalize_pending_candidate() is not None:
+        state = analyzer.finalize_state(state)
     return state
 
 
@@ -454,6 +458,8 @@ def test_missing_post_contact_hip_angles_make_extension_unsure() -> None:
             features["left_hip_angle"] = None
             features["right_hip_angle"] = None
         state = analyzer.update(features, timestamp_ms=timestamp)
+    analyzer.finalize_pending_candidate()
+    state = analyzer.finalize_state(state)
 
     rules = _rules(state)
     assert state["last_rep_decision"]["status"] == "UNSURE"
@@ -482,8 +488,41 @@ def test_incomplete_post_contact_knee_extension_is_no_rep() -> None:
             features["left_knee_angle"] = 160.0
             features["right_knee_angle"] = 162.0
         state = analyzer.update(features, timestamp_ms=timestamp)
+    analyzer.finalize_pending_candidate()
+    state = analyzer.finalize_state(state)
 
     rules = _rules(state)
     assert state["last_rep_decision"]["status"] == "NO_REP"
     assert rules["full_knee_extension"]["status"] == "FAIL"
     assert rules["full_hip_extension"]["status"] == "PASS"
+
+
+def test_incomplete_extension_waits_until_next_descent_boundary() -> None:
+    analyzer = _analyzer()
+    state: dict[str, object] = {}
+    frames = (
+        ("stand", 0),
+        ("descent", 100),
+        ("bottom", 200),
+        ("bottom", 300),
+        ("bottom", 400),
+        ("ascent", 500),
+        ("stand", 600),
+        ("stand", 700),
+    )
+    for phase, timestamp in frames:
+        features = _pose(phase)
+        if phase == "stand" and timestamp >= 600:
+            features["left_knee_angle"] = 160.0
+            features["right_knee_angle"] = 162.0
+        state = analyzer.update(features, timestamp_ms=timestamp)
+
+    assert state["candidate_count"] == 0
+    assert analyzer._sequence_ready_for_validation is True
+
+    next_descent = analyzer.update(_pose("descent"), timestamp_ms=800)
+
+    assert next_descent["candidate_count"] == 1
+    assert next_descent["last_rep_candidate"]["events"][
+        "validation_boundary"
+    ] == "next_descent"

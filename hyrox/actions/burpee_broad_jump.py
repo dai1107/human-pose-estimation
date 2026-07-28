@@ -99,6 +99,10 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
             values.get("forward_jump_min_both_feet_displacement_leg_ratio"),
             0.15,
         )
+        self.forward_jump_scale_change_ratio = _resolved_float(
+            values.get("forward_jump_min_scale_change_ratio"),
+            0.06,
+        )
 
     @classmethod
     def from_config(
@@ -176,6 +180,14 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
             "right": None,
         }
         self._cycle_landings: dict[str, int | None] = {
+            "left": None,
+            "right": None,
+        }
+        self._cycle_takeoff_frames: dict[str, int | None] = {
+            "left": None,
+            "right": None,
+        }
+        self._cycle_landing_frames: dict[str, int | None] = {
             "left": None,
             "right": None,
         }
@@ -274,6 +286,24 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
             "left_foot_x": left[0],
             "right_foot_x": right[0],
             "mean_leg_length": leg_length,
+            "body_height": next(
+                (
+                    value
+                    for name in (
+                        "body_height_reference",
+                        "skeleton_height_estimate_norm",
+                        "body_height_norm",
+                    )
+                    for value in (_safe_float(features.get(name)),)
+                    if value is not None and value > 1e-6
+                ),
+                None,
+            ),
+            "floor_reference_status": features.get("floor_reference_status"),
+            "floor_reference_source": features.get("floor_reference_source"),
+            "floor_reference_confidence": features.get(
+                "floor_reference_confidence"
+            ),
         }
 
     def _capture_foot_evidence(
@@ -320,12 +350,14 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
             if event.event_type == "TAKEOFF" and self._cycle_active:
                 if self._cycle_takeoffs[event.side] is None:
                     self._cycle_takeoffs[event.side] = event.timestamp_ms
+                    self._cycle_takeoff_frames[event.side] = event.frame_index
                     if self._takeoff_snapshot is None:
                         self._takeoff_snapshot = self._last_grounded_snapshot
                         self._takeoff_stagger = self._last_grounded_stagger
             elif event.event_type == "LANDING" and self._cycle_active:
                 if self._cycle_landings[event.side] is None:
                     self._cycle_landings[event.side] = event.timestamp_ms
+                    self._cycle_landing_frames[event.side] = event.frame_index
             elif event.event_type == "STEP" and self._awaiting_next_hands:
                 jump_landing = self._cycle_landings.get(event.side)
                 if jump_landing is not None and event.timestamp_ms == jump_landing:
@@ -606,12 +638,39 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
             and direction_ok
             and feet_direction_ok
         )
+        scale_change_ratio: float | None = None
+        if self.camera_view_profile == "front":
+            start_height = _safe_float(start.get("body_height"))
+            end_height = _safe_float(end.get("body_height"))
+            if (
+                start_height is not None
+                and end_height is not None
+                and start_height > 1e-6
+            ):
+                scale_change_ratio = abs(end_height - start_height) / start_height
+                passed = (
+                    passed
+                    or scale_change_ratio
+                    >= self.forward_jump_scale_change_ratio
+                )
+        reported_value = max(
+            min(com_ratio, left_ratio, right_ratio),
+            scale_change_ratio or 0.0,
+        )
         return BodyRuleResult(
             "forward_jump_detected",
             "PASS" if passed else "FAIL",
             0.95,
-            value=min(com_ratio, left_ratio, right_ratio),
+            value=reported_value,
             reason_code=None if passed else "FORWARD_JUMP_DISPLACEMENT_TOO_SMALL",
+            evidence_frames=tuple(
+                frame
+                for frame in (
+                    *self._cycle_takeoff_frames.values(),
+                    *self._cycle_landing_frames.values(),
+                )
+                if frame is not None
+            ),
         )
 
     def _no_extra_step_rule(self) -> BodyRuleResult:
@@ -658,6 +717,8 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
     def _validate_pending_candidate(
         self,
         visible_score: float,
+        *,
+        validation_boundary: str = "next_hands_down",
     ) -> RepDecision:
         rules = (
             self._chest_rule(),
@@ -675,9 +736,23 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
             required_rules=BURPEE_REQUIRED_RULES,
             events={
                 "terminal_phase": "landing",
-                "validation_boundary": "next_hands_down",
+                "validation_boundary": validation_boundary,
                 "takeoff_ms": dict(self._cycle_takeoffs),
                 "landing_ms": dict(self._cycle_landings),
+                "takeoff_frames": dict(self._cycle_takeoff_frames),
+                "landing_frames": dict(self._cycle_landing_frames),
+                "floor_reference": {
+                    "status": self._current_features.get(
+                        "floor_reference_status"
+                    ),
+                    "source": self._current_features.get(
+                        "floor_reference_source"
+                    ),
+                    "confidence": self._current_features.get(
+                        "floor_reference_confidence"
+                    ),
+                },
+                "chest_contact": self._best_chest_contact.as_dict(),
                 "takeoff_stagger_ratio": (
                     None
                     if self._takeoff_stagger is None
@@ -702,6 +777,18 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
         self._post_landing_steps = []
         self._post_landing_foot_observable = True
         return decision
+
+    def finalize_pending_candidate(self) -> RepDecision | None:
+        """Finalize the last landed rep when a finite video/session ends."""
+
+        if not self._awaiting_next_hands or not self._sequence_landing_ready:
+            return None
+        visible_score = self._visible_score(self._current_features)
+        self._validated_this_frame = True
+        return self._validate_pending_candidate(
+            visible_score,
+            validation_boundary="stream_end",
+        )
 
     def _visible_score(self, features: dict[str, object]) -> float:
         score = _safe_float(features.get("visible_score"))
@@ -843,7 +930,7 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
             messages.append(FeedbackMessage("warn", "CHEST_NOT_LOW", "俯卧阶段不够低，胸部需要明显接近地面", 0.8))
         if self.stable_phase in {"broad_jump_takeoff", "landing"} and feet_stagger_score is not None and feet_stagger_score > self.feet_stagger_warn:
             messages.append(FeedbackMessage("warn", "FEET_STAGGERED", "起跳或落地时双脚前后差较大，尽量双脚同时起跳落地", 0.4))
-        if self.extra_steps:
+        if self._post_landing_steps or self.extra_steps:
             messages.append(FeedbackMessage("warn", "EXTRA_STEPS", "落地后出现小碎步，尽量稳定落地后再进入下一次", 0.65))
         if self.no_broad_jump:
             messages.append(FeedbackMessage("warn", "NO_BROAD_JUMP", "没有明显向前跳跃，burpee 后需要完成 broad jump", 0.75))
@@ -854,8 +941,11 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
     def update(self, features: dict[str, object] | None, timestamp_ms: int | None) -> dict[str, object]:
         self.begin_frame(features, timestamp_ms)
         self.last_timestamp_ms = None if timestamp_ms is None else int(timestamp_ms)
-        self.update_foot_events_for_current_frame()
-        values = features if isinstance(features, dict) else {}
+        # `begin_frame` enriches this mapping with the calibrated floor line and
+        # body-normalized floor heights. All contact and foot evidence for this
+        # frame must use that same snapshot; reading the caller's raw mapping
+        # here would split the floor→feet→chest evidence chain.
+        values = self._current_features
         current_timestamp = None if timestamp_ms is None else int(timestamp_ms)
         self._validated_this_frame = False
         visible_score = self._visible_score(values)
@@ -885,6 +975,26 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
             wrist_height=wrist_height,
             ankle_height=ankle_height,
         )
+        if (
+            raw_phase
+            in {"stand", "reset", "hands_down", "chest_down", "landing"}
+            and self.floor_reference.seed_supported_line(values)
+        ):
+            self.last_floor_reference = self.floor_reference.enrich_features(
+                values,
+                timestamp_ms=timestamp_ms,
+                frame_index=self.frame_index,
+            )
+        if raw_phase in {"hands_down", "chest_down"}:
+            skeleton_height = _safe_float(
+                values.get("skeleton_height_estimate_norm")
+            )
+            if skeleton_height is not None and skeleton_height > 0.10:
+                values["body_height_reference"] = skeleton_height
+                values["body_height_reference_source"] = (
+                    "skeleton_segments_floor_work"
+                )
+        self.update_foot_events_for_current_frame()
         self._capture_foot_evidence(values, body_center_x)
         if (
             self._awaiting_next_hands

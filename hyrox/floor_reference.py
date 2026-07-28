@@ -179,6 +179,33 @@ class LocalFloorReference:
         self._manual_line = candidate
         self._pending_reason = None
 
+    def seed_supported_line(
+        self,
+        features: Mapping[str, object],
+    ) -> bool:
+        """Seed an automatic local floor from currently supported visible feet.
+
+        The caller is responsible for invoking this only in a supported body
+        phase. This is intended for finite phone clips that start after the
+        usual standing calibration window.
+        """
+
+        if self._manual_line is not None:
+            return False
+        feet = self._foot_points(features)
+        if len(feet) < 2:
+            return False
+        floor_y = max(point.y for point in feet)
+        if (
+            self._auto_line is not None
+            and floor_y <= self._auto_line.y_at(0.5) + 0.01
+        ):
+            return False
+        self._auto_line = FloorLine.horizontal(floor_y)
+        self._samples.append((0, floor_y, None))
+        self._pending_reason = None
+        return True
+
     def _timestamp(self, timestamp_ms: int | None, frame_index: int) -> int:
         return int(timestamp_ms) if timestamp_ms is not None else int(frame_index * 1000 / 30)
 

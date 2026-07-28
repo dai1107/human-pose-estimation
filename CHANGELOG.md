@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+- 新增轻量时序证据逐视频留一 v2：Ridge 阶段发射加因果 HMM 提高阶段边界精度，
+  人工阶段边界校准最多两个缺失阶段及候选合并/结算；候选 recall 提至 31.31%、
+  precision 为 94.37%，但明确只作为现有候选链侧车。站立基线增加角度合理性、
+  稳定性和双侧一致性质量门，8 段中 6 段安全回退固定阈值。接触影子融合保留二维
+  状态并只用分割/3D 修正事件锚点，零新增 FP 下把事件 MAE 从 14.43 降到 12.10 帧。
+  置信度校准增加 5 个正例、3 段视频、训练零误报和汇总误报硬门；本轮硬门未通过，
+  自动回退基线，不用额外误报换取较低 `UNSURE`。
+- 新增统一 RGB 数据角色、泄漏检查和可回溯错误库：30 条记录分为 27 条 development、
+  3 条 validation（27 条可训练、2 条可评估、1 条不可用），训练/评估记录及临时 subject
+  无角色重叠；核心三动作因缺 validation/test 明确标记为非独立回归。优化报告新增
+  dataset role、subject、action × view × subject 和终端事件误差指标；错误库导出
+  75 个最长 1 秒的 TP/FP/FN/`UNSURE`/状态不匹配 MP4，并冻结数据、代码与配置哈希。
+- 接入 `hyrox_human_review_a_20260728_170359` 的其余手机 RGB 复核：30/30 条形成终态
+  人工结论，29 条形成可用精标，`phone_sled_push_005` 按人工“视频不可用”结论排除；
+  `phone_skierg_002` 的 73 个候选分析周期按用户确认记为有效。非核心动作缺失事件从
+  已人工核对的阶段边界确定性派生，原始导出包和来源哈希保持可审计。高分歧短片段改为
+  可延期的主动学习任务，不作为手机 RGB 精标导入门。
+- 人工复核站新增独立的 ONI 主体、视角先验和错误真值任务；Depth/IR 支持并排同步定位但
+  分别保存，新增动作可观察性矩阵、批量检查点、资格门禁、动作/视角/模态仪表盘、筛选、
+  连续审计和三类独立导出。
+- 接入 `hyrox_human_review_a_20260727_150326` 的 15 条核心手机 RGB 精标（70 次、
+  700 个阶段/错误或事件可观察性字段），并按用户确认将手机标注统一记录为
+  `OBSERVABLE`；用户进一步确认 15 条结果和保留的 AI proposal 均已完成人工复审，
+  770 条派生备注更新为“已人工核对”，15 条可用于内部规则校准和监督实验；正式 RGB
+  优化仍与 ONI 复核保持独立。
+- 按用户复核把 `phone_wall_ball_002_rep_003` 从 `NO_REP` 修正为 `VALID`，写入
+  revision 3 审计记录，并将精标一致性警告从 1 条降为 0 条。
+- 新增隔离的未审核 ONI 辅助实验：读取 32 条记录、64 路 Depth/IR 和 1,536 个采样
+  检查点，在不改变 RGB 运行指标和默认配置的前提下，将研究动作覆盖从 3 类扩展到
+  8 类、错误码场景从 9 类扩展到 12 类；全部 ONI 结果保持不可训练、不可发布。
+- 新增可复现的手机 RGB 基线/优化回放对比和按人工事件帧的单调候选对齐：动作候选
+  从 26/70 提升到 57/70，candidate recall 从 35.71% 提升到 74.29%，count MAE
+  从 2.93 降到 0.87，精确计数视频从 1/15 提升到 4/15。Lunge 使用经精标验证的
+  髋高回位代理；Burpee 提高短阶段响应并在有限视频结束时结算最后一次；Wall Ball
+  可用最低点、腕部投掷和下肢伸展证据在下一次下蹲或流结束时安全结算短投掷端点。
+- 修复三项人体动作规则链：Burpee 的地板增强结果现会在同帧贯通脚部事件、手部位置和
+  胸部触地证据；Wall Ball 的阶段端点与最终规则共享固定的视角侧选择；Lunge 只在
+  完全伸展、下一次下降或视频结束边界结算。可观测性门槛改为动作 × 视角 × 规则覆盖，
+  保留全局值作为未配置组合的回退。
+- 人工精标导入新增闭区间、rep、连续阶段、事件归属和审计链校验；保留
+  `phone_lunge_004` 缺少审计 revision 2 的来源审计缺口，不静默补写来源历史。
 - 接入 30 条 reviewer A 快速人工复核作为独立覆盖层，确认手机 30 条与 ONI 32 条的全部
   8 类授权用途，并保留第二复核者、逐次精标与 ONI Depth/IR 人工主体门。
 - 修复 Rowing/SkiErg 在后方和斜后方视角下因远侧肢体遮挡导致的漏计与 `UNSURE`：按可靠
@@ -15,6 +56,22 @@ development builds use the `X.Y.Z.devN` form.
 
 ### Added
 
+- Added an internal leave-one-video-out temporal-evidence v2 runner with Ridge
+  phase emissions, a causal HMM, manually calibrated phase skipping and
+  candidate settlement, quality-gated per-video standing baselines, a
+  2D-authoritative segmentation/3D contact-event shadow, and a hard
+  false-NO_REP rollback for confidence calibration. None of these experiments
+  changes the product default.
+- Added an internal 2D + body-relative 3D shadow-evidence experiment covering
+  hip-compensated knee/foot motion, leg depth order, 3D knee/hip angles, foot
+  speed/dwell/timing and torso shoulder-hip geometry. The leave-one-video-out
+  runner keeps the 2D floor/contact chain authoritative, blocks 3D candidate
+  creation and VALID promotion, emits leakage/safety audits, and reports the
+  required recall, status, UNSURE, event-frame and per-error FP/FN comparison.
+  Its second revision treats low-quality angle disagreement as unavailable,
+  requires temporal conflict consensus, evaluates angle/body/combined
+  ablations per fold, and exactly falls back to 2D when no 3D candidate wins
+  on the other videos; all 15 current folds choose that safe fallback.
 - Added `pose-oni-research-round11` and a versioned offline-ONI safety
   contract. All 32 Depth and IR recordings now have independent 24-checkpoint
   subject-review proposals, separate JSONL tracks and 64 modality-specific

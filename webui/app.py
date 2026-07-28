@@ -94,9 +94,12 @@ ACTION_BY_SAMPLE_STEM = {
 VIEW_LABELS = {
     "unknown": "自动 / 未指定",
     "front": "正面",
+    "rear": "背面",
     "side": "侧面",
     "front_left": "左前方",
     "front_right": "右前方",
+    "oblique_front": "斜前方",
+    "oblique_rear": "斜后方",
 }
 
 FACE_KEYPOINTS = {

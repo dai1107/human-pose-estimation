@@ -14,6 +14,8 @@ torso_lean_warn: 20.0
 motion_tolerance: 3.0
 hip_motion_tolerance: 0.004
 hip_drop_min: 0.035
+stand_hip_return_tolerance: 0.029
+rgb_stand_height_proxy_enabled: true
 stable_frames: 2
 rep_cooldown_ms: 400
 # Trailing-knee contact is a 2D proxy around the joint-centre landmark.

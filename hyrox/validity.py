@@ -70,6 +70,15 @@ THREE_D_ASSIST_RULE_ANGLES: Mapping[str, Mapping[str, tuple[str, ...]]] = {
     },
 }
 
+_THREE_D_FOOT_TIMING_RULES = frozenset(
+    {
+        "simultaneous_takeoff",
+        "simultaneous_landing",
+        "takeoff_stagger_proxy",
+        "landing_stagger_proxy",
+    }
+)
+
 
 def _clamp_confidence(value: float) -> float:
     try:
@@ -194,6 +203,15 @@ class ObservabilityPolicy:
     required_landmark_confidence: float = 0.60
     rep_mean_confidence: float = 0.65
     decisive_rule_confidence: float = 0.72
+    required_landmark_confidence_overrides: Mapping[str, float] = field(
+        default_factory=dict
+    )
+    rep_mean_confidence_overrides: Mapping[str, float] = field(
+        default_factory=dict
+    )
+    decisive_rule_confidence_overrides: Mapping[str, float] = field(
+        default_factory=dict
+    )
 
     @classmethod
     def from_mapping(
@@ -211,7 +229,80 @@ class ObservabilityPolicy:
             decisive_rule_confidence=_clamp_confidence(
                 resolved.get("decisive_rule_confidence", 0.72)  # type: ignore[arg-type]
             ),
+            required_landmark_confidence_overrides=cls._overrides(
+                resolved.get("required_landmark_confidence_overrides")
+            ),
+            rep_mean_confidence_overrides=cls._overrides(
+                resolved.get("rep_mean_confidence_overrides")
+            ),
+            decisive_rule_confidence_overrides=cls._overrides(
+                resolved.get("decisive_rule_confidence_overrides")
+            ),
         )
+
+    @staticmethod
+    def _overrides(value: object) -> dict[str, float]:
+        if not isinstance(value, Mapping):
+            return {}
+        return {
+            str(key).strip().lower().replace("-", "_"): _clamp_confidence(
+                threshold  # type: ignore[arg-type]
+            )
+            for key, threshold in value.items()
+        }
+
+    @staticmethod
+    def _selector_candidates(
+        action: str,
+        camera_view: str,
+        rule_id: str,
+    ) -> tuple[str, ...]:
+        action_key = action.strip().lower().replace(" ", "_").replace("-", "_")
+        view_key = camera_view.strip().lower().replace("-", "_")
+        rule_key = rule_id.strip().lower().replace(" ", "_").replace("-", "_")
+        return (
+            f"{action_key}__{view_key}__{rule_key}",
+            f"{action_key}__{view_key}__default",
+            f"{action_key}__default__{rule_key}",
+            f"{action_key}__default__default",
+            f"default__{view_key}__{rule_key}",
+            f"default__{view_key}__default",
+            f"default__default__{rule_key}",
+        )
+
+    def thresholds_for(
+        self,
+        action: str,
+        camera_view: str,
+        rule_id: str,
+    ) -> dict[str, float]:
+        def resolve(
+            overrides: Mapping[str, float],
+            fallback: float,
+        ) -> float:
+            for selector in self._selector_candidates(
+                action,
+                camera_view,
+                rule_id,
+            ):
+                if selector in overrides:
+                    return overrides[selector]
+            return fallback
+
+        return {
+            "required_landmark_confidence": resolve(
+                self.required_landmark_confidence_overrides,
+                self.required_landmark_confidence,
+            ),
+            "rep_mean_confidence": resolve(
+                self.rep_mean_confidence_overrides,
+                self.rep_mean_confidence,
+            ),
+            "decisive_rule_confidence": resolve(
+                self.decisive_rule_confidence_overrides,
+                self.decisive_rule_confidence,
+            ),
+        }
 
 
 @dataclass(frozen=True)
@@ -224,6 +315,9 @@ class ObservabilityAssessment:
     floor_reference_ready: bool | None
     camera_view_suitable: bool | None
     single_frame_failure: bool
+    thresholds_by_rule: Mapping[str, Mapping[str, float]] = field(
+        default_factory=dict
+    )
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -237,6 +331,10 @@ class ObservabilityAssessment:
             "floor_reference_ready": self.floor_reference_ready,
             "camera_view_suitable": self.camera_view_suitable,
             "single_frame_failure": self.single_frame_failure,
+            "thresholds_by_rule": {
+                rule_id: dict(thresholds)
+                for rule_id, thresholds in self.thresholds_by_rule.items()
+            },
         }
 
 
@@ -270,8 +368,11 @@ def apply_observability_policy(
     policy: ObservabilityPolicy,
     required_rules: Sequence[str] | None = None,
     required_landmarks: Sequence[str] = (),
+    required_landmarks_by_rule: Mapping[str, Sequence[str]] | None = None,
     floor_required: bool = False,
     camera_view_suitable: bool | None = None,
+    action: str | None = None,
+    camera_view: str = "unknown",
 ) -> tuple[RepDecision, ObservabilityAssessment]:
     """Downgrade otherwise decisive results when their evidence is not observable."""
     required = _required_rule_results(decision, required_rules)
@@ -300,43 +401,94 @@ def apply_observability_policy(
         else sum(visible_scores) / len(visible_scores)
     )
 
-    evidence_frames = {
-        frame
+    action_key = str(action or candidate.action)
+    thresholds_by_rule = {
+        rule.rule_id: policy.thresholds_for(
+            action_key,
+            camera_view,
+            rule.rule_id,
+        )
         for rule in decisive
-        for frame in rule.evidence_frames
-        if candidate.start_frame <= frame <= candidate.end_frame
     }
-    if evidence_frames:
-        evidence_snapshots = tuple(
+
+    def snapshots_for(rule: BodyRuleResult) -> tuple[Mapping[str, object], ...]:
+        evidence_frames = {
+            frame
+            for frame in rule.evidence_frames
+            if candidate.start_frame <= frame <= candidate.end_frame
+        }
+        if not evidence_frames:
+            return candidate.frames[-1:] if candidate.frames else ()
+        return tuple(
             candidate.frames[frame - candidate.start_frame]
             for frame in sorted(evidence_frames)
             if 0 <= frame - candidate.start_frame < len(candidate.frames)
         )
-    else:
-        evidence_snapshots = candidate.frames[-1:] if candidate.frames else ()
 
-    landmark_scores = tuple(
-        float(median(scores))
-        for name in required_landmarks
-        for scores in (
-            tuple(
-                confidence
-                for frame in evidence_snapshots
-                for confidence in (
-                    _safe_confidence(frame.get(f"{name}_confidence")),
-                )
-                if confidence is not None
-            ),
+    evidence_by_rule = {
+        rule.rule_id: snapshots_for(rule)
+        for rule in decisive
+    }
+    landmark_confidence_by_rule: dict[str, float | None] = {}
+    for rule in decisive:
+        landmarks = list(
+            tuple(required_landmarks_by_rule.get(rule.rule_id, ()))
+            if required_landmarks_by_rule is not None
+            else tuple(required_landmarks)
         )
-        if scores
+        selected_side: str | None = None
+        if rule.rule_id in {"full_knee_extension", "full_hip_extension"}:
+            selected_side = str(candidate.events.get("extension_side") or "")
+        elif rule.rule_id in {
+            "trailing_knee_contact",
+            "alternating_contact_leg",
+        }:
+            selected_side = str(candidate.events.get("contact_leg") or "")
+        pose_strategy = str(candidate.events.get("pose_side_strategy") or "")
+        if pose_strategy.startswith("selected_"):
+            selected_side = pose_strategy.removeprefix("selected_")
+        if selected_side in {"left", "right"}:
+            side_landmarks = [
+                name
+                for name in landmarks
+                if name.startswith(f"{selected_side}_")
+            ]
+            if side_landmarks:
+                landmarks = side_landmarks
+        snapshots = evidence_by_rule[rule.rule_id]
+        landmark_scores = tuple(
+            float(median(scores))
+            for name in landmarks
+            for scores in (
+                tuple(
+                    confidence
+                    for frame in snapshots
+                    for confidence in (
+                        _safe_confidence(frame.get(f"{name}_confidence")),
+                    )
+                    if confidence is not None
+                ),
+            )
+            if scores
+        )
+        landmark_confidence_by_rule[rule.rule_id] = (
+            min(landmark_scores) if landmark_scores else None
+        )
+    observed_landmark_confidences = tuple(
+        value
+        for value in landmark_confidence_by_rule.values()
+        if value is not None
     )
     landmark_confidence = (
-        min(landmark_scores) if landmark_scores else None
+        min(observed_landmark_confidences)
+        if observed_landmark_confidences
+        else None
     )
 
     floor_statuses = tuple(
         str(frame.get("floor_reference_status"))
-        for frame in evidence_snapshots
+        for snapshots in evidence_by_rule.values()
+        for frame in snapshots
         if frame.get("floor_reference_status") is not None
     )
     floor_ready: bool | None
@@ -357,16 +509,22 @@ def apply_observability_policy(
         )
     )
     reasons: list[str] = []
-    if rep_mean is not None and rep_mean < policy.rep_mean_confidence:
+    if rep_mean is not None and any(
+        rep_mean < thresholds["rep_mean_confidence"]
+        for thresholds in thresholds_by_rule.values()
+    ):
         reasons.append("REP_MEAN_CONFIDENCE_LOW")
-    if (
-        landmark_confidence is not None
-        and landmark_confidence < policy.required_landmark_confidence
+    if any(
+        confidence is not None
+        and confidence
+        < thresholds_by_rule[rule_id]["required_landmark_confidence"]
+        for rule_id, confidence in landmark_confidence_by_rule.items()
     ):
         reasons.append("REQUIRED_LANDMARK_CONFIDENCE_LOW")
-    if (
-        decision.status != "UNSURE"
-        and decision.confidence < policy.decisive_rule_confidence
+    if decision.status != "UNSURE" and any(
+        rule.confidence
+        < thresholds_by_rule[rule.rule_id]["decisive_rule_confidence"]
+        for rule in decisive
     ):
         reasons.append("DECISIVE_RULE_CONFIDENCE_LOW")
     if camera_view_suitable is False:
@@ -385,6 +543,7 @@ def apply_observability_policy(
         floor_reference_ready=floor_ready,
         camera_view_suitable=camera_view_suitable,
         single_frame_failure=single_frame_failure,
+        thresholds_by_rule=thresholds_by_rule,
     )
     if not reason_codes or decision.status == "UNSURE":
         return decision, assessment
@@ -506,10 +665,201 @@ def _assist_measurement_state(
         if isinstance(raw_reasons, (list, tuple))
         else set()
     )
-    if "two_d_three_d_conflict" in reasons:
+    # A 2D/3D disagreement is usable only when no independent quality gate
+    # failed.  Low visibility, temporal jumps or invalid geometry make the
+    # apparent disagreement unobservable rather than trustworthy conflict.
+    if reasons == {"two_d_three_d_conflict"}:
         return "conflict"
     if bool(measurement.get("three_d_reliable")):
         return "support"
+    return "unavailable"
+
+
+def _experimental_body_payload(
+    snapshot: Mapping[str, object],
+) -> Mapping[str, object] | None:
+    payload = snapshot.get("three_d_kinematics")
+    if (
+        not isinstance(payload, Mapping)
+        or not bool(payload.get("experimental_fusion_enabled"))
+        or not bool(payload.get("experimental_body_fusion_enabled", True))
+    ):
+        return None
+    body = payload.get("body_relative")
+    if not isinstance(body, Mapping) or not bool(body.get("reliable")):
+        return None
+    return body
+
+
+def _experimental_angle_rule_state(
+    candidate: RepCandidate,
+    angles: Sequence[str],
+) -> str | None:
+    """Resolve experimental angle evidence using temporal consensus.
+
+    ``None`` means the candidate is on the legacy/non-experimental path.
+    ``disabled`` is an explicit ablation that must not map the angle rule.
+    """
+
+    saw_experiment = False
+    saw_enabled = False
+    support_frames = 0
+    conflict_frames = 0
+    thresholds: Mapping[str, object] = {}
+    for snapshot in candidate.frames:
+        payload = snapshot.get("three_d_kinematics")
+        if (
+            not isinstance(payload, Mapping)
+            or not bool(payload.get("experimental_fusion_enabled"))
+        ):
+            continue
+        saw_experiment = True
+        if not bool(payload.get("experimental_angle_fusion_enabled", True)):
+            continue
+        saw_enabled = True
+        raw_thresholds = payload.get("experimental_temporal_thresholds")
+        if isinstance(raw_thresholds, Mapping):
+            thresholds = raw_thresholds
+        states = tuple(
+            _assist_measurement_state(payload, angle_name)
+            for angle_name in angles
+        )
+        if "conflict" in states:
+            conflict_frames += 1
+        elif "support" in states:
+            support_frames += 1
+    if not saw_experiment:
+        return None
+    if not saw_enabled:
+        return "disabled"
+    observed = support_frames + conflict_frames
+    if not observed:
+        return "unavailable"
+    conflict_min_frames = int(
+        _safe_number(thresholds.get("angle_conflict_min_frames")) or 3
+    )
+    conflict_min_ratio = (
+        _safe_number(thresholds.get("angle_conflict_min_ratio")) or 0.35
+    )
+    support_min_frames = int(
+        _safe_number(thresholds.get("angle_support_min_frames")) or 3
+    )
+    support_min_ratio = (
+        _safe_number(thresholds.get("angle_support_min_ratio")) or 0.50
+    )
+    if (
+        conflict_frames >= conflict_min_frames
+        and conflict_frames / observed >= conflict_min_ratio
+    ):
+        return "conflict"
+    if (
+        support_frames >= support_min_frames
+        and support_frames / observed >= support_min_ratio
+    ):
+        return "support"
+    return "unavailable"
+
+
+def _safe_number(value: object) -> float | None:
+    try:
+        resolved = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return resolved if resolved == resolved else None
+
+
+def _body_rule_state(
+    candidate: RepCandidate,
+    rule: BodyRuleResult,
+) -> str:
+    """Compare 3D temporal evidence with a 2D rule, never create its status."""
+
+    bodies = [
+        body
+        for snapshot in candidate.frames
+        if (body := _experimental_body_payload(snapshot)) is not None
+    ]
+    if not bodies:
+        return "unavailable"
+    if rule.rule_id in _THREE_D_FOOT_TIMING_RULES:
+        event = "takeoff" if "takeoff" in rule.rule_id else "landing"
+        deltas = []
+        for body in bodies:
+            motion = body.get("foot_motion")
+            if not isinstance(motion, Mapping):
+                continue
+            value = _safe_number(
+                motion.get(f"{event}_time_difference_ms")
+            )
+            if value is not None:
+                deltas.append(value)
+        if not deltas:
+            return "unavailable"
+        thresholds = bodies[-1].get("thresholds")
+        thresholds = thresholds if isinstance(thresholds, Mapping) else {}
+        support_limit = _safe_number(
+            thresholds.get("synchronous_event_ms")
+        )
+        conflict_limit = _safe_number(
+            thresholds.get("conflict_event_ms")
+        )
+        support_limit = 120.0 if support_limit is None else support_limit
+        conflict_limit = 220.0 if conflict_limit is None else conflict_limit
+        delta = deltas[-1]
+        three_d_pass = (
+            True
+            if delta <= support_limit
+            else False if delta >= conflict_limit else None
+        )
+        if three_d_pass is None or rule.status not in {"PASS", "FAIL"}:
+            return "unavailable"
+        return (
+            "support"
+            if (rule.status == "PASS") == three_d_pass
+            else "conflict"
+        )
+    if rule.rule_id == "no_extra_step_or_shuffle":
+        counts: list[int] = []
+        for body in bodies:
+            motion = body.get("foot_motion")
+            if not isinstance(motion, Mapping):
+                continue
+            resolved = [
+                _safe_number(motion.get(f"{side}_{event}_count"))
+                for side in ("left", "right")
+                for event in ("takeoff", "landing")
+            ]
+            if all(value is not None for value in resolved):
+                counts.append(sum(int(value) for value in resolved if value is not None))
+        if len(counts) < 2 or rule.status not in {"PASS", "FAIL"}:
+            return "unavailable"
+        transitions = max(counts) - min(counts)
+        expected_max = 4 if candidate.action == "burpee_broad_jump" else 2
+        three_d_pass = (
+            True
+            if transitions <= expected_max
+            else False if transitions >= expected_max + 2 else None
+        )
+        if three_d_pass is None:
+            return "unavailable"
+        return (
+            "support"
+            if (rule.status == "PASS") == three_d_pass
+            else "conflict"
+        )
+    if rule.rule_id == "alternating_contact_leg":
+        selected = str(candidate.events.get("contact_leg", "")).lower()
+        hints = []
+        for body in bodies:
+            depth = body.get("leg_depth_order")
+            if isinstance(depth, Mapping):
+                hint = str(depth.get("trailing_side_hint", "")).lower()
+                if hint in {"left", "right"}:
+                    hints.append(hint)
+        if not hints or selected not in {"left", "right"}:
+            return "unavailable"
+        consensus = max(set(hints), key=hints.count)
+        return "support" if selected == consensus else "conflict"
     return "unavailable"
 
 
@@ -536,13 +886,22 @@ def apply_three_d_assist(
 
     for rule in decision.rules:
         angles = rule_angles.get(rule.rule_id)
-        if not angles:
+        body_state = _body_rule_state(candidate, rule)
+        angle_state = (
+            _experimental_angle_rule_state(candidate, angles)
+            if angles
+            else "disabled"
+        )
+        experimental_angle = angle_state is not None
+        angle_mapped = bool(angles) and angle_state != "disabled"
+        if not angle_mapped and body_state == "unavailable":
             rules.append(rule)
             continue
         mapped_rule_seen = True
-        relevant_angles.update(angles)
-        support = False
-        conflict = False
+        if angle_mapped:
+            relevant_angles.update(angles or ())
+        support = body_state == "support" or angle_state == "support"
+        conflict = body_state == "conflict" or angle_state == "conflict"
         confidence_boost = 0.05
         conflict_cap = 0.49
         for snapshot in _candidate_rule_snapshots(candidate, rule):
@@ -565,12 +924,13 @@ def apply_three_d_assist(
                 payload.get("assist_conflict_confidence_cap"),
                 conflict_cap,
             )
-            states = tuple(
-                _assist_measurement_state(payload, angle_name)
-                for angle_name in angles
-            )
-            support = support or "support" in states
-            conflict = conflict or "conflict" in states
+            if not experimental_angle:
+                states = tuple(
+                    _assist_measurement_state(payload, angle_name)
+                    for angle_name in (angles or ())
+                )
+                support = support or "support" in states
+                conflict = conflict or "conflict" in states
 
         adjusted_rule = rule
         if conflict:

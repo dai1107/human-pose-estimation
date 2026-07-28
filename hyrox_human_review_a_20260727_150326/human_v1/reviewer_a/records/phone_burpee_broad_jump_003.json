@@ -1,0 +1,1565 @@
+{
+  "schema_version": 1,
+  "artifact_type": "human_review_record",
+  "protocol_version": "human_review_v1.0",
+  "reviewer_role": "reviewer_a",
+  "reviewer_id": "quick_reviewer",
+  "reviewer_type": "human",
+  "record_id": "phone_burpee_broad_jump_003",
+  "revision": 3,
+  "review_started_at": "2026-07-26T09:50:51.837167+00:00",
+  "review_finished_at": "2026-07-27T06:21:40.150871+00:00",
+  "blind_review": {},
+  "review": {
+    "quick_review": {
+      "action": "burpee_broad_jump",
+      "authorization": "confirmed",
+      "correction": "",
+      "equipment_visibility": "visible",
+      "events": [
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_001",
+          "event_type": "hands_down",
+          "frame_index": 7,
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对",
+          "timestamp_ms": 233.333
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_001",
+          "event_type": "chest_contact_candidate",
+          "frame_index": 19,
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对",
+          "timestamp_ms": 633.333
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_001",
+          "event_type": "takeoff_candidate",
+          "frame_index": 50,
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对",
+          "timestamp_ms": 1666.667
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_001",
+          "event_type": "landing_candidate",
+          "frame_index": 68,
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对",
+          "timestamp_ms": 2266.667
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_002",
+          "event_type": "hands_down",
+          "frame_index": 145,
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对",
+          "timestamp_ms": 4833.333
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_002",
+          "event_type": "chest_contact_candidate",
+          "frame_index": 157,
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对",
+          "timestamp_ms": 5233.333
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_002",
+          "event_type": "takeoff_candidate",
+          "frame_index": 185,
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对",
+          "timestamp_ms": 6166.667
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_002",
+          "event_type": "landing_candidate",
+          "frame_index": 202,
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对",
+          "timestamp_ms": 6733.333
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_003",
+          "event_type": "hands_down",
+          "frame_index": 273,
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对",
+          "timestamp_ms": 9100.0
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_003",
+          "event_type": "chest_contact_candidate",
+          "frame_index": 285,
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对",
+          "timestamp_ms": 9500.0
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_003",
+          "event_type": "takeoff_candidate",
+          "frame_index": 326,
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对",
+          "timestamp_ms": 10866.667
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_003",
+          "event_type": "landing_candidate",
+          "frame_index": 351,
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对",
+          "timestamp_ms": 11700.0
+        }
+      ],
+      "notes": "这是波比跳的单脚起的标准动作示范视频",
+      "observability": "OBSERVABLE",
+      "overall_result": "VALID",
+      "proposal_decision": "modify",
+      "reps": [
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_001",
+          "start_frame": 0,
+          "end_frame": 87,
+          "validity": "VALID",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_002",
+          "start_frame": 88,
+          "end_frame": 220,
+          "validity": "VALID",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_003",
+          "start_frame": 221,
+          "end_frame": 376,
+          "validity": "VALID",
+          "notes": "AI 候选，待人工核对"
+        }
+      ],
+      "score": null,
+      "segments": [
+        {
+          "label": "target_action",
+          "start_frame": 0,
+          "end_frame": 376,
+          "notes": "AI 候选，已由人工载入"
+        }
+      ],
+      "status": "complete",
+      "subject_id": "subject_pending",
+      "target_status": "correct",
+      "usable_end_frame": 376,
+      "usable_start_frame": 0,
+      "video_usability": "usable",
+      "phase_error_intervals": [
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_001",
+          "start_frame": 0,
+          "end_frame": 14,
+          "phase": "hands_down",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_001",
+          "start_frame": 15,
+          "end_frame": 28,
+          "phase": "chest_down",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_001",
+          "start_frame": 29,
+          "end_frame": 43,
+          "phase": "takeoff",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_001",
+          "start_frame": 44,
+          "end_frame": 58,
+          "phase": "flight",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_001",
+          "start_frame": 59,
+          "end_frame": 72,
+          "phase": "landing",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_001",
+          "start_frame": 73,
+          "end_frame": 87,
+          "phase": "stabilization",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_002",
+          "start_frame": 88,
+          "end_frame": 109,
+          "phase": "hands_down",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_002",
+          "start_frame": 110,
+          "end_frame": 131,
+          "phase": "chest_down",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_002",
+          "start_frame": 132,
+          "end_frame": 153,
+          "phase": "takeoff",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_002",
+          "start_frame": 154,
+          "end_frame": 176,
+          "phase": "flight",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_002",
+          "start_frame": 177,
+          "end_frame": 198,
+          "phase": "landing",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_002",
+          "start_frame": 199,
+          "end_frame": 220,
+          "phase": "stabilization",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_003",
+          "start_frame": 221,
+          "end_frame": 246,
+          "phase": "hands_down",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_003",
+          "start_frame": 247,
+          "end_frame": 272,
+          "phase": "chest_down",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_003",
+          "start_frame": 273,
+          "end_frame": 298,
+          "phase": "takeoff",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_003",
+          "start_frame": 299,
+          "end_frame": 324,
+          "phase": "flight",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_003",
+          "start_frame": 325,
+          "end_frame": 350,
+          "phase": "landing",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        },
+        {
+          "rep_id": "phone_burpee_broad_jump_003_rep_003",
+          "start_frame": 351,
+          "end_frame": 376,
+          "phase": "stabilization",
+          "error_code": "NO_ERROR",
+          "observability": "UNKNOWN",
+          "notes": "AI 候选，待人工核对"
+        }
+      ]
+    }
+  },
+  "audit_log": [
+    {
+      "revision": 1,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-26T09:50:51.837167+00:00",
+      "reason": "quick human review update",
+      "evidence_frames": [],
+      "changes": [
+        {
+          "path": "quick_review.action",
+          "old_value": null,
+          "new_value": "burpee_broad_jump"
+        },
+        {
+          "path": "quick_review.authorization",
+          "old_value": null,
+          "new_value": "confirmed"
+        },
+        {
+          "path": "quick_review.correction",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.equipment_visibility",
+          "old_value": null,
+          "new_value": "visible"
+        },
+        {
+          "path": "quick_review.events",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.notes",
+          "old_value": null,
+          "new_value": "这是波比跳的单脚起的标准动作示范视频"
+        },
+        {
+          "path": "quick_review.observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.overall_result",
+          "old_value": null,
+          "new_value": "VALID"
+        },
+        {
+          "path": "quick_review.proposal_decision",
+          "old_value": null,
+          "new_value": "modify"
+        },
+        {
+          "path": "quick_review.reps",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.segments",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.status",
+          "old_value": null,
+          "new_value": "complete"
+        },
+        {
+          "path": "quick_review.subject_id",
+          "old_value": null,
+          "new_value": "subject_pending"
+        },
+        {
+          "path": "quick_review.target_status",
+          "old_value": null,
+          "new_value": "correct"
+        },
+        {
+          "path": "quick_review.usable_end_frame",
+          "old_value": null,
+          "new_value": 376
+        },
+        {
+          "path": "quick_review.usable_start_frame",
+          "old_value": null,
+          "new_value": 0
+        },
+        {
+          "path": "quick_review.video_usability",
+          "old_value": null,
+          "new_value": "usable"
+        }
+      ]
+    },
+    {
+      "revision": 2,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-26T10:11:22.406879+00:00",
+      "reason": "quick human review update",
+      "evidence_frames": [],
+      "changes": [
+        {
+          "path": "quick_review.proposal_decision",
+          "old_value": "modify",
+          "new_value": "unresolved"
+        }
+      ]
+    },
+    {
+      "revision": 3,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-27T06:21:40.150871+00:00",
+      "reason": "single human core fine annotation",
+      "evidence_frames": [
+        7,
+        19,
+        50,
+        68,
+        145,
+        157,
+        185,
+        202,
+        273,
+        285,
+        326,
+        351
+      ],
+      "changes": [
+        {
+          "path": "quick_review.events",
+          "old_value": [],
+          "new_value": null
+        },
+        {
+          "path": "quick_review.events[0].event_type",
+          "old_value": null,
+          "new_value": "hands_down"
+        },
+        {
+          "path": "quick_review.events[0].frame_index",
+          "old_value": null,
+          "new_value": 7
+        },
+        {
+          "path": "quick_review.events[0].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.events[0].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.events[0].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_001"
+        },
+        {
+          "path": "quick_review.events[0].timestamp_ms",
+          "old_value": null,
+          "new_value": 233.333
+        },
+        {
+          "path": "quick_review.events[10].event_type",
+          "old_value": null,
+          "new_value": "takeoff_candidate"
+        },
+        {
+          "path": "quick_review.events[10].frame_index",
+          "old_value": null,
+          "new_value": 326
+        },
+        {
+          "path": "quick_review.events[10].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.events[10].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.events[10].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_003"
+        },
+        {
+          "path": "quick_review.events[10].timestamp_ms",
+          "old_value": null,
+          "new_value": 10866.667
+        },
+        {
+          "path": "quick_review.events[11].event_type",
+          "old_value": null,
+          "new_value": "landing_candidate"
+        },
+        {
+          "path": "quick_review.events[11].frame_index",
+          "old_value": null,
+          "new_value": 351
+        },
+        {
+          "path": "quick_review.events[11].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.events[11].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.events[11].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_003"
+        },
+        {
+          "path": "quick_review.events[11].timestamp_ms",
+          "old_value": null,
+          "new_value": 11700.0
+        },
+        {
+          "path": "quick_review.events[1].event_type",
+          "old_value": null,
+          "new_value": "chest_contact_candidate"
+        },
+        {
+          "path": "quick_review.events[1].frame_index",
+          "old_value": null,
+          "new_value": 19
+        },
+        {
+          "path": "quick_review.events[1].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.events[1].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.events[1].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_001"
+        },
+        {
+          "path": "quick_review.events[1].timestamp_ms",
+          "old_value": null,
+          "new_value": 633.333
+        },
+        {
+          "path": "quick_review.events[2].event_type",
+          "old_value": null,
+          "new_value": "takeoff_candidate"
+        },
+        {
+          "path": "quick_review.events[2].frame_index",
+          "old_value": null,
+          "new_value": 50
+        },
+        {
+          "path": "quick_review.events[2].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.events[2].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.events[2].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_001"
+        },
+        {
+          "path": "quick_review.events[2].timestamp_ms",
+          "old_value": null,
+          "new_value": 1666.667
+        },
+        {
+          "path": "quick_review.events[3].event_type",
+          "old_value": null,
+          "new_value": "landing_candidate"
+        },
+        {
+          "path": "quick_review.events[3].frame_index",
+          "old_value": null,
+          "new_value": 68
+        },
+        {
+          "path": "quick_review.events[3].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.events[3].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.events[3].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_001"
+        },
+        {
+          "path": "quick_review.events[3].timestamp_ms",
+          "old_value": null,
+          "new_value": 2266.667
+        },
+        {
+          "path": "quick_review.events[4].event_type",
+          "old_value": null,
+          "new_value": "hands_down"
+        },
+        {
+          "path": "quick_review.events[4].frame_index",
+          "old_value": null,
+          "new_value": 145
+        },
+        {
+          "path": "quick_review.events[4].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.events[4].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.events[4].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_002"
+        },
+        {
+          "path": "quick_review.events[4].timestamp_ms",
+          "old_value": null,
+          "new_value": 4833.333
+        },
+        {
+          "path": "quick_review.events[5].event_type",
+          "old_value": null,
+          "new_value": "chest_contact_candidate"
+        },
+        {
+          "path": "quick_review.events[5].frame_index",
+          "old_value": null,
+          "new_value": 157
+        },
+        {
+          "path": "quick_review.events[5].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.events[5].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.events[5].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_002"
+        },
+        {
+          "path": "quick_review.events[5].timestamp_ms",
+          "old_value": null,
+          "new_value": 5233.333
+        },
+        {
+          "path": "quick_review.events[6].event_type",
+          "old_value": null,
+          "new_value": "takeoff_candidate"
+        },
+        {
+          "path": "quick_review.events[6].frame_index",
+          "old_value": null,
+          "new_value": 185
+        },
+        {
+          "path": "quick_review.events[6].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.events[6].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.events[6].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_002"
+        },
+        {
+          "path": "quick_review.events[6].timestamp_ms",
+          "old_value": null,
+          "new_value": 6166.667
+        },
+        {
+          "path": "quick_review.events[7].event_type",
+          "old_value": null,
+          "new_value": "landing_candidate"
+        },
+        {
+          "path": "quick_review.events[7].frame_index",
+          "old_value": null,
+          "new_value": 202
+        },
+        {
+          "path": "quick_review.events[7].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.events[7].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.events[7].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_002"
+        },
+        {
+          "path": "quick_review.events[7].timestamp_ms",
+          "old_value": null,
+          "new_value": 6733.333
+        },
+        {
+          "path": "quick_review.events[8].event_type",
+          "old_value": null,
+          "new_value": "hands_down"
+        },
+        {
+          "path": "quick_review.events[8].frame_index",
+          "old_value": null,
+          "new_value": 273
+        },
+        {
+          "path": "quick_review.events[8].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.events[8].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.events[8].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_003"
+        },
+        {
+          "path": "quick_review.events[8].timestamp_ms",
+          "old_value": null,
+          "new_value": 9100.0
+        },
+        {
+          "path": "quick_review.events[9].event_type",
+          "old_value": null,
+          "new_value": "chest_contact_candidate"
+        },
+        {
+          "path": "quick_review.events[9].frame_index",
+          "old_value": null,
+          "new_value": 285
+        },
+        {
+          "path": "quick_review.events[9].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.events[9].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.events[9].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_003"
+        },
+        {
+          "path": "quick_review.events[9].timestamp_ms",
+          "old_value": null,
+          "new_value": 9500.0
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].end_frame",
+          "old_value": null,
+          "new_value": 14
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].phase",
+          "old_value": null,
+          "new_value": "hands_down"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_001"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].start_frame",
+          "old_value": null,
+          "new_value": 0
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].end_frame",
+          "old_value": null,
+          "new_value": 198
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].phase",
+          "old_value": null,
+          "new_value": "landing"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_002"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[10].start_frame",
+          "old_value": null,
+          "new_value": 177
+        },
+        {
+          "path": "quick_review.phase_error_intervals[11].end_frame",
+          "old_value": null,
+          "new_value": 220
+        },
+        {
+          "path": "quick_review.phase_error_intervals[11].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[11].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[11].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[11].phase",
+          "old_value": null,
+          "new_value": "stabilization"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[11].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_002"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[11].start_frame",
+          "old_value": null,
+          "new_value": 199
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].end_frame",
+          "old_value": null,
+          "new_value": 246
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].phase",
+          "old_value": null,
+          "new_value": "hands_down"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_003"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[12].start_frame",
+          "old_value": null,
+          "new_value": 221
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].end_frame",
+          "old_value": null,
+          "new_value": 272
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].phase",
+          "old_value": null,
+          "new_value": "chest_down"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_003"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[13].start_frame",
+          "old_value": null,
+          "new_value": 247
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].end_frame",
+          "old_value": null,
+          "new_value": 298
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].phase",
+          "old_value": null,
+          "new_value": "takeoff"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_003"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[14].start_frame",
+          "old_value": null,
+          "new_value": 273
+        },
+        {
+          "path": "quick_review.phase_error_intervals[15].end_frame",
+          "old_value": null,
+          "new_value": 324
+        },
+        {
+          "path": "quick_review.phase_error_intervals[15].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[15].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[15].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[15].phase",
+          "old_value": null,
+          "new_value": "flight"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[15].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_003"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[15].start_frame",
+          "old_value": null,
+          "new_value": 299
+        },
+        {
+          "path": "quick_review.phase_error_intervals[16].end_frame",
+          "old_value": null,
+          "new_value": 350
+        },
+        {
+          "path": "quick_review.phase_error_intervals[16].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[16].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[16].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[16].phase",
+          "old_value": null,
+          "new_value": "landing"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[16].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_003"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[16].start_frame",
+          "old_value": null,
+          "new_value": 325
+        },
+        {
+          "path": "quick_review.phase_error_intervals[17].end_frame",
+          "old_value": null,
+          "new_value": 376
+        },
+        {
+          "path": "quick_review.phase_error_intervals[17].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[17].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[17].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[17].phase",
+          "old_value": null,
+          "new_value": "stabilization"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[17].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_003"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[17].start_frame",
+          "old_value": null,
+          "new_value": 351
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].end_frame",
+          "old_value": null,
+          "new_value": 28
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].phase",
+          "old_value": null,
+          "new_value": "chest_down"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_001"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[1].start_frame",
+          "old_value": null,
+          "new_value": 15
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].end_frame",
+          "old_value": null,
+          "new_value": 43
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].phase",
+          "old_value": null,
+          "new_value": "takeoff"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_001"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[2].start_frame",
+          "old_value": null,
+          "new_value": 29
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].end_frame",
+          "old_value": null,
+          "new_value": 58
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].phase",
+          "old_value": null,
+          "new_value": "flight"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_001"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[3].start_frame",
+          "old_value": null,
+          "new_value": 44
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].end_frame",
+          "old_value": null,
+          "new_value": 72
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].phase",
+          "old_value": null,
+          "new_value": "landing"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_001"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[4].start_frame",
+          "old_value": null,
+          "new_value": 59
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].end_frame",
+          "old_value": null,
+          "new_value": 87
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].phase",
+          "old_value": null,
+          "new_value": "stabilization"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_001"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[5].start_frame",
+          "old_value": null,
+          "new_value": 73
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].end_frame",
+          "old_value": null,
+          "new_value": 109
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].phase",
+          "old_value": null,
+          "new_value": "hands_down"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_002"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[6].start_frame",
+          "old_value": null,
+          "new_value": 88
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].end_frame",
+          "old_value": null,
+          "new_value": 131
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].phase",
+          "old_value": null,
+          "new_value": "chest_down"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_002"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[7].start_frame",
+          "old_value": null,
+          "new_value": 110
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].end_frame",
+          "old_value": null,
+          "new_value": 153
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].phase",
+          "old_value": null,
+          "new_value": "takeoff"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_002"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[8].start_frame",
+          "old_value": null,
+          "new_value": 132
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].end_frame",
+          "old_value": null,
+          "new_value": 176
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].error_code",
+          "old_value": null,
+          "new_value": "NO_ERROR"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].phase",
+          "old_value": null,
+          "new_value": "flight"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_002"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[9].start_frame",
+          "old_value": null,
+          "new_value": 154
+        },
+        {
+          "path": "quick_review.proposal_decision",
+          "old_value": "unresolved",
+          "new_value": "modify"
+        },
+        {
+          "path": "quick_review.reps",
+          "old_value": [],
+          "new_value": null
+        },
+        {
+          "path": "quick_review.reps[0].end_frame",
+          "old_value": null,
+          "new_value": 87
+        },
+        {
+          "path": "quick_review.reps[0].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.reps[0].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_001"
+        },
+        {
+          "path": "quick_review.reps[0].start_frame",
+          "old_value": null,
+          "new_value": 0
+        },
+        {
+          "path": "quick_review.reps[0].validity",
+          "old_value": null,
+          "new_value": "VALID"
+        },
+        {
+          "path": "quick_review.reps[1].end_frame",
+          "old_value": null,
+          "new_value": 220
+        },
+        {
+          "path": "quick_review.reps[1].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.reps[1].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_002"
+        },
+        {
+          "path": "quick_review.reps[1].start_frame",
+          "old_value": null,
+          "new_value": 88
+        },
+        {
+          "path": "quick_review.reps[1].validity",
+          "old_value": null,
+          "new_value": "VALID"
+        },
+        {
+          "path": "quick_review.reps[2].end_frame",
+          "old_value": null,
+          "new_value": 376
+        },
+        {
+          "path": "quick_review.reps[2].notes",
+          "old_value": null,
+          "new_value": "AI 候选，待人工核对"
+        },
+        {
+          "path": "quick_review.reps[2].rep_id",
+          "old_value": null,
+          "new_value": "phone_burpee_broad_jump_003_rep_003"
+        },
+        {
+          "path": "quick_review.reps[2].start_frame",
+          "old_value": null,
+          "new_value": 221
+        },
+        {
+          "path": "quick_review.reps[2].validity",
+          "old_value": null,
+          "new_value": "VALID"
+        },
+        {
+          "path": "quick_review.segments",
+          "old_value": [],
+          "new_value": null
+        },
+        {
+          "path": "quick_review.segments[0].end_frame",
+          "old_value": null,
+          "new_value": 376
+        },
+        {
+          "path": "quick_review.segments[0].label",
+          "old_value": null,
+          "new_value": "target_action"
+        },
+        {
+          "path": "quick_review.segments[0].notes",
+          "old_value": null,
+          "new_value": "AI 候选，已由人工载入"
+        },
+        {
+          "path": "quick_review.segments[0].start_frame",
+          "old_value": null,
+          "new_value": 0
+        }
+      ]
+    }
+  ],
+  "source_artifacts_unchanged": true,
+  "eligibility_overrides_written": false,
+  "saved_at": "2026-07-27T06:21:40.150871+00:00"
+}

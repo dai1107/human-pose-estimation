@@ -1,0 +1,973 @@
+{
+  "schema_version": 1,
+  "artifact_type": "human_review_record",
+  "protocol_version": "human_review_v1.0",
+  "reviewer_role": "reviewer_a",
+  "reviewer_id": "quick_reviewer",
+  "reviewer_type": "human",
+  "record_id": "phone_farmers_carry_003",
+  "revision": 3,
+  "review_started_at": "2026-07-26T09:59:43.616481+00:00",
+  "review_finished_at": "2026-07-28T08:47:13.783515+00:00",
+  "blind_review": {},
+  "review": {
+    "quick_review": {
+      "action": "farmers_carry",
+      "authorization": "confirmed",
+      "correction": "",
+      "equipment_visibility": "visible",
+      "events": [],
+      "notes": "农夫行走的甩壶铃错误动作示范，两侧壶铃晃动过大",
+      "observability": "OBSERVABLE",
+      "overall_result": "NO_REP",
+      "proposal_decision": "modify",
+      "reps": [
+        {
+          "rep_id": "monitor_001",
+          "start_frame": 0,
+          "end_frame": 135,
+          "validity": "NO_REP",
+          "notes": "连续监控区间候选，不代表官方次数",
+          "phase_gap_reason": "候选阶段可能存在低可见度或 unknown 空白，待人工核对"
+        }
+      ],
+      "score": null,
+      "segments": [],
+      "status": "complete",
+      "subject_id": "subject_group_farmers_carry_01",
+      "target_status": "correct",
+      "usable_end_frame": 135,
+      "usable_start_frame": 0,
+      "video_usability": "usable",
+      "phase_error_intervals": [
+        {
+          "rep_id": "monitor_001",
+          "start_frame": 1,
+          "end_frame": 135,
+          "phase": "carrying",
+          "error_code": "OTHER",
+          "observability": "UNKNOWN",
+          "notes": "壶铃不断晃动，身体也随之乱晃"
+        }
+      ],
+      "fine_annotation_status": "complete",
+      "dataset_role": "development",
+      "disagreement_clips": [
+        {
+          "anchor_frame_count": 1,
+          "anchor_frames": [
+            2
+          ],
+          "clip_id": "phone_farmers_carry_003_disagreement_001_0_14",
+          "duration_seconds": 0.5,
+          "end_frame": 14,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.07466815377043459,
+          "review_status": "pending",
+          "start_frame": 0
+        },
+        {
+          "anchor_frame_count": 5,
+          "anchor_frames": [
+            30,
+            31,
+            33,
+            34,
+            35
+          ],
+          "clip_id": "phone_farmers_carry_003_disagreement_002_19_46",
+          "duration_seconds": 0.933,
+          "end_frame": 46,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.11243837502875574,
+          "review_status": "pending",
+          "start_frame": 19
+        },
+        {
+          "anchor_frame_count": 1,
+          "anchor_frames": [
+            45
+          ],
+          "clip_id": "phone_farmers_carry_003_disagreement_003_34_56",
+          "duration_seconds": 0.767,
+          "end_frame": 56,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.07314293618713802,
+          "review_status": "pending",
+          "start_frame": 34
+        },
+        {
+          "anchor_frame_count": 5,
+          "anchor_frames": [
+            57,
+            60,
+            61,
+            63,
+            64
+          ],
+          "clip_id": "phone_farmers_carry_003_disagreement_004_46_75",
+          "duration_seconds": 1,
+          "end_frame": 75,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.17855644920076905,
+          "review_status": "pending",
+          "start_frame": 46
+        },
+        {
+          "anchor_frame_count": 5,
+          "anchor_frames": [
+            68,
+            69,
+            70,
+            71,
+            75
+          ],
+          "clip_id": "phone_farmers_carry_003_disagreement_005_57_86",
+          "duration_seconds": 1,
+          "end_frame": 86,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.1105773919979066,
+          "review_status": "pending",
+          "start_frame": 57
+        },
+        {
+          "anchor_frame_count": 4,
+          "anchor_frames": [
+            83,
+            85,
+            86,
+            87
+          ],
+          "clip_id": "phone_farmers_carry_003_disagreement_006_72_98",
+          "duration_seconds": 0.9,
+          "end_frame": 98,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.1586568899165382,
+          "review_status": "pending",
+          "start_frame": 72
+        },
+        {
+          "anchor_frame_count": 3,
+          "anchor_frames": [
+            109,
+            110,
+            116
+          ],
+          "clip_id": "phone_farmers_carry_003_disagreement_007_98_127",
+          "duration_seconds": 1,
+          "end_frame": 127,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.18996364296502324,
+          "review_status": "pending",
+          "start_frame": 98
+        },
+        {
+          "anchor_frame_count": 5,
+          "anchor_frames": [
+            118,
+            119,
+            120,
+            121,
+            122
+          ],
+          "clip_id": "phone_farmers_carry_003_disagreement_008_107_133",
+          "duration_seconds": 0.9,
+          "end_frame": 133,
+          "evidence_type": "unspecified",
+          "notes": "",
+          "observability": "UNKNOWN",
+          "priority_score": 0.16293338170531277,
+          "review_status": "pending",
+          "start_frame": 107
+        }
+      ],
+      "no_rep_reason": ""
+    }
+  },
+  "audit_log": [
+    {
+      "revision": 1,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-26T09:59:43.616481+00:00",
+      "reason": "quick human review update",
+      "evidence_frames": [],
+      "changes": [
+        {
+          "path": "quick_review.action",
+          "old_value": null,
+          "new_value": "farmers_carry"
+        },
+        {
+          "path": "quick_review.authorization",
+          "old_value": null,
+          "new_value": "confirmed"
+        },
+        {
+          "path": "quick_review.correction",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.equipment_visibility",
+          "old_value": null,
+          "new_value": "visible"
+        },
+        {
+          "path": "quick_review.events",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.notes",
+          "old_value": null,
+          "new_value": "农夫行走的甩壶铃错误动作示范，两侧壶铃晃动过大"
+        },
+        {
+          "path": "quick_review.observability",
+          "old_value": null,
+          "new_value": "OBSERVABLE"
+        },
+        {
+          "path": "quick_review.overall_result",
+          "old_value": null,
+          "new_value": "NO_REP"
+        },
+        {
+          "path": "quick_review.proposal_decision",
+          "old_value": null,
+          "new_value": "unresolved"
+        },
+        {
+          "path": "quick_review.reps",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.segments",
+          "old_value": null,
+          "new_value": []
+        },
+        {
+          "path": "quick_review.status",
+          "old_value": null,
+          "new_value": "complete"
+        },
+        {
+          "path": "quick_review.subject_id",
+          "old_value": null,
+          "new_value": "subject_pending"
+        },
+        {
+          "path": "quick_review.target_status",
+          "old_value": null,
+          "new_value": "correct"
+        },
+        {
+          "path": "quick_review.usable_end_frame",
+          "old_value": null,
+          "new_value": 135
+        },
+        {
+          "path": "quick_review.usable_start_frame",
+          "old_value": null,
+          "new_value": 0
+        },
+        {
+          "path": "quick_review.video_usability",
+          "old_value": null,
+          "new_value": "usable"
+        }
+      ]
+    },
+    {
+      "revision": 2,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-28T08:47:09.881446+00:00",
+      "reason": "壶铃剧烈晃动，是错误动作",
+      "evidence_frames": [],
+      "changes": [
+        {
+          "path": "quick_review.dataset_role",
+          "old_value": null,
+          "new_value": "development"
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].anchor_frame_count",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 2
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].clip_id",
+          "old_value": null,
+          "new_value": "phone_farmers_carry_003_disagreement_001_0_14"
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].duration_seconds",
+          "old_value": null,
+          "new_value": 0.5
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].end_frame",
+          "old_value": null,
+          "new_value": 14
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].priority_score",
+          "old_value": null,
+          "new_value": 0.07466815377043459
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[0].start_frame",
+          "old_value": null,
+          "new_value": 0
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].anchor_frame_count",
+          "old_value": null,
+          "new_value": 5
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 30
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].anchor_frames[1]",
+          "old_value": null,
+          "new_value": 31
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].anchor_frames[2]",
+          "old_value": null,
+          "new_value": 33
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].anchor_frames[3]",
+          "old_value": null,
+          "new_value": 34
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].anchor_frames[4]",
+          "old_value": null,
+          "new_value": 35
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].clip_id",
+          "old_value": null,
+          "new_value": "phone_farmers_carry_003_disagreement_002_19_46"
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].duration_seconds",
+          "old_value": null,
+          "new_value": 0.933
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].end_frame",
+          "old_value": null,
+          "new_value": 46
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].priority_score",
+          "old_value": null,
+          "new_value": 0.11243837502875574
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[1].start_frame",
+          "old_value": null,
+          "new_value": 19
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].anchor_frame_count",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 45
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].clip_id",
+          "old_value": null,
+          "new_value": "phone_farmers_carry_003_disagreement_003_34_56"
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].duration_seconds",
+          "old_value": null,
+          "new_value": 0.767
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].end_frame",
+          "old_value": null,
+          "new_value": 56
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].priority_score",
+          "old_value": null,
+          "new_value": 0.07314293618713802
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[2].start_frame",
+          "old_value": null,
+          "new_value": 34
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].anchor_frame_count",
+          "old_value": null,
+          "new_value": 5
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 57
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].anchor_frames[1]",
+          "old_value": null,
+          "new_value": 60
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].anchor_frames[2]",
+          "old_value": null,
+          "new_value": 61
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].anchor_frames[3]",
+          "old_value": null,
+          "new_value": 63
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].anchor_frames[4]",
+          "old_value": null,
+          "new_value": 64
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].clip_id",
+          "old_value": null,
+          "new_value": "phone_farmers_carry_003_disagreement_004_46_75"
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].duration_seconds",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].end_frame",
+          "old_value": null,
+          "new_value": 75
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].priority_score",
+          "old_value": null,
+          "new_value": 0.17855644920076905
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[3].start_frame",
+          "old_value": null,
+          "new_value": 46
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].anchor_frame_count",
+          "old_value": null,
+          "new_value": 5
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 68
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].anchor_frames[1]",
+          "old_value": null,
+          "new_value": 69
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].anchor_frames[2]",
+          "old_value": null,
+          "new_value": 70
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].anchor_frames[3]",
+          "old_value": null,
+          "new_value": 71
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].anchor_frames[4]",
+          "old_value": null,
+          "new_value": 75
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].clip_id",
+          "old_value": null,
+          "new_value": "phone_farmers_carry_003_disagreement_005_57_86"
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].duration_seconds",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].end_frame",
+          "old_value": null,
+          "new_value": 86
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].priority_score",
+          "old_value": null,
+          "new_value": 0.1105773919979066
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[4].start_frame",
+          "old_value": null,
+          "new_value": 57
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].anchor_frame_count",
+          "old_value": null,
+          "new_value": 4
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 83
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].anchor_frames[1]",
+          "old_value": null,
+          "new_value": 85
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].anchor_frames[2]",
+          "old_value": null,
+          "new_value": 86
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].anchor_frames[3]",
+          "old_value": null,
+          "new_value": 87
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].clip_id",
+          "old_value": null,
+          "new_value": "phone_farmers_carry_003_disagreement_006_72_98"
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].duration_seconds",
+          "old_value": null,
+          "new_value": 0.9
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].end_frame",
+          "old_value": null,
+          "new_value": 98
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].priority_score",
+          "old_value": null,
+          "new_value": 0.1586568899165382
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[5].start_frame",
+          "old_value": null,
+          "new_value": 72
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].anchor_frame_count",
+          "old_value": null,
+          "new_value": 3
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 109
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].anchor_frames[1]",
+          "old_value": null,
+          "new_value": 110
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].anchor_frames[2]",
+          "old_value": null,
+          "new_value": 116
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].clip_id",
+          "old_value": null,
+          "new_value": "phone_farmers_carry_003_disagreement_007_98_127"
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].duration_seconds",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].end_frame",
+          "old_value": null,
+          "new_value": 127
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].priority_score",
+          "old_value": null,
+          "new_value": 0.18996364296502324
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[6].start_frame",
+          "old_value": null,
+          "new_value": 98
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].anchor_frame_count",
+          "old_value": null,
+          "new_value": 5
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].anchor_frames[0]",
+          "old_value": null,
+          "new_value": 118
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].anchor_frames[1]",
+          "old_value": null,
+          "new_value": 119
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].anchor_frames[2]",
+          "old_value": null,
+          "new_value": 120
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].anchor_frames[3]",
+          "old_value": null,
+          "new_value": 121
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].anchor_frames[4]",
+          "old_value": null,
+          "new_value": 122
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].clip_id",
+          "old_value": null,
+          "new_value": "phone_farmers_carry_003_disagreement_008_107_133"
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].duration_seconds",
+          "old_value": null,
+          "new_value": 0.9
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].end_frame",
+          "old_value": null,
+          "new_value": 133
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].evidence_type",
+          "old_value": null,
+          "new_value": "unspecified"
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].notes",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].priority_score",
+          "old_value": null,
+          "new_value": 0.16293338170531277
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].review_status",
+          "old_value": null,
+          "new_value": "pending"
+        },
+        {
+          "path": "quick_review.disagreement_clips[7].start_frame",
+          "old_value": null,
+          "new_value": 107
+        },
+        {
+          "path": "quick_review.fine_annotation_status",
+          "old_value": null,
+          "new_value": "draft"
+        },
+        {
+          "path": "quick_review.no_rep_reason",
+          "old_value": null,
+          "new_value": ""
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].end_frame",
+          "old_value": null,
+          "new_value": 135
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].error_code",
+          "old_value": null,
+          "new_value": "OTHER"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].notes",
+          "old_value": null,
+          "new_value": "壶铃不断晃动，身体也随之乱晃"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].observability",
+          "old_value": null,
+          "new_value": "UNKNOWN"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].phase",
+          "old_value": null,
+          "new_value": "carrying"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].rep_id",
+          "old_value": null,
+          "new_value": "monitor_001"
+        },
+        {
+          "path": "quick_review.phase_error_intervals[0].start_frame",
+          "old_value": null,
+          "new_value": 1
+        },
+        {
+          "path": "quick_review.proposal_decision",
+          "old_value": "unresolved",
+          "new_value": "modify"
+        },
+        {
+          "path": "quick_review.reps",
+          "old_value": [],
+          "new_value": null
+        },
+        {
+          "path": "quick_review.reps[0].end_frame",
+          "old_value": null,
+          "new_value": 135
+        },
+        {
+          "path": "quick_review.reps[0].notes",
+          "old_value": null,
+          "new_value": "连续监控区间候选，不代表官方次数"
+        },
+        {
+          "path": "quick_review.reps[0].phase_gap_reason",
+          "old_value": null,
+          "new_value": "候选阶段可能存在低可见度或 unknown 空白，待人工核对"
+        },
+        {
+          "path": "quick_review.reps[0].rep_id",
+          "old_value": null,
+          "new_value": "monitor_001"
+        },
+        {
+          "path": "quick_review.reps[0].start_frame",
+          "old_value": null,
+          "new_value": 0
+        },
+        {
+          "path": "quick_review.reps[0].validity",
+          "old_value": null,
+          "new_value": "NO_REP"
+        },
+        {
+          "path": "quick_review.status",
+          "old_value": "complete",
+          "new_value": "draft"
+        },
+        {
+          "path": "quick_review.subject_id",
+          "old_value": "subject_pending",
+          "new_value": "subject_group_farmers_carry_01"
+        }
+      ]
+    },
+    {
+      "revision": 3,
+      "reviewer_id": "quick_reviewer",
+      "reviewed_at": "2026-07-28T08:47:13.783515+00:00",
+      "reason": "single human core fine annotation initial review",
+      "evidence_frames": [],
+      "changes": [
+        {
+          "path": "quick_review.fine_annotation_status",
+          "old_value": "draft",
+          "new_value": "complete"
+        },
+        {
+          "path": "quick_review.status",
+          "old_value": "draft",
+          "new_value": "complete"
+        }
+      ]
+    }
+  ],
+  "source_artifacts_unchanged": true,
+  "eligibility_overrides_written": false,
+  "saved_at": "2026-07-28T08:47:13.783515+00:00"
+}

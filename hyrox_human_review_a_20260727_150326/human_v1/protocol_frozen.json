@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "artifact_type": "human_review_protocol_frozen",
+  "protocol_version": "human_review_v1.0",
+  "frozen_at": "2026-07-26T09:24:39.706912+00:00",
+  "source_commit": null,
+  "frame_index_origin": 0,
+  "interval_semantics": "closed",
+  "timestamp_formula": "timestamp_ms = frame_index / fps * 1000",
+  "timeline_labels": [
+    "idle",
+    "setup",
+    "target_action",
+    "transition",
+    "unknown_motion",
+    "target_out_of_frame"
+  ],
+  "validity_values": [
+    "VALID",
+    "NO_REP",
+    "UNSURE"
+  ],
+  "observability_values": [
+    "OBSERVABLE",
+    "PARTIAL",
+    "UNOBSERVABLE",
+    "UNKNOWN"
+  ],
+  "proposal_policy": "blind human pass first; proposal visible only after blind snapshot is frozen",
+  "independence_policy": "reviewer A and B outputs are isolated and immutable to each other",
+  "artifact_hashes": {
+    "action_segments_v1.json": "e5b873cb4e213857647e2e241c85d0819e113268dec07d3b27810cdb4ae24e01",
+    "core_rep_phase_event_error_v1.json": "c6a782887a000536cab3b4a73f3d8f45001eac10cf7878c380e0a4230baa096f",
+    "object_scene_evidence_v1.json": "d37efe323f194b6cd2e9117f52c300c725fee0118c448afaddf9c4fb86c540cd",
+    "scoring_correction_v1.json": "a721124bf4d91199a93476a7eb0843f7df86c1d3f61bc717c2efa4b88d43bce9",
+    "annotation_agreement_v1.json": "dcaa856f29d999dcfd29b9276c644b45df992d560086eeecd673cf420bc0a69b",
+    "proposal_acceptance_bias_v1.json": "fd2bbc36fcaf5d9339d5bd915d470bdbc76b87644d05211e13f6ede0872fbe45",
+    "continuous_ood_gap_v1.json": "465241af6ad38c50735f1b5217dcb90f02bfe55369c77f629a4c9c706ce8b125",
+    "round9_active_review_queue_v1.json": "85de1411738fbb7fb9daa1d095fbb333dce472f8eb06c74cec33d2dc2acc1bba",
+    "round9_multimethod_review_v1.json": "f21b0c95930487063aec89c8b91698ed007030c32d6a7ae743cdeae2043c977e"
+  },
+  "release_gate_defaults": {
+    "human_confirmed": false,
+    "is_ground_truth": false,
+    "training_eligible": false,
+    "golden_eligible": false,
+    "evaluation_eligible": false,
+    "example_eligible": false
+  }
+}

@@ -153,6 +153,8 @@ def test_human_review_workspace_loads_real_queue_and_quick_review_materials() ->
     assert "当前：单人复核" in page.get_data(as_text=True)
     assert "阶段与错误区间" in page.get_data(as_text=True)
     assert "ONI 主体复核" in page.get_data(as_text=True)
+    assert "视角先验复核" in page.get_data(as_text=True)
+    assert "ONI 错误真值" in page.get_data(as_text=True)
     assert "自动动作识别暂缓" in page.get_data(as_text=True)
     assert "这是 AI 候选，不是正确答案" in page.get_data(as_text=True)
     assert "载入候选次数" in page.get_data(as_text=True)
@@ -164,8 +166,22 @@ def test_human_review_workspace_loads_real_queue_and_quick_review_materials() ->
     assert len(bootstrap.json["records"]) == 30
     assert sum(1 for item in bootstrap.json["records"] if item["core"]) == 15
     assert len(bootstrap.json["oni_records"]) == 64
+    assert len(bootstrap.json["view_prior_records"]) == 64
+    assert bootstrap.json["error_truth_records"]
     assert bootstrap.json["tasks"]["core_fine_annotation"]["record_count"] == 15
     assert bootstrap.json["tasks"]["oni_subject_review"]["record_count"] == 32
+    assert len(bootstrap.json["dashboard"]["task_completion"]) == 7
+    assert bootstrap.json["tasks"]["remaining_rgb_fine_annotation"]["record_count"] == 15
+    disagreement_task = bootstrap.json["tasks"]["high_disagreement_clip_review"]
+    assert disagreement_task["frame_count"] == 2439
+    assert disagreement_task["clip_count"] > 0
+    skierg_two = next(
+        item
+        for item in bootstrap.json["records"]
+        if item["record_id"] == "phone_skierg_002"
+    )
+    assert skierg_two["subject_id_suggestion"] == "subject_group_skierg_02"
+    assert skierg_two["dataset_role_suggestion"] == "validation"
     assert bootstrap.json["labels"]["phase_labels_zh"]["contact"] == "后膝接触"
     assert bootstrap.json["labels"]["error_labels_zh"]["NO_ERROR"] == "无错误"
 
@@ -184,6 +200,19 @@ def test_human_review_workspace_loads_real_queue_and_quick_review_materials() ->
     assert detail.json["proposal"]["core_annotations"]["reps"][0]["errors"] is not None
     assert detail.json["record"]["source_filename"]
     assert detail.json["record"]["recording_intent"]
+    assert detail.json["record"]["subject_id_suggestion"]
+    assert detail.json["record"]["disagreement_clips"]
+    noncore_detail = client.get(
+        "/api/review/records/phone_rowing_001"
+        "?role=a&reviewer_id=quick_reviewer&quick=1"
+    )
+    assert noncore_detail.status_code == 200
+    noncore_proposal = noncore_detail.json["proposal"]["core_annotations"]
+    assert noncore_proposal["proposal_semantics"] == "analysis_cycle"
+    assert noncore_proposal["is_ground_truth"] is False
+    assert len(noncore_proposal["reps"]) == 8
+    assert noncore_proposal["reps"][0]["phases"]
+    assert noncore_proposal["reps"][0]["events"]
     oni = bootstrap.json["oni_records"][0]
     oni_detail = client.get(f"/api/review/oni/{oni['record_id']}/{oni['modality']}")
     assert oni_detail.status_code == 200
@@ -203,7 +232,8 @@ def test_human_review_client_explains_and_imports_ai_candidates() -> None:
     assert "formal action" not in source
     assert 'toast("动作已人工切换；请核对阶段和事件选项")' in source
     assert "当前没有逐次 AI proposal" in source
-    assert "AI 候选已载入草稿" in source
+    assert "已载入草稿，请逐项人工核对" in source
+    assert "当前算法没有检出候选次数/分析周期" in source
 
 
 def test_human_review_save_is_role_bound_audited_and_frame_validated(
@@ -268,7 +298,15 @@ def test_human_review_save_is_role_bound_audited_and_frame_validated(
             "usable_start_frame": 0,
             "usable_end_frame": 9,
             "segments": [{"label": "target_action", "start_frame": 0, "end_frame": 9}],
-            "reps": [{"rep_id": "rep_001", "start_frame": 0, "end_frame": 9, "validity": "VALID"}],
+            "reps": [
+                {
+                    "rep_id": "rep_001",
+                    "start_frame": 0,
+                    "end_frame": 9,
+                    "validity": "VALID",
+                    "phase_gap_reason": "5–9 帧为尚未归类的恢复阶段",
+                }
+            ],
             "phase_error_intervals": [
                 {
                     "rep_id": "rep_001",
@@ -308,14 +346,68 @@ def test_human_review_save_is_role_bound_audited_and_frame_validated(
         assert "human_v1/reviewer_a/records/phone_lunge_001.json" in names
         assert not any(name.startswith("human_v1/agreement/") for name in names)
 
-    review["quick_review"]["events"][0]["frame_index"] = 10
-    rejected = client.put(
+    incomplete = {
+        "quick_review": {
+            "status": "complete",
+            "action": "lunge",
+            "usable_start_frame": 0,
+            "usable_end_frame": None,
+            "segments": [{"label": "target_action", "start_frame": 0, "end_frame": None}],
+            "reps": [],
+            "phase_error_intervals": [],
+            "events": [],
+            "notes": "",
+        }
+    }
+    partial_saved = client.put(
         "/api/review/records/phone_lunge_001",
         headers=headers,
-        json={"role": "a", "reviewer_id": "reviewer_test", "base_revision": 1, "review": review},
+        json={
+            "role": "a",
+            "reviewer_id": "reviewer_test",
+            "base_revision": 1,
+            "review": incomplete,
+        },
     )
-    assert rejected.status_code == 422
-    assert rejected.json["code"] == "frame_validation_failed"
+    assert partial_saved.status_code == 200
+    assert partial_saved.json["revision"] == 2
+
+    record_path = (
+        dataset_root
+        / "reviews"
+        / "human_v1"
+        / "reviewer_a"
+        / "records"
+        / "phone_lunge_001.json"
+    )
+    broken = json.loads(record_path.read_text(encoding="utf-8"))
+    broken["revision"] = 3
+    record_path.write_text(
+        json.dumps(broken, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    repaired = client.put(
+        "/api/review/records/phone_lunge_001",
+        headers=headers,
+        json={
+            "role": "a",
+            "reviewer_id": "reviewer_test",
+            "base_revision": 3,
+            "review": incomplete,
+        },
+    )
+    assert repaired.status_code == 200
+    repaired_payload = json.loads(record_path.read_text(encoding="utf-8"))
+    assert [item["revision"] for item in repaired_payload["audit_log"]] == [1, 2, 3, 4]
+
+    review["quick_review"]["events"][0]["frame_index"] = 10
+    out_of_range_saved = client.put(
+        "/api/review/records/phone_lunge_001",
+        headers=headers,
+        json={"role": "a", "reviewer_id": "reviewer_test", "base_revision": 4, "review": review},
+    )
+    assert out_of_range_saved.status_code == 200
+    assert out_of_range_saved.json["revision"] == 5
 
 
 def test_single_reviewer_can_save_independent_oni_depth_subject_review(
@@ -338,6 +430,7 @@ def test_single_reviewer_can_save_independent_oni_depth_subject_review(
                         "camera_view": "side",
                         "recording_intent_code": "standard",
                         "subject_id": "subject_pending",
+                        "expected_errors_unverified": ["NO_KNEE_CONTACT"],
                     }
                 ]
             }
@@ -430,6 +523,126 @@ def test_single_reviewer_can_save_independent_oni_depth_subject_review(
     ir_item = next(item for item in refreshed.json["oni_records"] if item["modality"] == "ir")
     assert depth_item["complete"] is True
     assert ir_item["complete"] is False
+
+    view_detail = client.get("/api/review/oni/oni_test_001/depth?mode=view_prior")
+    assert view_detail.status_code == 200
+    assert view_detail.json["review_mode"] == "view_prior"
+    assert view_detail.json["saved_review"] is None
+    view_review = {
+        **review,
+        "review_mode": "view_prior",
+        "confirmed_view": "side",
+        "action_usability": "usable",
+        "usable_start_frame": 1,
+        "usable_end_frame": 21,
+        "full_body_visibility": "visible",
+        "floor_visibility": "visible",
+        "equipment_visibility": "partial",
+        "identity_switch_intervals": [],
+        "observability_items": [
+            {
+                "item_code": code,
+                "status": "OBSERVABLE",
+                "reason": "",
+                "start_frame": 1,
+                "end_frame": 21,
+                "evidence_frames": [1],
+                "notes": "",
+            }
+            for code in (
+                "rear_knee_contact",
+                "hip_extension",
+                "leg_alternation",
+                "extra_steps",
+                "trunk_angle",
+                "left_right_symmetry",
+            )
+        ],
+    }
+    view_saved = client.put(
+        "/api/review/oni/oni_test_001/depth",
+        headers=headers,
+        json={"reviewer_id": "oni_reviewer", "base_revision": 0, "review": view_review},
+    )
+    assert view_saved.status_code == 200
+    assert output_path.exists()
+    view_output_path = (
+        dataset_root
+        / "reviews"
+        / "human_v1"
+        / "reviewer_a"
+        / "view_prior_records"
+        / "oni_test_001__depth.json"
+    )
+    assert view_output_path.exists()
+    assert json.loads(output_path.read_text(encoding="utf-8"))["revision"] == 1
+    view_output = json.loads(view_output_path.read_text(encoding="utf-8"))
+    assert view_output["artifact_type"] == "oni_modality_view_prior_human_review"
+    assert view_output["eligibility"]["view_policy_calibration_eligible"] is True
+    view_review["observability_items"][0].update(
+        {"status": "UNOBSERVABLE", "reason": "", "asserted_error": True}
+    )
+    unrestricted_draft = client.put(
+        "/api/review/oni/oni_test_001/depth",
+        headers=headers,
+        json={"reviewer_id": "oni_reviewer", "base_revision": 1, "review": view_review},
+    )
+    assert unrestricted_draft.status_code == 200
+    assert unrestricted_draft.json["revision"] == 2
+    refreshed = client.get("/api/review/bootstrap")
+    view_depth = next(item for item in refreshed.json["view_prior_records"] if item["modality"] == "depth")
+    assert view_depth["complete"] is True
+    independent = client.get("/api/review/export/view_observability_review_v1")
+    assert independent.status_code == 200
+    exported_view = json.loads(independent.data)
+    exported_depth = next(
+        item
+        for item in exported_view["records"]
+        if item["record_id"] == "oni_test_001" and item["modality"] == "depth"
+    )
+    assert exported_depth["confirmed_view"] == "side"
+    assert exported_depth["training_eligible"] is False
+
+    error_detail = client.get("/api/review/oni/oni_test_001/depth?mode=error_truth")
+    assert error_detail.status_code == 200
+    error_review = {
+        **review,
+        "review_mode": "error_truth",
+        "error_truth_items": [
+            {
+                "error_code": "NO_KNEE_CONTACT",
+                "truth_status": "confirmed",
+                "observability": "OBSERVABLE",
+                "evidence_frames": [1],
+                "notes": "后膝在当前模态中可确认未触地",
+            }
+        ],
+    }
+    error_saved = client.put(
+        "/api/review/oni/oni_test_001/depth",
+        headers=headers,
+        json={"reviewer_id": "oni_reviewer", "base_revision": 0, "review": error_review},
+    )
+    assert error_saved.status_code == 200
+    error_output_path = (
+        dataset_root
+        / "reviews"
+        / "human_v1"
+        / "reviewer_a"
+        / "error_truth_records"
+        / "oni_test_001__depth.json"
+    )
+    assert error_output_path.exists()
+    error_export = client.get("/api/review/export/oni_error_truth_review_v1")
+    assert error_export.status_code == 200
+    exported_errors = json.loads(error_export.data)
+    exported_error = next(
+        item
+        for item in exported_errors["records"]
+        if item["record_id"] == "oni_test_001" and item["modality"] == "depth"
+    )
+    assert exported_error["error_truth_items"][0]["truth_status"] == "confirmed"
+    assert exported_error["training_eligible"] is False
 
 
 def test_browser_realtime_client_uses_video_frame_callback_and_single_in_flight_request() -> None:

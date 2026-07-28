@@ -477,13 +477,13 @@ def test_wall_ball_requires_a_tall_start_before_descent() -> None:
 def test_wall_ball_hip_depth_uses_floor_relative_height() -> None:
     completed = _run_rule_candidate(
         start=_features(),
-        bottom=_valid_bottom(hip_knee_depth=-0.01),
+        bottom=_valid_bottom(hip_knee_depth=-0.03),
     )
     rule = _rules(completed)["hip_below_knee"]
 
     assert completed["last_rep_decision"]["status"] == "UNSURE"
     assert rule["status"] == "FAIL"
-    assert rule["value"] == pytest.approx(-0.01 / 0.75)
+    assert rule["value"] == pytest.approx(-0.03 / 0.75)
 
 
 def test_wall_ball_missing_floor_depth_evidence_is_unsure() -> None:
@@ -573,3 +573,154 @@ def test_wall_ball_missing_one_wrist_is_unsure_not_valid() -> None:
 
     assert completed["last_rep_decision"]["status"] == "UNSURE"
     assert _rules(completed)["bilateral_throw_proxy"]["status"] == "UNSURE"
+
+
+def test_wall_ball_side_view_uses_one_consistent_observable_side() -> None:
+    analyzer = _analyzer(
+        {**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 1}
+    )
+    analyzer.set_camera_view("side")
+    start = _features(
+        left_knee_angle=120.0,
+        left_hip_angle=120.0,
+        left_wrist_confidence=0.40,
+        right_wrist_confidence=0.95,
+    )
+    bottom = _valid_bottom(
+        left_knee_angle=170.0,
+        left_hip_angle=170.0,
+        left_wrist_confidence=0.40,
+        right_wrist_confidence=0.95,
+    )
+    throw = _valid_throw(
+        left_knee_angle=120.0,
+        left_hip_angle=120.0,
+        left_wrist_y=0.40,
+        left_wrist_above_shoulder=-0.10,
+        left_wrist_confidence=0.40,
+        right_wrist_confidence=0.95,
+    )
+
+    completed = _run_rule_candidate(
+        analyzer,
+        start=start,
+        bottom=bottom,
+        throw=throw,
+    )
+
+    assert completed["last_rep_decision"]["status"] == "VALID"
+    assert completed["last_rep_candidate"]["events"][
+        "pose_side_strategy"
+    ] == "selected_right"
+
+
+def test_wall_ball_heel_rise_feedback_is_sustained_and_technique_only() -> None:
+    analyzer = _analyzer(
+        {
+            **DEFAULT_WALL_BALL_CONFIG,
+            "stable_frames": 1,
+            "heel_rise_hold_frames": 3,
+        }
+    )
+    raised = _valid_bottom(
+        left_heel_y=0.84,
+        left_foot_index_y=0.90,
+    )
+
+    first = analyzer.update(raised, 100)
+    second = analyzer.update(raised, 133)
+    third = analyzer.update(raised, 166)
+
+    assert "HEEL_RISE" not in {
+        message.code for message in first["feedback_messages"]
+    }
+    assert "HEEL_RISE" not in {
+        message.code for message in second["feedback_messages"]
+    }
+    assert "HEEL_RISE" in {
+        message.code for message in third["feedback_messages"]
+    }
+    assert third["candidate_count"] == 0
+
+
+def test_wall_ball_finalizes_complete_sampled_throw_at_stream_end() -> None:
+    analyzer = _analyzer(
+        {**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 2}
+    )
+
+    analyzer.update(_features(), 100)
+    analyzer.update(_features(), 133)
+    analyzer.update(_valid_bottom(), 200)
+    analyzer.update(_valid_bottom(), 233)
+    pending = analyzer.update(_valid_throw(), 500)
+
+    assert pending["candidate_count"] == 0
+    decision = analyzer.finalize_pending_candidate()
+
+    assert decision is not None
+    assert analyzer.candidate_count == 1
+    assert analyzer.last_rep_candidate is not None
+    assert (
+        analyzer.last_rep_candidate.events["validation_boundary"]
+        == "stream_end"
+    )
+
+
+def test_wall_ball_does_not_finalize_partial_squat_at_stream_end() -> None:
+    analyzer = _analyzer(
+        {**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 2}
+    )
+
+    analyzer.update(_features(), 100)
+    analyzer.update(_features(), 133)
+    analyzer.update(_valid_bottom(), 200)
+    analyzer.update(_valid_bottom(), 233)
+
+    assert analyzer.finalize_pending_candidate() is None
+    assert analyzer.candidate_count == 0
+
+
+def test_wall_ball_settles_single_frame_throw_at_next_descent() -> None:
+    analyzer = _analyzer(
+        {**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 2}
+    )
+
+    analyzer.update(_features(), 100)
+    analyzer.update(_features(), 133)
+    analyzer.update(_valid_bottom(), 200)
+    analyzer.update(_valid_bottom(), 233)
+    sampled_throw = analyzer.update(_valid_throw(), 500)
+    analyzer.update(_features(), 600)
+    analyzer.update(_features(), 633)
+    analyzer.update(_valid_bottom(), 800)
+    next_descent = analyzer.update(_valid_bottom(), 833)
+
+    assert sampled_throw["candidate_count"] == 0
+    assert next_descent["candidate_count"] == 1
+    assert next_descent["last_rep_candidate"]["events"][
+        "validation_boundary"
+    ] == "next_descent"
+
+
+def test_wall_ball_does_not_settle_weak_drive_at_next_descent() -> None:
+    analyzer = _analyzer(
+        {**DEFAULT_WALL_BALL_CONFIG, "stable_frames": 2}
+    )
+    weak_drive = _valid_throw(
+        left_knee_angle=145.0,
+        right_knee_angle=146.0,
+        left_hip_angle=145.0,
+        right_hip_angle=146.0,
+    )
+
+    analyzer.update(_features(), 100)
+    analyzer.update(_features(), 133)
+    analyzer.update(_valid_bottom(), 200)
+    analyzer.update(_valid_bottom(), 233)
+    analyzer.update(weak_drive, 500)
+    analyzer.update(weak_drive, 600)
+    analyzer.update(weak_drive, 633)
+    analyzer.update(_valid_bottom(), 800)
+    next_descent = analyzer.update(_valid_bottom(), 833)
+
+    assert next_descent["candidate_count"] == 0
