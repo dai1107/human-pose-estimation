@@ -32,6 +32,7 @@ outputs/recordings/
 
 # Raw and derived human-motion datasets are local by default.
 datasets/
+*.oni
 
 # Local third-party source checkouts and ONI bridge intermediates.
 tools/oni_bridge/vendor/
