@@ -7,7 +7,7 @@
 - **网页版**：在电脑或手机浏览器中使用本机摄像头，支持实时分析、上传视频、逐次动作语音提示，以及文字、JSON、CSV 报告下载。
 - **桌面版**：通过 OpenCV 窗口使用摄像头或视频文件，适合本机训练、调试、录像和批量分析。
 
-正式网页、桌面摄像头和默认视频分析统一使用 MediaPipe Pose。YOLO Pose、YOLO + MediaPipe 和 YOLO + RTMW 仅用于显式实验或离线比较，不会被产品 `auto` 自动加载。
+正式网页、桌面摄像头和默认视频分析统一使用 MediaPipe Pose。YOLO11n Pose、YOLO + MediaPipe 和 YOLO + RTMW 仅用于显式实验或离线比较，不会被产品 `auto` 自动加载。实时关键点使用 One Euro 平滑，个人参考动作比较支持 DTW 对齐。
 
 > 本项目输出的是基于人体关键点的视觉运动学分析，不是医疗诊断，也不等同于 HYROX 正式比赛裁判结论。
 
@@ -89,8 +89,10 @@ RTMW 权重、CPU/GPU 运行时和模型检查命令见 [模型安装说明](mod
 安装后可先检查运行环境：
 
 ```powershell
-pose-doctor --json
+python -m src.doctor
 ```
+
+安装命令行入口后也可使用 `pose-doctor --json`。
 
 ## 网页版快速开始
 
@@ -163,7 +165,19 @@ python main.py `
 - `--hyrox-debug`：显示规则与特征调试信息；
 - `--experimental-backends`：显式启用实验后端。
 
-运行 `python main.py --help` 查看完整参数。桌面窗口快捷键和拍摄建议见 [完整使用说明](使用说明.md)。
+运行时按 `A` 打开动作菜单，按 `N` 切换到下一项动作，按 `V` 切换相机视角。视角不足以支持当前规则时会显示 `CAMERA_VIEW_LIMITED`。运行 `python main.py --help` 查看完整参数，其他桌面窗口快捷键和拍摄建议见 [完整使用说明](使用说明.md)。
+
+回放单个 HYROX 视频时必须明确指定 camera view（拍摄视角），例如：
+
+```powershell
+python tools/replay_hyrox_video.py --video "HYROX视频\划船机.mp4" --hyrox-action rowing --camera-view side --debug
+```
+
+检查多路摄像头的时间偏差时可运行：
+
+```powershell
+python tools/check_multicamera.py --camera 0:front --camera 1:side
+```
 
 ## 计数与输出语义
 
@@ -186,6 +200,14 @@ candidate_count
 ```
 
 Rowing、SkiErg、Sled Push 和 Sled Pull 的 `cycle_count` 只是动作分析周期，不是官方有效次数。Farmers Carry 使用 `count_semantics: continuous_monitor`，应查看搬运状态、持续时间和技术反馈。
+
+距离类动作的违规码同样只是人体视觉代理，并不表示程序看到了器械或正式赛道判罚：
+
+- Rowing 的 `ROWING_EARLY_STAND_PROXY` 仅在用户开始至停止分析的训练区间内检测持续站起代理；视角或关键点证据不足时输出 `UNSURE`，不输出明确违规；
+- Sled Pull 的 `SLED_PULL_KNEELING_VIOLATION` 仅在拉动阶段且跪姿接触证据持续、明确时激活；
+- Farmers Carry 的 `ARM_NOT_EXTENDED_VIOLATION` 仅在搬运移动期间检测到手臂持续未基本伸展时激活。
+
+开启 `--hyrox-debug` 后会绘制局部地板线、虚拟膝盖表面点 `K` 和虚拟胸部表面点 `C`。这些点只用于解释二维接触代理，不表示真实接触面积或精确物理距离。
 
 网页版会话、上传和报告默认写入当前目录的 `outputs/`，可用 `POSE_OUTPUT_DIR` 覆盖。桌面版可通过 `--save-dir` 和 `--log-dir` 指定输出位置。
 
