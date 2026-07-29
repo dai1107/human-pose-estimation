@@ -1,325 +1,135 @@
 # HYROX 姿态分析
 
-本项目提供两种使用方式：
+这是一个面向 HYROX 训练场景的人体姿态分析项目。它通过人体关键点和可复现的时序规则，为 8 项 HYROX 动作提供实时骨架、动作阶段、技术反馈和计数结果。
 
-- **网页版**：在电脑或手机浏览器中使用本机摄像头，支持多人匿名会话、实时骨架与动作反馈、逐次动作语音改进提示、上传视频分析，以及文字/JSON/CSV 报告下载。
-- **桌面版**：通过 OpenCV 窗口使用摄像头或视频文件，适合本机调试、录像、指标导出和模型对比。
+项目提供两种使用方式：
 
-当前聚焦 8 项 HYROX 动作的人体姿态识别、人体规则有效计数、距离动作分析周期和实时指导；独立深蹲与篮球投篮分析模式已移除。正式网页、桌面摄像头和默认视频分析统一使用 MediaPipe Pose；YOLO Pose、YOLO + MediaPipe 与 YOLO + RTMW 仅保留为显式实验、离线比较和研究消融入口，不会被产品 `auto` 自动加载。实时关键点默认使用 One Euro 平滑，参考动作比较支持 DTW 对齐。
+- **网页版**：在电脑或手机浏览器中使用本机摄像头，支持实时分析、上传视频、逐次动作语音提示，以及文字、JSON、CSV 报告下载。
+- **桌面版**：通过 OpenCV 窗口使用摄像头或视频文件，适合本机训练、调试、录像和批量分析。
 
-## 文档导航
+正式网页、桌面摄像头和默认视频分析统一使用 MediaPipe Pose。YOLO Pose、YOLO + MediaPipe 和 YOLO + RTMW 仅用于显式实验或离线比较，不会被产品 `auto` 自动加载。
 
-- [完整使用说明](使用说明.md)：网页版、桌面版、拍摄、计数语义、调试与故障排查；
-- [网页版使用说明](网页版使用说明.md)：浏览器摄像头、匿名会话、隐私、报告和部署；
-- [模型安装说明](models/README.md)：MediaPipe、手部模型、RTMW 权重与 CPU/GPU 环境；
-- [动作配置说明](configs/hyrox/README.md)：默认阈值、触地/脚部事件、可观测性与自定义配置；
-- [变更记录](CHANGELOG.md)：版本变更摘要；
-- [姿态模型与延迟优化实施记录](姿态模型使用更改和延迟优化.md)：产品后端收敛、最新帧流水线、3D Assist 与逐轮验证；
-- [完整延迟审计与高速录像验收](延迟审计与高速录像验收.md)：网页/桌面逐段时间线、瓶颈报告与 120/240 FPS 外部 sensor-to-photon 验收；
-- [发布与升级说明](RELEASING.md)：版本规则、构建、发布和 schema 兼容策略；
-- [程序成熟度审计与实施清单](程序成熟度审计与实施清单.md)：已完成工程化项目、当前限制与后续优先级。
+> 本项目输出的是基于人体关键点的视觉运动学分析，不是医疗诊断，也不等同于 HYROX 正式比赛裁判结论。
 
-## 安装与命令行入口
+## 主要功能
 
-支持 CPython `3.10–3.12`。依赖文件使用已验证的精确版本，并按用途拆分：
-
-```powershell
-# MediaPipe、网页和桌面核心
-python -m pip install -r requirements-core.txt
-
-# 可选 YOLO 后端
-python -m pip install -r requirements-yolo.txt
-
-# 开发、测试和构建
-python -m pip install -r requirements-dev.txt
-
-# 安装本项目及命令行入口；需要 YOLO 时改用 .[yolo]
-python -m pip install -e .
-```
-
-安装后可从任意工作目录使用：
-
-```powershell
-pose-doctor --json
-pose-estimation --help
-pose-web --no-browser
-pose-replay --help
-pose-golden --list
-pose-endurance --help
-pose-camera-benchmark --help
-pose-baseline --help
-pose-dataset-manifest --help
-pose-cache-round8 --help
-pose-clean --json
-pose-reference-create --help
-pose-reference-list
-pose-reference-inspect --help
-pose-reference-compare --help
-pose-reference-export --help
-```
-
-发布配置位于 `pyproject.toml`。`python -m build` 会在 `dist/` 生成 wheel 和源码包；
-模型、默认 YAML 和网页静态资源会进入发布包，不会把运行结果写入 `site-packages`。
-网页版会话、上传和报告默认写到当前目录的 `outputs/`，可用 `POSE_OUTPUT_DIR` 覆盖；
-桌面版使用 `--save-dir` / `--log-dir`，参考动作命令使用 `--output-dir` / `--root`
-指定位置。`pose-doctor` 与 `pose-clean` 会跟随 `POSE_OUTPUT_DIR`。
+- 8 项 HYROX 动作的姿态与阶段分析；
+- 实时骨架、关节角度和动作问题提示；
+- 对可验证动作输出 `VALID`、`NO_REP` 和 `UNSURE`；
+- 网页版逐次动作语音改进建议；
+- 视频上传、桌面视频回放和无窗口批量处理；
+- 匿名网页会话及文字、JSON、CSV 报告；
+- 个人参考动作保存和 DTW 对齐比较；
+- 配置校验、运行日志、输出清理和回归验证工具。
 
 ## 支持的动作
 
-| 参数 | 动作 | 主要输出 |
+| 参数 | 动作 | 分析方式 |
 |---|---|---|
-| `lunge` | 负重箭步蹲 | 五项人体规则、有效/未完成/不确定计数与技术提示 |
-| `wall_ball` | Wall Ball | 四项人体规则、有效/未完成/不确定计数与深度提示 |
-| `rowing` | Rowing | 划船分析周期、技术提示与训练区间站起违规代理 |
+| `lunge` | 负重箭步蹲 | 人体规则验证、有效/未完成/不确定计数与技术提示 |
+| `wall_ball` | Wall Ball | 人体规则验证、有效/未完成/不确定计数与技术提示 |
+| `rowing` | Rowing | 划船分析周期与训练区间技术提示 |
 | `skierg` | SkiErg | 拉动分析周期与髋铰链提示 |
-| `burpee_broad_jump` | Burpee Broad Jump | 八项人体规则、延迟验证计数与落地提示 |
-| `sled_push` | Sled Push | 推行状态、分析步态周期与技术提示 |
-| `sled_pull` | Sled Pull | 拉动分析周期、技术提示与跪姿/坐姿违规代理 |
-| `farmers_carry` | Farmers Carry | 连续搬运监控、稳定性提示与手臂位置违规代理 |
+| `burpee_broad_jump` | Burpee Broad Jump | 人体规则验证、延迟结算计数与落地提示 |
+| `sled_push` | Sled Push | 推行状态、步态分析周期与技术提示 |
+| `sled_pull` | Sled Pull | 拉动分析周期与跪姿/坐姿违规代理 |
+| `farmers_carry` | Farmers Carry | 连续搬运监控、稳定性与手臂位置提示 |
 
-## 动作问题如何判断
+Lunge、Wall Ball 和 Burpee Broad Jump 会形成需要人体规则验证的动作候选；Rowing、SkiErg、Sled Push 和 Sled Pull 记录的是分析周期；Farmers Carry 采用连续监控，不按次数拆分。
 
-程序不会让姿态模型直接生成“膝盖内扣”或“伸展不足”等结论，也不会自动猜测用户正在做哪项动作。用户先选择 HYROX 动作，系统再创建该动作专属分析器；MediaPipe、YOLO Pose 或 RTMW 只负责输出人体关键点，问题定位和计数主要由可复现的时序规则完成。
+## 工作原理
+
+程序不会让姿态模型直接生成“膝盖内扣”或“伸展不足”等结论，也不会自动猜测用户正在进行的动作。用户先选择 HYROX 动作，系统再通过对应的状态机和规则分析姿态关键点。
 
 ```text
 视频帧
-  → 原始人体关键点
-      ├─ 分析流：responsive One Euro → Python 规则
-      └─ 显示流：ultra-responsive + 速度 raw blend → Canvas
-  → 计算关节角度、相对位置、可见度、触地和脚步事件
-  → 动作专属状态机确认当前阶段
-  → 当前阶段技术反馈 + 完整周期人体规则验证
-  → 可观测性门控
-  → 骨架颜色、关节角度、文字/语音反馈和计数结果
+  → 人体关键点
+  → 关节角度、相对位置、可见度和脚部事件
+  → 动作专属状态机
+  → 当前技术反馈与完整周期规则验证
+  → 可观测性检查
+  → 骨架、文字/语音反馈和计数结果
 ```
 
-完整处理过程如下：
+实时显示和正式分析使用相互独立的平滑流。MediaPipe world landmarks 可辅助显示和置信度判断，但动作阶段、接触、计数和规则结论仍以二维证据为主；三维证据缺失或不可靠时会安全回退到二维结果。
 
-1. **识别并拆分关键点流**：姿态后端输出肩、肘、腕、髋、膝、踝、脚跟和脚尖等原始关键点及置信度。原始点进入 Python 的独立 `responsive` 分析滤波后用于规则；浏览器显示副本进入 `ultra_responsive` 和速度相关 raw blend 后只用于 Canvas。两流都使用姿态对应帧的真实采集时间，不使用显示刷新时间或固定 30 FPS；超过 250 ms 的观测间隔会各自重置。
-2. **计算二维运动学特征**：系统计算左右膝/髋/肘/肩角度、躯干角、肩髋高差、髋膝相对高度、手腕与肩髋位置、身体中心移动、人体尺度归一化距离和各身体区域可见度。需要触地或起落判断的动作还会使用局部地板、膝/胸虚拟表面、左右脚支撑、起跳、落地和碎步事件。
-3. **识别动作阶段**：每个动作有独立状态机，例如 Lunge 使用 `stand → descent → bottom → ascent → stand`，Rowing 使用 `catch → drive → finish → recovery`。规则只在适用阶段运行，阶段切换还会经过时序、端点顺序和冷却门控；离线分析和“低”灵敏度通常要求连续多帧，实时“中/高”灵敏度允许一个已处理帧确认短暂关键端点。
-4. **生成实时技术反馈**：动作分析器将当前特征与动作配置阈值比较，输出带问题码、严重级别和置信度的中文提示。例如 Lunge 最低点不够深会输出 `NOT_DEEP_ENOUGH`，躯干倾斜过大会输出 `LEAN_TOO_MUCH`。默认每帧最多显示两项；可见度不足时只显示取景提示，不继续给出不可靠的技术结论。
-5. **验证完整动作候选**：Lunge、Wall Ball 和 Burpee Broad Jump 在关键端点顺序完成后，分别检查该动作的必需人体规则。每条规则先得到 `PASS`、`FAIL`、`UNSURE` 或 `NOT_APPLICABLE`；任一必需规则明确 `FAIL` 得到 `NO_REP`，没有失败但存在无法判断的必需规则得到 `UNSURE`，全部通过才得到 `VALID`。技术质量提示与计数必需规则相互独立，训练建议不一定取消计数。
-6. **执行可观测性门控**：规则聚合后还会检查整次可见度、必需关键点、决定性规则置信度、地板、拍摄视角和失败持续帧数。证据不足时，即使初步结果为 `VALID` 或 `NO_REP`，也会降级为 `UNSURE`。
-7. **呈现问题位置**：网页把通过 world-landmark 质量门的三维关节角标在对应关节附近，并明确标注 `3D`；缺失或不可靠时不显示该角度，也不会用二维角替代。明显超出当前阶段参考范围时显示红色，通过时显示绿色，接近边界时显示中性。某些没有明确姿态标准的过渡阶段不会计入报告的可评价帧。非角度问题（例如补步、触地、左右不同步）主要通过“动作反馈”和报告说明。
+页面中的结果分为三层：
 
-正式分析 One Euro 默认使用 `responsive`；`stable` 更强调稳定，`balanced` 在稳定与响应之间折中。分析参数位于 `configs/product_pose.yaml` 的 `analysis_smoothing`，并强制 `prediction_enabled: false`。显示参数位于 `display_smoothing`，固定 `ultra_responsive` 起点及 `max_raw_weight: 0.45`；短时显示预测参数位于 `display_prediction`，默认最大预测时间 45 ms、最大位移为人体尺度的 0.06、100 ms 无新姿态即停止外推。`rendering` 配置控制角度文字、指标和统计刷新频率，以及 P95 固定采样窗口容量。显示滤波、预测和分析滤波状态相互独立。桌面可用 `--smoothing-profile stable|balanced|responsive` 临时覆盖分析档位，但不会改变网页显示滤波。旧的 `realtime_smoothing` 配置键仍可单独兼容读取，不能与 `analysis_smoothing` 同时定义。
-
-MediaPipe world landmarks 当前处于严格的 `assist` 模式：系统并行计算膝、髋、肘、肩的 3D 角度并执行 visibility/presence、骨段、z 跳变、角速度、身份交换、姿态年龄和观测间隔门控。网页画面显示通过质量门的 3D 角度并明确标注 `3D`；缺失或不可靠的角度不显示。所有用于动作状态机的 `selected_angle` 仍取二维值，动作阶段和规则 PASS/FAIL 仍使用原有二维阈值；可靠且与二维一致的 3D 只提高映射角度规则的置信度，原本 `UNSURE` 的规则不会被越级改为 `VALID`，严重 2D/3D 冲突会将相关候选降为 `UNSURE`，3D 缺失或不可靠时则保持完全二维回退。触地、地板、髋膝图像高度、腕部位置与同步、起跳、落地、补步和距离规则不使用 3D。网页和桌面报告继续保存 2D/3D 差值、Assist 状态、冲突比例与失败原因；这些统计依赖实际视频，程序不会伪造硬件或动作结论。
-
-另有一个默认不进入产品判定的 `2D + 3D` 影子证据实验。它在保留二维局部地板线的同时提取髋补偿后的膝/脚高度变化、腿部深度排序、3D 膝髋角、脚速/停留/左右事件时间差，以及躯干俯卧和肩髋空间关系；3D 只可调整置信度、修正 Lunge 腿侧/主侧或在冲突时降为 `UNSURE`。实验有硬保护：不创建候选、不修改二维事件锚点、不独立推断触地，也不能把非 `VALID` 的二维结果升格为 `VALID`。运行：
-
-```powershell
-python -m tools.run_2d_3d_shadow_evidence
-```
-
-工具对 15 条已人工复核的核心 RGB 视频执行逐视频留一阈值和消融选择，并生成 `datasets/hyrox/reports/internal_2d_3d_shadow_evidence_lovo_v2.{json,md}`。第二版不再把伴随低可见度、几何失败或时间跳变的角度差当成可信冲突，并要求角度冲突至少持续 5 帧且占可观察证据的 50%；每折还会在质量门回退、仅身体时序、仅角度和组合证据间选择。当前 15 折都判定三种 3D 候选未在其余视频上稳定胜过 2D，因此自动选择精确 2D 回退：candidate recall 保持 `74.29%`，状态准确率保持 `32.69%`，`UNSURE` rate 保持 `65.38%`，事件帧 MAE 保持 `42.77` 帧，规则 FP/FN 也与 2D 相同。第一版的整体退化已经消除，但目前仍没有可信的净提升证据，所以继续保持影子实验，不能据此启用正式裁决。逐视频留一只减少同视频直接调参与评估泄漏，本结果仍是小样本、单人工复核内部实验，不构成独立测试或跨主体泛化结论。
-
-阶段、站立基线、接触代理和规则置信度另有一套同样不进入产品默认值的轻量时序实验。运行：
-
-```powershell
-python -m tools.run_temporal_evidence_experiment
-```
-
-v2 报告位于 `datasets/hyrox/reports/internal_temporal_evidence_lovo_v2.{json,md}`。在 29 段视频逐视频留一中，Ridge 逐帧阶段模型加因果 HMM 将边界 precision 从 `32.70%` 提到 `71.18%`，frame accuracy 从 `49.90%` 提到 `51.60%`，但边界 recall 从 `73.37%` 降到 `64.94%`，MAE 从 `4.65` 增到 `5.10` 帧。允许训练折校准最多缺失两个中间阶段后，阶段流候选 recall 从 `15.89%` 提到 `31.31%`、precision 为 `94.37%`、终点 MAE 为 `24.31` 帧；召回仍不足以替代现有规则候选链，所以只建议作为去抖、合并和结算侧车。
-
-每视频站立基线现在必须同时通过角度合理性、低髋速度、角度/身高稳定和双侧一致性门；8 段 Lunge/Wall Ball 中仅 2 段通过，另外 6 段自动回退固定阈值，不会把正面 Lunge 中约 `67°–101°` 的错误膝角当作站立基线。质量门控个体基线的帧级 F1 为 `20.44%`，固定阈值为 `0.44%`，但仍有 15 个 FP，故没有接入正式 analyzer。
-
-接触消融继续只表示人工复核的接触代理：纯 2D 的 `UNSURE` 为 `88.24%`、零 FP、事件 MAE `14.43` 帧；分割虽把 `UNSURE` 降到 `78.43%`，却产生 2 个 FP；分割加身体相对 3D 有 1 个 FP、事件 MAE `12.10` 帧。安全影子融合因此保留二维接触状态，只用分割和 3D 修正事件锚点，维持零新增 FP 并把事件 MAE 降到 `12.10` 帧，但不降低 `UNSURE`，也不声称物理触地。规则置信度校准要求每条规则至少 5 个正例、3 段训练视频且训练零误报；原始 LOVO 会把 `UNSURE` 从 `65.38%` 降到 `55.77%`，但 `VALID/UNSURE → NO_REP` 从 3 增至 8，误报硬门未通过，最终自动回退基线。该结果说明当前标注尚不支持安全压低这部分 `UNSURE`。
-
-页面中的三类结果含义不同：
-
-| 结果层 | 判断对象 | 用途 |
-|---|---|---|
-| 当前姿态评价 | 当前阶段的角度、归一化位置和高置信度问题 | 控制骨架颜色和关节角度标记；边界值不会直接判红或判绿 |
-| 实时动作反馈 | 当前帧或最近一段动作命中的技术问题 | 给出最多两条优先改进提示；不一定影响有效计数 |
-| 完整周期判定 | 整次候选的必需人体规则及证据质量 | 生成 `VALID`、`NO_REP`、`UNSURE` 和对应计数字段 |
-
-以默认“中”灵敏度的负重箭步蹲为例：全身可见度达到要求后，最小膝角约 `≥150°` 识别为站立，约 `≤115°` 并结合髋部下降判断最低点；最低点若膝角仍 `>100°` 会提示下蹲幅度不足，躯干绝对角 `>20°` 会提示前倾过多。完整周期结束时还必须确认后膝触地、触地后膝髋约 `≥165°` 并连续保持、触地腿交替且没有额外调整步。上述实时提示阈值会随灵敏度变化，最终配置值以 [HYROX 动作配置说明](configs/hyrox/README.md) 和各动作 YAML 为准。
-
-## 计数与分析周期标准
-
-下表描述当前程序如何解释二维人体关键点。Lunge、Wall Ball 和 Burpee Broad Jump 会形成需要人体规则验证的候选；Rowing、SkiErg、Sled Push 和 Sled Pull 只记录分析周期；Farmers Carry 是连续监控。所有输出均不等同于 HYROX 正式比赛裁判结论。
-
-| 动作 | 当前程序算作一次的关键顺序 | 建议视角 |
-|---|---|---|
-| 负重箭步蹲 | 站立 → 明确后膝触地 → 触地后双髋双膝完全伸展；与上一条有效触地腿交替且无额外调整步 | 侧面或斜侧面，全身和脚下地板入镜 |
-| Wall Ball | 双髋双膝站直 → 髋部明确低于膝部 → 双髋双膝向上完全伸展 → 双腕同步举过双肩；四项人体规则全部通过后计 1 次 | 正面或斜前方，全身、地板、双脚和双手腕持续入镜 |
-| Rowing | Catch → Finish；Drive 可作为过渡相位。只增加分析周期，不是官方有效次数 | 侧面 |
-| SkiErg | 顶部 → 下拉底部 → 回到顶部。只增加分析周期，不是官方有效次数 | 正面或斜前方 |
-| Burpee Broad Jump | 胸部代理触地确认 → 双脚同步起跳 → 双脚同步落地 → 下一次双手开始触地时完成验证；还要求起落错位、手部位置、无补步及前向位移规则全部通过 | 侧面约 45°，全身、双手、双脚和下一落地区域持续入镜 |
-| Sled Push | Drive → Step；每个推动步只记为分析周期，不是官方有效次数 | 侧面或斜侧面 |
-| Sled Pull | Reach → Pull → Recover → Reach；后拉和随后的向前回正合为一个分析周期，不是官方有效次数 | 侧面或斜侧面 |
-| Farmers Carry | 连续监控，不按次数拆分，`cycle_count` 与兼容 `rep_count` 均保持为 0 | 正面或斜前方，全身入镜 |
-
-实时摄像头在“中/高”灵敏度下允许一个已处理帧确认关键端点，以免推理队列丢帧时错过快速顶点；完整端点顺序和计数冷却仍用于防止重复计数。Wall Ball 测试时应先完整站立，再下蹲并把手腕举过肩部；若选择“低”灵敏度，端点需要连续多帧，计数会更保守。具体默认角度和距离阈值见 [HYROX 动作配置说明](configs/hyrox/README.md#默认中灵敏度计数与分析周期端点)。
-
-每个完整动作周期会先进入人体规则验证层，再得到 `VALID`、`NO_REP` 或 `UNSURE`。统一计数字段为 `candidate_count`（动作周期）、`pose_valid_rep_count`（有效动作）、`no_rep_count`（未完成）和 `unsure_count`（无法确认）；兼容字段 `rep_count` 始终等于 `pose_valid_rep_count`。膝内扣、轻微前倾和小幅不对称等技术提示不会单独取消计数。
-
-| 动作类别 | 字段解释 |
+| 结果层 | 含义 |
 |---|---|
-| Lunge / Wall Ball / Burpee Broad Jump | `candidate_count` 是人体规则候选数；三种互斥结果满足 `candidate_count = pose_valid_rep_count + no_rep_count + unsure_count`。`pose_valid_rep_count` 仍只是二维人体序列有效，不是官方完赛计数。 |
-| Rowing / SkiErg / Sled Push / Sled Pull | `cycle_count` 是划动、拉动或推动步分析周期；通用计数字段为兼容现有界面保留，必须结合 `count_semantics: analysis_cycle` 与 `official_rep_count_supported: false` 解读。 |
-| Farmers Carry | `count_semantics: continuous_monitor`；`cycle_count` 和 `rep_count` 保持 0，应查看 `carrying/rest`、技术反馈和持续违规状态。 |
+| 当前姿态评价 | 当前阶段的角度、相对位置和高置信度问题，用于骨架颜色与关节标记 |
+| 实时动作反馈 | 当前帧或最近一段动作中的技术问题，不一定影响有效计数 |
+| 完整周期判定 | 整次动作候选的必需人体规则和证据质量，输出 `VALID`、`NO_REP` 或 `UNSURE` |
 
-最终计数前还会执行按“动作 × 拍摄视角 × 具体规则”校准的可观测性门控；未配置的组合才回退到整次平均可见度 `0.65`、必需关键点置信度 `0.60` 和决定性规则置信度 `0.72`。每条规则只检查实际参与判断的身体侧与证据帧，局部地板失效、视角不适合或失败只出现一个异常帧时仍降级为 `UNSURE`。逐规则门槛与降级依据可在 `last_rep_observability.thresholds_by_rule` 查看；持续多帧且证据充分的明确失败仍记为 `NO_REP`。
-
-负重箭步蹲已接入五项必需人体规则：后膝触地、触地后的膝部伸展、触地后的髋部伸展、有效触地腿交替，以及无额外调整步。系统会综合人体前进方向、脚位置和双膝离地高度确定前后腿；清晰的近地膝证据可纠正侧视图中的左右误配。正面证据要求双侧伸展；推荐的侧面视角使用置信度更高的同侧腿链并保留 3° 二维测量容差。一次动作经过最低点后不会仅因短暂回到站立阶段就立即结算：系统会继续等待膝、髋完全伸展得到确认，并只在完全伸展、下一次下降或有限视频结束时形成最终候选。只有 `VALID` 动作会更新上一条触地腿，遮挡或地板不可靠会记为 `UNSURE`。
-
-Burpee Broad Jump 已接入八项必需人体规则：通用胸部触地代理、双脚同步起落、起跳与落地错位代理、`LEGAL_HAND_PLACEMENT_PROXY`、落地后无额外步或碎步，以及身体中心和双脚均发生同向前移。局部地板增强结果会在同一帧同时提供给脚部事件、手部位置和胸部触地代理，避免阶段已识别但最终证据仍读取旧特征。落地只生成待验证候选并显示 `AWAITING_NEXT_HANDS`；系统会继续观察到下一次 hands-down/chest-down，或在有限视频结束时结算最后一个待定候选。脚部错位和手部位置都按本人脚长归一化，不代表精确测得官方厘米距离。
-
-Wall Ball 已接入四项必需人体规则：站直起始、基于局部地板的髋低于膝、投掷端点向上完全伸展，以及 `BILATERAL_THROW_PROXY`。正面视角保留双侧证据；侧面、后方和斜视角会在动作开始时固定更可靠的一侧，阶段触发、伸展、腕部轨迹、脚跟提示和最终规则都复用同一策略，避免阶段按一侧触发而结算改看另一侧。投掷代理只能确认人体投掷样式，不能确认球、目标或命中结果；关键人体证据不足时记为 `UNSURE`。
-
-距离动作不产生人体姿态意义上的官方有效次数。Rowing、SkiErg、Sled Push 和 Sled Pull 的兼容 `rep_count` 只代表动作分析周期，并同时输出 `cycle_count`、`count_semantics: analysis_cycle` 与 `official_rep_count_supported: false`；Farmers Carry 使用 `count_semantics: continuous_monitor`。人体违规检测只覆盖可见且规则明确的部分：Rowing 在用户开始至停止分析的训练区间内检测持续站起代理 `ROWING_EARLY_STAND_PROXY`；Sled Pull 检测 `SLED_PULL_KNEELING_VIOLATION`、`SLED_PULL_SEATED_VIOLATION`，证据不足的可能坐姿输出 `UNSURE_POSSIBLE_SEATED_PULL`；Farmers Carry 检测 `ARM_NOT_EXTENDED_VIOLATION` 和 `ARM_NOT_BY_SIDE_VIOLATION`。所有明确违规均要求持续多帧，关键点或视角不足时降级为 `UNSURE`。SkiErg 不因脚离地判违规，Sled Push 不因固定关节角度或躯干姿势判违规。
+证据不足、身体遮挡、拍摄视角不适合或关键点置信度不足时，程序会优先返回 `UNSURE`，而不是给出不可靠的有效或无效结论。具体阈值和规则见 [动作配置说明](configs/hyrox/README.md)。
 
 ## 安装
+
+支持 CPython `3.10–3.12`。
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-core.txt
+python -m pip install -e .
 ```
 
-主要模型文件：
-
-- `models/pose_landmarker_full.task`：MediaPipe Pose；
-- `models/hand_landmarker.task`：可选手部关键点；
-- `yolo11n-pose.pt`：实验性 YOLO11n Pose；
-- `models/rtmw-dw-x-l_simcc-cocktail14_270e-256x192_20231122.onnx`：实验性 RTMW-X/L WholeBody 133 点，约 229 MB，不提交到 Git；
-- `yolo11n.pt`：实验性人体检测器。
-
-RTMW 属于可选高精度依赖。安装 CPU 或 NVIDIA GPU 运行时（二选一）：
+按需安装其他依赖：
 
 ```powershell
-# CPU
-.venv\Scripts\python.exe -m pip install -r requirements-rtmw-cpu.txt
+# 可选 YOLO 实验后端
+python -m pip install -r requirements-yolo.txt
 
-# NVIDIA GPU
-.venv\Scripts\python.exe -m pip uninstall -y onnxruntime onnxruntime-gpu
-.venv\Scripts\python.exe -m pip install -r requirements-rtmw-gpu.txt
+# 开发、测试和构建
+python -m pip install -r requirements-dev.txt
 ```
 
-权重下载地址、GPU 环境和 Provider 检查命令见 [模型安装说明](models/README.md)。
+RTMW 权重、CPU/GPU 运行时和模型检查命令见 [模型安装说明](models/README.md)。
 
-## 网页版识别模型
+安装后可先检查运行环境：
 
-实时摄像头和上传视频只使用 `MediaPipe Pose`；`auto` 仅作为旧请求兼容值并直接映射到 MediaPipe。8 个固定示例读取随版本生成的 v2 姿态、world landmarks 与手部关键点缓存，模型栏显示“预计算示例结果”，播放时不再加载姿态或手部模型。负重箭步蹲缓存由离线 YOLO 人物锁定与 MediaPipe image/world 关键点身份匹配生成，用于避开样例中的背景人物；该 YOLO 路径不会进入摄像头或上传视频会话。视频、相关模型或缓存 schema 变化时缓存会自动失效并回退真实推理。
+```powershell
+pose-doctor --json
+```
 
 ## 网页版快速开始
 
-本机使用可双击 `启动网页.bat`，或在命令行运行：
+双击 `启动网页.bat`，或运行：
 
 ```powershell
-.venv\Scripts\python.exe start_web.py
+.\.venv\Scripts\python.exe start_web.py
 ```
 
-程序会打开 `http://127.0.0.1:5000`。选择“本机摄像头”，点击“开启摄像头”并允许浏览器的视频权限，然后点击“开始实时分析”。
+浏览器会打开 `http://127.0.0.1:5000`。选择动作和视频来源，允许摄像头权限后即可开始实时分析；也可以上传视频进行离线分析。
 
-人工复核台位于 `http://127.0.0.1:5000/review`，当前采用单人复核，包含：
+“动作反馈”区域的语音提示默认开启。语音由浏览器 Web Speech API 在当前设备本机合成，不申请麦克风权限，也不会向服务器上传音频。
 
-- “人工 4 · 其余 RGB”：其余 15 段手机视频已完成终态人工复核；
-- “人工 4 · 高分歧片段”：供后续主动学习和姿态后端故障分析使用，不是手机 RGB
-  精标导入门；当前可延期；
-- 15 段核心动作逐次/事件精标：逐次填写开始帧、结束帧，并用中文下拉框填写阶段和错误；
-- 32 条 ONI 的 64 个 Depth/IR 独立主体任务：每个模态逐项复核 24 个主体检查点；
-- 独立的 ONI 视角先验任务：人工纠正正面、背面、侧面、斜前方或斜后方，并逐项填写
-  动作规则可观察性、适用区间与证据帧；
-- 独立的 ONI 错误真值任务：只对录制意图错误做选择性裁决，不可观察时禁止确认错误发生；
-- 动作类型仅手动切换；自动动作识别暂缓，AI 候选只有在人工点击载入后才进入可编辑草稿。
-
-页面默认进入人工 4。SkiErg 和 Sled Push 使用两个临时 subject 分组，其余动作各使用一个
-临时分组；这些分组只用于当前小数据集的开发/验证组织，不代表跨动作身份已独立核验。
-
-手机结果保存在 `datasets/hyrox/reviews/human_v1/reviewer_a/records/`，ONI 模态结果保存在
-`datasets/hyrox/reviews/human_v1/reviewer_a/oni_records/`、`view_prior_records/` 和
-`error_truth_records/`。Depth 与 IR 只同步定位检查点，主体、视角和错误结论始终独立保存，
-不得做当前 ONI—手机配对或把 IR 当作 RGB。页面可分别导出
-`view_observability_review_v1.json`、`oni_subject_review_v1.json`、
-`oni_error_truth_review_v1.json` 和动作 × 视角 × 判断项汇总。
-
-导入本次手机 RGB 精标并复现基线/优化对比：
+临时公网分享可双击 `启动公网访问.bat`，需要随机访问口令时运行：
 
 ```powershell
-python -m tools.apply_human_review `
-  --review-bundle hyrox_human_review_a_20260728_170359 `
-  --phone-only-authorization `
-  --accept-fine-rgb-calibration `
-  --force-phone-observable `
-  --confirm-fine-rgb-human-reviewed `
-  --derive-missing-noncore-events `
-  --confirm-valid-proposal-record phone_skierg_002
-python -m tools.evaluate_reviewed_rgb_guidance --profile both
-python -m tools.build_reviewed_rgb_error_library --export-media
+.\.venv\Scripts\python.exe start_public_web.py --protected
 ```
 
-导入器会校验视频帧界、闭区间、rep、连续阶段、事件归属和审计版本，并把原始
-`UNKNOWN/PARTIAL` 可观察性保存在覆盖审计中。生成的
-`human_rgb_fine_annotations_v1.json` 记录 30/30 条终态人工结论和 29 条可用精标；
-`phone_sled_push_005` 按人工“视频不可用”结论排除。`phone_skierg_002` 的 73 个分析周期
-按用户明确确认记为有效；缺失的非核心关键事件只从已人工核对的阶段边界确定性派生，并
-保留来源审计。这些标签可用于内部 RGB 规则标定和监督实验，但仍不是独立测试集，也不
-代表跨主体或生产泛化。
-本轮对比明确记录 `oni_used=false`，未完成的 ONI Depth/IR 主体复核不会阻断手机 RGB
-试验，也不会被推断或补齐。
-
-数据角色清单位于 `datasets/hyrox/manifests/data_roles_v1.json`：当前 27 条
-`development`、3 条 `validation`，其中 27 条可训练、2 条可评估，另 1 条 validation
-因视频不可用被排除；训练/评估记录和临时 subject 均无角色重叠。核心三动作仍全部属于
-development，因此不能把当前报告称为独立验证。最后一条命令会生成
-`datasets/hyrox/reviews/error_library_v1/index.json` 及 75 个最长 1 秒的
-TP/FP/FN/`UNSURE`/状态不匹配片段，并保存源数据、实现代码和配置哈希。
-
-如需复现当前“先按未审核 ONI 试一遍”的隔离实验，在上述命令之后运行：
-
-```powershell
-python -m tools.evaluate_unreviewed_oni_auxiliary
-```
-
-报告会读取 32 条 ONI 的 64 路 Depth/IR 自动主体提议，只比较粗粒度运动证据和研究场景
-覆盖。输出固定标记 `unreviewed=true`、`training_eligible=false`、
-`release_eligible=false` 和 `runtime_defaults_changed=false`；不会把 IR 当 RGB、不会建立
-手机—ONI 配对，也不会把录制意图当作错误真值。
-
-### 逐次动作语音提示
-
-“动作反馈”右上角的“语音开/关”默认开启。系统在一次人体规则候选或分析周期完成时，汇总该段动作中持续出现的问题以及清晰关键阶段的角度偏离，立即播报最多两条改进建议；没有持续性问题时不会播放无意义提示。农夫行走不按次数拆分，会在动作问题持续约 1.2 秒后播报，同一问题至少间隔 8 秒才会再次提示。
-
-语音使用浏览器 Web Speech API 在当前设备本机合成，不申请麦克风权限、不向服务器上传音频，也不会写入录制视频。开关选择会保存在当前浏览器；若浏览器不支持语音合成，页面会显示“语音不可用”。
-
-页面的“高级设置”中，“骨架设置”只选择完整骨架、仅上半身或仅下半身；“显示手指节点”“隐藏面部”和“镜像画面”是与其分开的同级开关。按需开启手指节点后，实时摄像头和上传视频按约 10 FPS 运行独立的 MediaPipe Hand Landmarker；固定示例直接读取预计算手部关键点。页面为每只手绘制五根手指的 20 个非手腕关节点，手部短暂漏检时最多保留约 0.35 秒以减少闪烁。为降低实时延迟，手指节点默认关闭；隐藏面部默认关闭，摄像头模式默认开启镜像，示例和上传视频默认关闭镜像。
-
-系统优先在用户站直、双脚稳定且全身完整入镜时，用最近约 0.5 秒的脚跟和脚尖位置自动估计局部地板线；负重箭步蹲和 Wall Ball 若视频没有完整站姿，也可由连续稳定的支撑脚建立地板线，但不会把屈膝姿态误用为站立身高。摄像头明显倾斜时，可在“高级设置 → 手动地板线”中依次点击脚下地板的两个点。该标定只用于归一化人体部位的离地高度，不识别赛道，也不测量真实厘米距离；足部被遮挡、人体出画或相机移动时，地板参考会标记为 `UNSURE`。
-
-通用触地检测器在可靠地板参考之上，综合虚拟膝盖/胸部表面距离、动作阶段、垂直速度、局部最低点、持续时间和关键点置信度，并通过进入/退出双阈值防止临界位置抖动。MediaPipe 会使用可选人体分割辅助胸部判断；YOLO Pose 或没有分割的帧仍可运行，但胸部代理置信度封顶为 `0.74`。该结果是二维视觉代理，不能等同于正式裁判对真实乳头线触地的判定。
-
-脚部事件检测器分别跟踪左右脚的支撑、起跳候选、腾空、落地候选和重新支撑状态，同时使用脚跟与脚尖，避免脚尖仍着地时误报离地。双脚同步起落使用 `100/180 ms` 视频容差；前后错位结果固定命名为 `FOOT_STAGGER_PROXY`，按本人脚长归一化，不能视为官方 5 厘米的精确测量。独立碎步事件必须同时满足有效腾空时间、落地稳定时间和腿长归一化位移。
-
-临时公网分享可双击 `启动公网访问.bat`。默认创建匿名 HTTPS 地址；需要随机访问口令时运行：
-
-```powershell
-.venv\Scripts\python.exe start_public_web.py --protected
-```
-
-Quick Tunnel 的地址每次重启都会变化，只适合临时测试。正式部署仍需长期域名、HTTPS、支持 WebSocket 的生产服务和进程守护。完整说明见 [网页版使用说明.md](网页版使用说明.md)。
+Quick Tunnel 地址每次重启都会变化，仅适合临时测试。正式部署说明见 [网页版使用说明](网页版使用说明.md)。
 
 ### 网页版隐私与容量
 
-- 摄像头只在用户点击按钮后授权，始终使用 `audio: false`，不请求麦克风；
-- 摄像头帧仅用于实时推理，不写入服务器磁盘；
-- 截图直接下载到当前设备；服务器录制已关闭；
-- 上传视频分析完成后删除，单文件上限 250 MB、单会话临时空间上限 500 MB；
+- 摄像头仅在用户主动授权后启用，并始终使用 `audio: false`；
+- 摄像头帧只用于实时推理，不写入服务器磁盘；
+- 截图直接下载到当前设备，服务器录制默认关闭；
+- 上传视频分析完成后删除，单文件上限 250 MB；
 - 分析结果可下载为文字报告、JSON 或 CSV，停止后最多保留 10 分钟；
-- 默认容量上限为 100 个匿名网页会话、50 个实时分析会话，实际并发能力取决于部署硬件与网络。
+- 实际并发能力取决于部署硬件与网络。
 
 ## 桌面版快速开始
 
-摄像头实时识别：
+使用摄像头：
 
 ```powershell
 python main.py --hyrox-action lunge --camera-view side
 ```
 
-读取视频：
+分析视频：
 
 ```powershell
 python main.py `
@@ -340,143 +150,76 @@ python main.py `
   --no-mirror
 ```
 
-桌面窗口中按 `A` 打开动作菜单、按数字键选择动作、按 `N` 切换动作、按 `V` 切换相机视角。`S` 截图、`R` 录制标注视频、`T` 录制原始视频仅属于桌面版；网页版不会在服务器保存这些画面。
+常用参数：
 
-## 常用桌面参数
-
-- `--hyrox-action`：选择 HYROX 动作，默认 `none`；
-- `--hyrox-sensitivity low|medium|high`：动作识别灵敏度；
+- `--hyrox-action`：选择 HYROX 动作；
+- `--hyrox-sensitivity low|medium|high`：设置识别灵敏度；
+- `--camera-view front|side|front_left|front_right|unknown`：指定拍摄视角；
 - `--hyrox-config PATH`：覆盖动作默认配置；
-- `--camera-view front|side|front_left|front_right|unknown`：拍摄视角；
-- `CAMERA_VIEW_LIMITED`：当前拍摄视角不足以可靠判断某项动作标准时的提示码；
-- `--backend mediapipe`：正式支持的桌面姿态后端；`auto` 为映射到 MediaPipe 的兼容值，`yolo-pose` 仅用于显式离线实验；
-- `--experimental-backends`：显式启用摄像头实验后端和后端热切换，并显示实验性警告；
-- `--input-video PATH`：使用视频而不是摄像头；
-- `--hyrox-debug`：显示 HYROX 特征调试面板；
+- `--input-video PATH`：使用视频文件而不是摄像头；
 - `--headless`：关闭 OpenCV 窗口；
-- `--record PATH` / `--record-raw PATH`：保存标注或原始视频；
-- `--save-metrics PATH`：输出运行指标 CSV。
+- `--record PATH` / `--record-raw PATH`：保存标注视频或原始视频；
+- `--save-metrics PATH`：导出运行指标 CSV；
+- `--hyrox-debug`：显示规则与特征调试信息；
+- `--experimental-backends`：显式启用实验后端。
 
-查看完整参数：
+运行 `python main.py --help` 查看完整参数。桌面窗口快捷键和拍摄建议见 [完整使用说明](使用说明.md)。
 
-```powershell
-python main.py --help
+## 计数与输出语义
+
+统一计数字段如下：
+
+- `candidate_count`：检测到的完整动作候选数；
+- `pose_valid_rep_count`：人体规则验证通过的动作数；
+- `no_rep_count`：有充分证据确认未完成必需人体规则的动作数；
+- `unsure_count`：证据不足、无法可靠确认的动作数；
+- `cycle_count`：距离类动作的分析周期数；
+- `rep_count`：兼容字段，等于 `pose_valid_rep_count`。
+
+对于 Lunge、Wall Ball 和 Burpee Broad Jump：
+
+```text
+candidate_count
+  = pose_valid_rep_count
+  + no_rep_count
+  + unsure_count
 ```
 
-`--hyrox-debug` 调试面板会绘制局部地板线、虚拟膝盖表面点 `K` 和虚拟胸部表面点
-`C`，并显示两者的离地高度、左右脚支撑状态、起跳/落地时间差、脚部错位比例、当前
-候选的逐规则 `PASS/FAIL/UNSURE` 列表及最终 `VALID/NO_REP/UNSURE`。这些数值用于
-解释二维视觉代理的判定过程；虚拟表面点和归一化高度不是实际人体接触面积或厘米测量。
+Rowing、SkiErg、Sled Push 和 Sled Pull 的 `cycle_count` 只是动作分析周期，不是官方有效次数。Farmers Carry 使用 `count_semantics: continuous_monitor`，应查看搬运状态、持续时间和技术反馈。
 
-## 视频回放工具
-
-```powershell
-python tools/replay_hyrox_video.py --video "HYROX视频\药球.mp4" --hyrox-action wall_ball --camera-view front
-```
-
-第 10 轮的自动动作门控只提供默认关闭的影子回放。当前没有通过人工真值门，因此仓库不会
-生成或启用正式动作模型；先运行下面的命令查看真实的数据就绪失败项：
-
-```powershell
-python -m tools.run_round10_shadow
-```
-
-人工复核完成且该命令生成版本化模型后，才可显式加入
-`--auto-action-shadow --auto-action-model PATH --save-shadow-json PATH`。影子预测只写审计输出，
-不会切换 `--hyrox-action` 指定的正式分析器；`--hyrox-action auto` 目前故意不可用。
-
-多摄像头时间同步检查可运行 `python tools/check_multicamera.py --camera 0:front --camera 1:side`。正式使用前先运行 `python -m src.doctor` 做模型和运行环境健康检查。
+网页版会话、上传和报告默认写入当前目录的 `outputs/`，可用 `POSE_OUTPUT_DIR` 覆盖。桌面版可通过 `--save-dir` 和 `--log-dir` 指定输出位置。
 
 ## 个人参考动作与 DTW 比较
 
-桌面版按 `C` 开始/结束会话后，会在 `outputs/sessions/SESSION_ID/` 生成关键点、运动学、
-摘要和元数据。可先检查质量，再从指定时间段创建个人参考动作：
+桌面版完成会话后，可从指定时间段创建个人参考动作：
 
 ```powershell
 pose-reference-inspect --session outputs\sessions\SESSION_ID
-pose-reference-create --session outputs\sessions\SESSION_ID --start-ms 1000 --end-ms 5000 --name "我的标准动作" --action-type lunge --camera-view side
+pose-reference-create `
+  --session outputs\sessions\SESSION_ID `
+  --start-ms 1000 `
+  --end-ms 5000 `
+  --name "我的标准动作" `
+  --action-type lunge `
+  --camera-view side
 pose-reference-list
 ```
 
-将另一个会话片段与参考动作做归一化和 DTW 对齐：
+将另一个会话片段与参考动作比较：
 
 ```powershell
-pose-reference-compare --session outputs\sessions\CANDIDATE_ID --reference outputs\references\REFERENCE_ID --start-ms 1000 --end-ms 5000
-pose-reference-export --reference outputs\references\REFERENCE_ID
+pose-reference-compare `
+  --session outputs\sessions\CANDIDATE_ID `
+  --reference outputs\references\REFERENCE_ID `
+  --start-ms 1000 `
+  --end-ms 5000
 ```
 
-比较结果默认写入 `outputs/comparisons/`，参考动作默认位于 `outputs/references/`。
-创建和比较命令分别支持 `--output-dir`；列表命令支持 `--root`。参考配置也采用严格
-校验，输出沿用统一的 `schema_version` / `program_version` 字段。
+比较结果默认写入 `outputs/comparisons/`，参考动作默认保存在 `outputs/references/`。
 
-## 配置校验、日志与退出码
-
-启动桌面版或视频回放时会严格校验 YAML：未知字段、重复字段、错误类型、越界值、
-错误 `action_name` 和不支持的 YAML 结构都会立即停止启动，并显示 `CFG001` 错误。
-`python -m src.doctor` 同时验证 8 个动作配置、3 个 HYROX 共享配置、2 个参考动作配置和
-4 个第 10 轮产品契约。
-自定义动作配置仍可只写需要覆盖的字段，但字段本身必须合法。
-
-桌面版、网页版和视频回放默认把运行信息写入 `outputs/logs/` 下的滚动日志，单个日志
-最大 2 MiB，保留 5 个备份。控制台只显示友好错误；需要 traceback 时加 `--debug`。
-可用 `--log-dir` 修改日志目录。
-
-| 退出码 | 含义 | 常见错误编号 |
-|---:|---|---|
-| `0` | 正常完成 | - |
-| `1` | 未预期运行错误 | `RUN001` |
-| `2` | 参数或配置错误 | `CFG001`–`CFG004` |
-| `3` | 摄像头/视频输入错误 | `SRC001` |
-| `4` | 姿态后端初始化错误 | `BCK001` |
-| `5` | 日志、视频、CSV 或会话输出错误 | `OUT001`–`OUT003` |
-| `130` | 用户中断；程序仍会尝试保存活动会话并关闭资源 | `RUN130` |
-
-会话保存先写入 `write_status: partial` 元数据，再生成 CSV、报告和最终
-`write_status: complete`。若磁盘写入中途失败，已生成文件会保留，`metadata.json`
-会尽量记录 `recovery_error` 和 `recovered_files`，不会把不完整会话伪装成完整结果。
-
-结构化 JSON 和 CSV 统一包含 `schema_version` 与 `program_version`；JSON 另有
-`artifact_type`。没有 schema 的历史文件按版本 `0` 兼容读取，高于当前程序支持版本的
-文件会以 `SCH001` 拒绝，避免静默误读。
-
-输出清理默认为只预览。各目录默认保留 2–90 天，也可设置总容量上限：
+## 开发与验证
 
 ```powershell
-# 只预览，不删除
-pose-clean --json
-pose-clean --older-than-days 30 --max-total-gb 20
-
-# 确认列表后才实际删除
-pose-clean --older-than-days 30 --max-total-gb 20 --apply
-```
-
-清理器仅允许处理 `outputs/` 下已登记的生成目录，拒绝文件系统根目录和未知目录名，
-并按会话/报告顶层目录整体删除，避免留下半个活动会话。
-
-## 代码结构
-
-```text
-hyrox/                   # 8 个 HYROX 动作分析器与通用逻辑
-configs/hyrox/           # 动作配置
-src/backends/            # MediaPipe / YOLO Pose / YOLO + MediaPipe / YOLO + RTMW
-src/biomechanics/        # 通用运动学数据
-src/configuration.py     # 受限 YAML 解析与严格配置校验
-src/output_schema.py     # JSON/CSV schema 和程序版本字段
-src/output_management.py # 安全的输出保留期与容量清理
-src/runtime_logging.py   # 错误分类、退出码与滚动日志
-src/realtime/            # 统一桌面运行时：CLI、捕获、后端、显示、录制、会话与 HYROX 分析
-src/validation/          # 8 视频黄金回归与性能/耐久验收
-webui/                   # 网页后端、实时会话、前端页面与静态资源
-start_web.py             # 本机网页入口
-start_public_web.py      # 临时公网入口
-tools/                   # 回放、检查与隧道工具
-tests/                   # 自动化测试
-```
-
-## 验证
-
-```powershell
-python -m src.doctor
 python -m pytest -q
 python tools/check_text_format.py
 python -m src.smoke_test
@@ -485,260 +228,55 @@ node --check webui\static\app.js
 python -m build
 ```
 
-第四批成熟度验收另提供两条可安装命令。黄金回归固定覆盖仓库内 8 段视频的帧数、
-姿态检出率、候选数、有效/未完成/不确定数和分析周期区间：
+其他验证入口：
 
 ```powershell
-# 完整 8 视频回归；结果写入版本化 JSON
+# 固定示例黄金回归
 pose-golden --report outputs\validation\hyrox_golden_report.json
 
-# 秒级管线冒烟（不替代正式耐久验收）
-pose-endurance --duration-seconds 10 --report outputs\validation\endurance_smoke.json
-
-# 正式 30/60 分钟验收；分别运行并保存独立报告
+# 耐久测试
 pose-endurance --minutes 30 --report outputs\validation\endurance_30m.json
-pose-endurance --minutes 60 --report outputs\validation\endurance_60m.json
+
+# 摄像头后端基准
+pose-camera-benchmark --help
+
+# 输出清理（默认仅预览）
+pose-clean --json
 ```
 
-冻结规则、独立 DTW 能力、3D Assist 和实时产品配置时，运行阶段 0 一键入口：
+实验、数据处理、消融、性能优化和各阶段验证的历史结果不在 README 展开，统一记录在 [CHANGELOG.md](CHANGELOG.md) 及对应研究报告中。
 
-```powershell
-# 全量 Python/网页测试、无摄像头隔离冒烟、真实摄像头 FPS、
-# 8 视频黄金回归、MediaPipe P50/P95 和冻结报告
-pose-baseline --output-dir reports\baseline
-
-# 未安装命令行入口时
-powershell -ExecutionPolicy Bypass -File scripts\run_baseline_regression.ps1
-```
-
-输出固定为 `reports/baseline/`，包含 `environment.json`、配置副本、
-`golden_results.json`、`output_schema.json`、`latency_report.json`、
-`test_summary.json`、`test_summary.md` 和逐项日志。黄金报告保留每次候选的
-`VALID/NO_REP/UNSURE`、规则 `PASS/FAIL/UNSURE`、动作周期、3D Assist 证据及视频
-SHA256。当前 8 段视频没有绑定版本化参考动作，DTW 字段会明确记录
-`not_configured`，不会生成虚假距离。
-
-该命令只读 Git 并给出 `v0.9-rule-dtw-baseline` 标签建议；工作树审阅并提交干净后，
-按 `environment.json` 中的命令创建 annotated tag。它不读取 ONI、不导入 OpenNI，
-也不启用神经网络。`--skip-camera` 只适合 CI；物理摄像头项会记录为跳过，不能作为
-设备验收通过。软件无法推算摄像头曝光、显示器扫描和完整 sensor-to-photon，因此这些
-字段保持空值，并要求在目标设备用 120/240 FPS 外部录像补测。
-
-阶段 1 / 第 2 轮的 ONI 数据整理使用：
-
-```powershell
-# 首次执行：完整复制、源/备份 SHA256、只读保护和 manifest
-pose-dataset-manifest
-
-# 后续快速校验 manifest；不会复制或修改文件
-pose-dataset-manifest --validate-only
-
-# 发布或迁移前重新读取全部 11.86 GiB 备份并核验 SHA256
-pose-dataset-manifest --validate-only --verify-files
-```
-
-当前生成 `datasets/hyrox/` 的标准目录和 32 条 ONI `record_id`，原始中文文件名保持
-不变；`raw/oni/` 是独立完整副本，不是硬链接。源文件和副本均为只读，32/32
-源—备份 SHA256 一致。ONI 与第 6 轮接入的手机视频各自使用独立 `record_id` 和时间轴，
-禁止自动配对。文件名中的“标准”或错误描述仅保存为未验证录制意图；
-`subject_id`、使用授权和 `target_athlete` 在获得人工信息前保持待确认。整个
-`datasets/` 默认不提交 Git。
-
-第 6 轮手机 RGB 接入与三类基线使用：
-
-```powershell
-# 完整运行：复制/哈希/逐帧解码、全帧姿态与规则、坐标质量、Lite/Full 延迟
-pose-phone-rgb-round6
-
-# 只执行复制、逐帧解码审计和数据治理报告
-pose-phone-rgb-round6 --ingest-only
-```
-
-当前真实运行把 30/30 段视频以规范 `source_type: phone_rgb` 接入，排除了 30 个
-`._*.mp4` AppleDouble 文件，并逐帧解码到声明末帧（共 15,515 帧）。8 段网页示例仅为
-`example_candidate`；训练、黄金评测、模板和正式示例资格均保持关闭，直到授权、主体和
-专家审核完成。`phone_rgb_future` 只作为旧数据读取别名，不再写入新记录。报告位于
-`datasets/hyrox/{manifests,reports}/` 和 `reports/baseline/`。姿态检出率、全身可见率和
-规则输出不使用文件名作真值，因此不计算准确率；MediaPipe World 明确只作为人体中心
-相对 3D，不代表相机坐标或公制场地坐标。
-
-第 7 轮主体锁定、器械/场景候选和 ROI 消融使用：
-
-```powershell
-# 首次扫描所有人物候选并生成 30 条逐片复核图和 5 张总览图
-pose-tracking-round7 --scan-only
-
-# 查看全部复核图后显式批准；分裂轨迹用多个连续 source segment 绑定同一规范 ID
-pose-tracking-round7 --approve-reviewed-proposals `
-  --reviewer-id <reviewer-id> `
-  --target-segment phone_sled_push_005=person_candidate_001:0-549 `
-  --target-segment phone_sled_push_005=person_candidate_002:550-607 `
-  --skip-roi
-
-# 独立运行全帧与目标 ROI 的逐帧精度/延迟消融
-pose-tracking-round7 --roi-only
-```
-
-当前实测 30/30 已完成 AI 辅助逐片视觉复核、记录内规范
-`target_athlete_001` 绑定和全片审计；15,166/15,515 帧可正式使用，349 帧因目标缺失、
-追踪陈旧或疑似身份切换被排除。`phone_sled_push_005` 在第 550 帧把两个源候选分段映射
-到同一规范目标，并保存一次人工重初始化，重叠候选不会被误当作背景人物。共生成 5,640
-张其他人物 ignore mask；背景人物仍不是自动负样本。10 类器械/场景共生成 43,532 个
-候选搜索区域，但确认可见数保持为 0，实际重量、机器距离、墙球命中等字段保持
-`UNOBSERVABLE`。
-
-ROI 消融覆盖全部 15,515 帧，选择检测间隔 10 帧、padding 1.6。ROI 检出率
-97.267%，全帧为 96.758%，仿射回映 P95 误差为 `2.27e-13 px`；但跨记录关节误差 P95
-为图像对角线的 9.819%，且含摊销人物检测的 ROI 管线 P95 为 18.761 ms，相对全帧
-20.433 ms 未达到 10% 加速门。因此精度门和延迟门均未通过，默认产品链路不变、ROI
-保持关闭。主体身份切换漏检率和复核分歧仍为 `null`，等待独立第二名人类逐帧复核，
-不得把当前 AI 辅助复核冒充双人一致性。
-
-第 8 轮多后端缓存、统一坐标和关节时序审计使用：
-
-```powershell
-# 依次生成 Lite/Full 原始缓存、事件锚复核图和三套派生姿态
-pose-cache-round8 --cache-only
-pose-cache-round8 --anchors-only
-pose-cache-round8 --derive-only --approve-anchor-review `
-  --reviewer-id <reviewer-id>
-
-# 不重跑推理，只验证现有产物并重建最终汇总
-pose-cache-round8 --summary-only
-```
-
-当前 30/30 段、15,515 帧已分别保存 MediaPipe Lite/Full 原始 33 点姿态、World
-landmarks、目标 bbox/mask、模型与推理元数据；Lite 成功 15,071 帧，Full 成功
-14,766 帧，正式姿态均要求绑定 `target_athlete_001`。2,439 个高分歧帧进入第 9 轮
-优先人工复核；`teacher_proposal` 只用于建议，不是 ground truth，禁止静默平均或替代
-人工标签。
-
-统一坐标层同时保存原始归一化/像素 2D、估计内参相机射线、MediaPipe 人体中心相对
-World 和可逆 body canonical 3D。当前手机视频没有可靠标定或同步深度，因此内参状态为
-`estimated_intrinsics`，不报告手机单目绝对 3D 精度，也不生成手机—ONI 帧/像素配对。
-
-每条记录均生成互不覆盖的严格因果分析姿态、仅显示用短时预测姿态和使用未来帧的离线
-标注辅助姿态，共各 15,515 行。选中的 `joint_adaptive_round8_v2` 将延迟—抖动组合
-分数从当前 responsive 基线 `0.271957` 降至 `0.256649`，改善约 5.63%，缺失率保持
-`0.082080`。显示流选择 15 ms 受约束预测，当前离线指标中的关节滞后由 0.4167 ms
-降至 0 ms，并通过反向过冲、支撑脚漂移和骨长门；它仍禁止驱动规则、计数和正式报告。
-
-CPU/XNNPACK 基准覆盖 Lite/Full、原尺寸、长边 640 和 ROI，每个组合 90 个样本；
-当前环境未配置可用的 MediaPipe Tasks Python GPU delegate，因此 GPU 明确记为未测试。
-ROI 数据只用于离线对照，第 7 轮双门失败结论不变，产品默认仍关闭。事件锚已完成首轮
-AI 辅助视觉复核，只用于当前延迟审计；第 9 轮必须由独立人员双人复核后才能冻结最终
-事件报告。`sensor_to_photon` 仍为 `not_measured`。完整性报告确认原始缓存、坐标/
-共识和三套派生流计数全部为 15,515，违规数为 0；最终状态为
-`passed_with_round9_double_reviewed_event_anchors_pending`。
-
-主要报告位于：
+## 代码结构
 
 ```text
-datasets/hyrox/reports/backend_agreement_v1.json
-datasets/hyrox/reports/coordinate_quality_v1.json
-datasets/hyrox/reports/joint_latency_jitter_v1.json
-datasets/hyrox/reports/pose_observability_v1.json
-datasets/hyrox/reports/round8_artifact_integrity_v1.json
-datasets/hyrox/reports/round8_implementation_summary.json
+hyrox/                   # HYROX 动作分析器与通用规则
+configs/hyrox/           # 动作配置
+src/backends/            # 姿态后端
+src/biomechanics/        # 通用运动学数据
+src/realtime/            # 桌面运行时
+src/validation/          # 回归、性能与耐久验证
+webui/                   # 网页后端和前端资源
+tools/                   # 回放、检查和研究工具
+tests/                   # 自动化测试
 ```
-
-阶段 2 / 第 3 轮的离线 ONI 审计使用：
-
-```powershell
-# 扫描 manifest 中的全部 ONI
-pose-oni-audit
-
-# 未安装命令行入口时
-python tools\audit_oni_dataset.py
-```
-
-审计器是隔离在 `tools/oni_bridge/` 下的 C++/OpenNI2 文件工具，只部署
-`OniFile` 驱动，不连接摄像头，也不把 OpenNI 加进产品 Python 依赖。当前 32/32 个
-ONI 均可完整读取且无解码、时间戳、帧索引或估算丢帧异常；实际流组合全部为
-Depth + IR、没有 Color，因此全为 B 类，当前没有可直接进入 RGB-D 流程的 A 类记录。
-逐条结果、总表和单独的不合格记录表位于
-`datasets/hyrox/reports/oni_audit/`。这项流审计不代表动作标签、主体运动者或使用授权
-已确认；多人污染仍必须在后续轮次处理。
-
-第 4、5 轮的无损导出和 ONI 内部同步使用：
-
-```powershell
-pose-oni-export
-pose-oni-sync
-
-# 未安装命令行入口时
-python tools\export_oni_dataset.py
-python tools\synchronize_oni_dataset.py
-```
-
-第 4 轮已将 32/32 个 ONI 完整导出到 `datasets/hyrox/extracted/`：Depth
-18,709 帧、IR 18,713 帧均为 `640×480 uint16 NPY`，保留原始数值、frame index
-和 timestamp；32 个 `depth_preview.mp4` 只是派生预览。导出载荷约
-24.23 GB，逐条审计一致性错误为 0。最短记录重复导出的帧数、索引 SHA256 和全部帧
-内容聚合 SHA256 完全一致。由于源 ONI 没有 Color，本批没有生成 `color.mp4`，但工具
-保留 RGB888 无损帧和 Color 预览接口。
-
-第 5 轮已为 32/32 个记录生成内部同步报告。因为全部缺少 Color，可执行
-Color–Depth 配对为 0，所有记录均标为 `video_level_only` 并排除出需要精确 RGB–Depth
-同步的事件训练；没有把 IR 当作 Color，也没有生成 ONI—手机配对。报告位于
-`datasets/hyrox/reports/oni_export/` 和 `datasets/hyrox/reports/oni_sync/`。
-
-第 11 轮 ONI Depth + IR 主体审计与辅助研究使用：
-
-```powershell
-pose-oni-research-round11
-
-# 或直接运行；只重建结构化报告时可跳过派生复核图
-python -m tools.run_round11_oni_research
-python -m tools.run_round11_oni_research --no-previews
-```
-
-工具在每条记录的 Depth、IR 流上各自均匀抽取 24 个检查点，独立生成自动主体候选，
-不使用另一模态的框作兜底，也不把候选写成已确认身份。当前 32 条记录共形成 1,536 个
-检查点；Depth 380/768、IR 414/768 达到自动候选门，未命中或低置信帧原样保留供人工
-复核。64 张模态独立复核图明确标注 `HUMAN REVIEW REQUIRED`；当前人工确认主体数、
-已验证动作错误数和训练可用记录数仍均为 0。
-
-Depth 的公制字段只表示已选表面沿传感器视线的距离，不代表人体关节、公制场地坐标、
-地面距离或比赛行进距离。当前没有相机/地面标定、身体部位与器械标注，因此地面、
-身体/器械接触以及 12 类具体错误均不得作为可靠真值；粗轮廓与空间运动仅是完成人工
-主体复核后的研究候选。结构化输出位于：
-
-```text
-datasets/hyrox/oni_tracks/{record_id}/{depth,ir}_target_proposals.jsonl
-datasets/hyrox/reports/round11_subject_previews/{record_id}/
-datasets/hyrox/reports/oni_subject_audit_v1.json
-datasets/hyrox/reports/oni_modality_observability_v1.json
-datasets/hyrox/reports/oni_phone_recapture_plan_v1.json
-datasets/hyrox/reports/oni_future_rgbd_value_v1.json
-datasets/hyrox/reports/round11_implementation_summary.json
-```
-
-`configs/contracts/oni_research_v1.yaml` 强制禁止为当前数据生成 RGB–Depth 配准、手机—ONI
-配对、手机逐帧标签、IR 充当 RGB、未标定地面真值和从轮廓推断接触真值。未来 RGB-D
-价值报告只建议同一设备硬件同步 Color+Depth、保存内外参并独立人工确认主体；不会
-把当前未配对数据改造成同步训练数据。
-
-耐久报告包含平均 FPS、P95 端到端帧延迟、起止/峰值进程内存、内存增长、视频循环
-次数、异常读帧率、完成状态和帧/延迟记录完整性。默认阈值可通过命令行覆盖，便于不同
-CPU/GPU 机器建立各自基线。`src.realtime_pose` 已停止维护独立循环；旧导入会显示弃用
-提示并转发到同一个桌面运行时。
-
-Windows/Linux CI 会在 Python 3.10 和 3.12 上执行依赖安装、导入、编译、文本格式、
-全量单测、无摄像头冒烟和发布包构建。自动化测试还覆盖通用接触检测、脚部事件、
-`VALID/NO_REP/UNSURE` 可观测性门控、三项人体有效计数动作、距离动作违规边界、
-输出 schema/保留策略、相同特征流重复运行确定性、旧入口转发、黄金区间与耐久报告
-判定。第 8 轮完成后的当前基线为 Python `573 passed`、Node
-`16 passed`；Full 黄金视频回归为 `8/8`。
 
 ## 限制
 
-- 当前结论来自人体关键点，是视觉运动学代理，不是医疗诊断；
-- Wall Ball 不检测药球、目标命中或目标高度；
-- Sled Push / Pull 不检测器械或真实负载；
+- 所有结论均来自人体关键点和二维视觉代理，不是医疗诊断；
+- Wall Ball 不检测药球、目标高度或是否命中；
+- Sled Push / Pull 不检测器械、真实负载或是否过线；
 - Rowing / SkiErg 不读取器械阻力、功率或距离；
-- 距离动作的 `cycle_count` 不是官方有效次数，系统不确认雪橇过线、Rowing/SkiErg 完成里程或训练区间外的规则状态；
-- Farmers Carry 不检测壶铃重量、真实携带距离或完成线；
-- 拍摄视角、遮挡、光照和多人干扰会影响识别质量；
-- 自动化验证没有打开真实摄像头；后端表现和 sensor-to-photon 必须在目标设备现场测量；
-- 网页版虽已完成会话隔离和容量限制，但尚未完成实体设备兼容验收、50 路压力测试和正式公网部署。
+- Farmers Carry 不检测壶铃重量、真实距离或完成线；
+- 拍摄视角、遮挡、光照、快速运动和多人干扰会影响识别质量；
+- 自动化测试不能替代目标设备上的真实摄像头、性能和端到端延迟验收；
+- 临时公网分享不等同于正式生产部署。
+
+## 文档导航
+
+- [完整使用说明](使用说明.md)：网页版、桌面版、拍摄、计数语义和故障排查；
+- [网页版使用说明](网页版使用说明.md)：浏览器摄像头、匿名会话、隐私、报告和部署；
+- [模型安装说明](models/README.md)：模型文件、可选后端与 CPU/GPU 环境；
+- [动作配置说明](configs/hyrox/README.md)：阈值、触地/脚部事件和可观测性；
+- [变更记录](CHANGELOG.md)：功能、实验、性能和验证历史；
+- [算法模型与数据现状](项目算法模型与数据现状说明.md)：当前技术边界、数据角色和可用性；
+- [发布与升级说明](RELEASING.md)：版本规则、构建、发布和 schema 兼容策略。

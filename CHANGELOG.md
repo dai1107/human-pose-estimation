@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- 重构 README，将阶段性数据进步、模型优化过程、消融结果、数据接入轮次和测试基线移出
+  项目介绍；README 现在只保留稳定能力、安装、使用、输出语义和限制，迭代历史统一由
+  本变更日志及对应研究报告承载。
 - 新增轻量时序证据逐视频留一 v2：Ridge 阶段发射加因果 HMM 提高阶段边界精度，
   人工阶段边界校准最多两个缺失阶段及候选合并/结算；候选 recall 提至 31.31%、
   precision 为 94.37%，但明确只作为现有候选链侧车。站立基线增加角度合理性、
@@ -284,7 +287,7 @@ development builds use the `X.Y.Z.devN` form.
 
 ### Validation
 
-- The current full suite passes 566 Python tests and 16 Node tests. Full-model
+- The current full suite passes 573 Python tests and 16 Node tests. Full-model
   golden replay passes all 8/8 HYROX videos; Doctor, no-camera smoke,
   compileall, text-format, diff, and package-build checks also pass. Real
   camera backend and physical sensor-to-photon results remain device-site
