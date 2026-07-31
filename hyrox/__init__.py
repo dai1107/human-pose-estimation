@@ -45,7 +45,15 @@ from .foot_events import (
     FootStateResult,
     FootSyncResult,
 )
-from .geometry import PosePoint, angle_3pts, coerce_point, midpoint, safe_distance
+from .geometry import (
+    PosePoint,
+    angle_3pts,
+    calculate_angle_2d,
+    calculate_angle_3d,
+    coerce_point,
+    midpoint,
+    safe_distance,
+)
 from .validity import (
     BodyRuleResult,
     ObservabilityAssessment,
@@ -104,6 +112,8 @@ __all__ = [
     "RepCandidate",
     "RepDecision",
     "angle_3pts",
+    "calculate_angle_2d",
+    "calculate_angle_3d",
     "aggregate_rep_decision",
     "apply_observability_policy",
     "coerce_point",

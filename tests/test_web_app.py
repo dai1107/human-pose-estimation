@@ -65,9 +65,12 @@ def test_web_home_and_options_are_available() -> None:
     assert "完整动作周期" in page.get_data(as_text=True)
     assert 'id="voiceToggle"' in page.get_data(as_text=True)
     assert 'id="fingerToggle" type="checkbox">' in page.get_data(as_text=True)
+    assert 'id="annotatedVideoToggle"' in page.get_data(as_text=True)
+    assert 'id="downloadAnnotated"' in page.get_data(as_text=True)
     assert options.status_code == 200
     assert {item["value"] for item in options.json["actions"]} >= {"lunge", "wall_ball", "rowing"}
     assert len(options.json["samples"]) == 8
+    assert options.json["privacy"]["stores_pose_landmark_cache"] is True
     assert {item["action"] for item in options.json["samples"]} == {
         "lunge", "wall_ball", "farmers_carry", "rowing", "skierg", "burpee_broad_jump", "sled_push", "sled_pull"
     }
@@ -165,6 +168,8 @@ def test_human_review_workspace_loads_real_queue_and_quick_review_materials() ->
     assert "ONI 主体复核" in page.get_data(as_text=True)
     assert "视角先验复核" in page.get_data(as_text=True)
     assert "ONI 错误真值" in page.get_data(as_text=True)
+    assert "角度人工标注" in page.get_data(as_text=True)
+    assert "/api/review/export/angle_validation_report_v1" in page.get_data(as_text=True)
     assert "自动动作识别暂缓" in page.get_data(as_text=True)
     assert "这是 AI 候选，不是正确答案" in page.get_data(as_text=True)
     assert "载入候选次数" in page.get_data(as_text=True)
@@ -180,7 +185,7 @@ def test_human_review_workspace_loads_real_queue_and_quick_review_materials() ->
     assert bootstrap.json["error_truth_records"]
     assert bootstrap.json["tasks"]["core_fine_annotation"]["record_count"] == 15
     assert bootstrap.json["tasks"]["oni_subject_review"]["record_count"] == 32
-    assert len(bootstrap.json["dashboard"]["task_completion"]) == 7
+    assert len(bootstrap.json["dashboard"]["task_completion"]) == 8
     assert bootstrap.json["tasks"]["remaining_rgb_fine_annotation"]["record_count"] == 15
     disagreement_task = bootstrap.json["tasks"]["high_disagreement_clip_review"]
     assert disagreement_task["frame_count"] == 2439
@@ -244,6 +249,237 @@ def test_human_review_client_explains_and_imports_ai_candidates() -> None:
     assert "当前没有逐次 AI proposal" in source
     assert "已载入草稿，请逐项人工核对" in source
     assert "当前算法没有检出候选次数/分析周期" in source
+
+
+def test_angle_annotation_client_uses_native_video_points_and_second_point_as_vertex() -> None:
+    source = Path("webui/static/review.js").read_text(encoding="utf-8")
+
+    assert "function anglePointerToNative" in source
+    assert 'const rect = canvas.getBoundingClientRect()' in source
+    assert "(event.clientX - rect.left) / rect.width * video.videoWidth" in source
+    assert "canvas.style.left = `${videoRect.left - wrapRect.left}px`" in source
+    assert "const displayPoints = state.anglePoints.map(([x, y]) => [x * scaleX, y * scaleY])" in source
+    assert "return (Number(frame) + 0.5) / fps" in source
+    assert "const ba = [a[0] - b[0], a[1] - b[1]]" in source
+    assert "const bc = [c[0] - b[0], c[1] - b[1]]" in source
+    assert 'addEventListener("pointerdown", addAnglePoint)' in source
+    assert "未保存的三个点已清空" in source
+    assert "/api/review/export/angle_validation_report_v1" in Path(
+        "webui/templates/review.html"
+    ).read_text(encoding="utf-8")
+
+
+def test_manual_angle_annotation_is_validated_versioned_and_exported(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import webui.app as web_app
+
+    dataset_root = tmp_path / "datasets" / "hyrox"
+    (dataset_root / "manifests").mkdir(parents=True)
+    (dataset_root / "annotations").mkdir()
+    (dataset_root / "reports").mkdir()
+    record = {
+        "record_id": "phone_lunge_angle_001",
+        "source_file": "raw/phone_rgb/angle.mp4",
+        "source_filename": "angle.mp4",
+        "action": "lunge",
+        "subject_id": "subject_angle",
+        "camera_view": "side",
+        "sha256": "abc123",
+        "target_athlete": {"track_id": "target_athlete_001"},
+        "video": {
+            "decoded_frame_count": 10,
+            "fps": 25.0,
+            "duration_seconds": 0.4,
+            "width": 640,
+            "height": 480,
+            "resolution": "640x480",
+        },
+    }
+    (dataset_root / "manifests" / "phone_records.json").write_text(
+        json.dumps({"records": [record]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    for filename in (
+        "action_segments_v1.json",
+        "core_rep_phase_event_error_v1.json",
+        "object_scene_evidence_v1.json",
+        "scoring_correction_v1.json",
+    ):
+        (dataset_root / "annotations" / filename).write_text(
+            '{"records":[]}',
+            encoding="utf-8",
+        )
+    (dataset_root / "reports" / "round9_active_review_queue_v1.json").write_text(
+        '{"records":[]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(web_app, "PROJECT_ROOT", tmp_path)
+    client = web_app.create_app(FakeEngine()).test_client()
+    bootstrap = client.get("/api/review/bootstrap")
+    headers = {"X-CSRF-Token": bootstrap.json["csrf_token"]}
+    record_id = record["record_id"]
+
+    assert client.get(
+        f"/api/review/angles/{record_id}?role=a&reviewer_id=angle_reviewer"
+    ).status_code == 403
+    assert client.post(
+        "/api/review/session",
+        headers=headers,
+        json={"role": "a", "reviewer_id": "angle_reviewer"},
+    ).status_code == 200
+
+    detail = client.get(
+        f"/api/review/angles/{record_id}?role=a&reviewer_id=angle_reviewer"
+    )
+    assert detail.status_code == 200
+    assert detail.json["revision"] == 0
+    assert detail.json["draft"] is None
+    assert detail.json["joints"]["left_knee"]["point_order"][1] == "left_knee"
+    event_values = [item["value"] for item in detail.json["angle_events"]]
+    assert "rear_knee_contact" in event_values
+    assert "finish" not in event_values
+
+    base_annotation = {
+        "frame_index": 2,
+        "joint": "left_knee",
+        "camera_view": "side",
+        "manual_points": [[100, 100], [100, 200], [200, 200]],
+        "event": "lowest_point",
+        "visibility": "high",
+        "notes": "清晰最低点",
+    }
+    draft = client.put(
+        f"/api/review/angles/{record_id}",
+        headers=headers,
+        json={
+            "role": "a",
+            "reviewer_id": "angle_reviewer",
+            "base_revision": 0,
+            "save_as_draft": True,
+            "annotation": {**base_annotation, "manual_points": [[100, 100]]},
+        },
+    )
+    assert draft.status_code == 200
+    assert draft.json["save_status"] == "draft"
+    assert draft.json["revision"] == 1
+    assert draft.json["annotation_count"] == 0
+    assert draft.json["draft"]["manual_points"] == [[100.0, 100.0]]
+    restored = client.get(
+        f"/api/review/angles/{record_id}?role=a&reviewer_id=angle_reviewer"
+    )
+    assert restored.json["draft"]["frame_index"] == 2
+    assert restored.json["draft"]["joint"] == "left_knee"
+
+    invalid_joint = client.put(
+        f"/api/review/angles/{record_id}",
+        headers=headers,
+        json={
+            "role": "a",
+            "reviewer_id": "angle_reviewer",
+            "base_revision": 1,
+            "annotation": {**base_annotation, "joint": "neck"},
+        },
+    )
+    assert invalid_joint.status_code == 422
+    assert invalid_joint.json["code"] == "invalid_joint"
+
+    invalid_event = client.put(
+        f"/api/review/angles/{record_id}",
+        headers=headers,
+        json={
+            "role": "a",
+            "reviewer_id": "angle_reviewer",
+            "base_revision": 1,
+            "annotation": {**base_annotation, "event": "finish"},
+        },
+    )
+    assert invalid_event.status_code == 422
+    assert invalid_event.json["code"] == "invalid_event"
+
+    saved = client.put(
+        f"/api/review/angles/{record_id}",
+        headers=headers,
+        json={
+            "role": "a",
+            "reviewer_id": "angle_reviewer",
+            "base_revision": 1,
+            "annotation": base_annotation,
+        },
+    )
+    assert saved.status_code == 200
+    assert saved.json["revision"] == 2
+    assert saved.json["save_status"] == "complete"
+    assert saved.json["annotation"]["manual_angle_deg"] == pytest.approx(90.0)
+    assert saved.json["annotation"]["timestamp_ms"] == pytest.approx(80.0)
+    assert saved.json["annotation"]["point_order"][1] == "left_knee"
+    completed = client.get(
+        f"/api/review/angles/{record_id}?role=a&reviewer_id=angle_reviewer"
+    )
+    assert completed.json["draft"] is None
+
+    out_of_bounds = client.put(
+        f"/api/review/angles/{record_id}",
+        headers=headers,
+        json={
+            "role": "a",
+            "reviewer_id": "angle_reviewer",
+            "base_revision": 2,
+            "annotation": {**base_annotation, "manual_points": [[-1, 0], [1, 1], [2, 2]]},
+        },
+    )
+    assert out_of_bounds.status_code == 422
+    assert out_of_bounds.json["code"] == "point_out_of_bounds"
+
+    second = client.put(
+        f"/api/review/angles/{record_id}",
+        headers=headers,
+        json={
+            "role": "a",
+            "reviewer_id": "angle_reviewer",
+            "base_revision": 2,
+            "annotation": {**base_annotation, "frame_index": 5, "joint": "right_knee"},
+        },
+    )
+    assert second.status_code == 200
+    assert second.json["annotation_count"] == 2
+
+    conflict = client.put(
+        f"/api/review/angles/{record_id}",
+        headers=headers,
+        json={
+            "role": "a",
+            "reviewer_id": "angle_reviewer",
+            "base_revision": 2,
+            "annotation": base_annotation,
+        },
+    )
+    assert conflict.status_code == 409
+    assert conflict.json["code"] == "revision_conflict"
+
+    exported = client.get("/api/review/export/angle_validation_report_v1")
+    assert exported.status_code == 200
+    report = json.loads(exported.get_data(as_text=True))
+    assert report["artifact_type"] == "manual_joint_angle_validation_report_v1"
+    assert report["annotation_count"] == 2
+    assert report["summary"]["by_joint"] == {"left_knee": 1, "right_knee": 1}
+    assert report["annotations"][0]["model_angle_deg"] is None
+    assert "record_id + frame_index + joint" in report["codex_feedback_prompt"]
+
+    first_id = saved.json["annotation"]["annotation_id"]
+    deleted = client.delete(
+        f"/api/review/angles/{record_id}/{first_id}",
+        headers=headers,
+        json={
+            "role": "a",
+            "reviewer_id": "angle_reviewer",
+            "base_revision": 3,
+        },
+    )
+    assert deleted.status_code == 200
+    assert deleted.json["revision"] == 4
+    assert deleted.json["annotation_count"] == 1
 
 
 def test_human_review_save_is_role_bound_audited_and_frame_validated(
@@ -685,7 +921,8 @@ def test_browser_realtime_client_uses_video_frame_callback_and_single_in_flight_
     assert 'mode === "camera" ? "未连接" : "本机处理"' in source
     assert 'ui.sourceMode === "camera" && ui.running && !ui.manualStop' in source
     assert '"sample-cache": "预计算示例结果"' in source
-    assert "Math.round(angle.value)}° 3D" in source
+    assert "angle.display_angle_source" in source
+    assert "Math.round(angle.value)}° ${sourceLabel}" in source
 
 
 def test_browser_pose_worker_uses_latest_frame_slot_and_landmark_protocol() -> None:
@@ -747,13 +984,13 @@ def test_browser_render_cache_keeps_finger_landmarks_with_pose_prediction() -> N
     assert "index < renderLandmarkNames.length" in source
 
 
-def test_file_videos_analyze_every_frame_at_the_source_playback_rate() -> None:
+def test_sample_videos_analyze_every_frame_at_the_source_playback_rate() -> None:
     source = Path("webui/app.py").read_text(encoding="utf-8")
 
     assert 'mode="one-euro"' in source
     assert "sample_frame_step" not in source
     assert "capture.grab()" not in source
-    assert 'config["source_mode"] != "camera"' in source
+    assert 'config["source_mode"] == "sample"' in source
     assert "remaining = (1.0 / source_fps) - elapsed" in source
     assert "self._stop_event.wait(remaining)" in source
 

@@ -4,7 +4,12 @@ from collections.abc import Mapping, Sequence
 from math import atan2, degrees, hypot, isfinite
 from typing import Any
 
-from .geometry import PosePoint, angle_3pts, coerce_point, midpoint
+from .geometry import (
+    PosePoint,
+    calculate_angle_2d,
+    coerce_point,
+    midpoint,
+)
 from .landmark_names import HYROX_CORE_LANDMARKS, LANDMARK_INDEX
 
 
@@ -265,14 +270,14 @@ def extract_basic_pose_features(
     width = max(1.0, float(image_width))
     height = max(1.0, float(image_height))
 
-    features["left_knee_angle"] = angle_3pts(left_hip, left_knee, left_ankle)
-    features["right_knee_angle"] = angle_3pts(right_hip, right_knee, right_ankle)
-    features["left_hip_angle"] = angle_3pts(left_shoulder, left_hip, left_knee)
-    features["right_hip_angle"] = angle_3pts(right_shoulder, right_hip, right_knee)
-    features["left_elbow_angle"] = angle_3pts(left_shoulder, left_elbow, left_wrist)
-    features["right_elbow_angle"] = angle_3pts(right_shoulder, right_elbow, right_wrist)
-    features["left_shoulder_angle"] = angle_3pts(left_elbow, left_shoulder, left_hip)
-    features["right_shoulder_angle"] = angle_3pts(right_elbow, right_shoulder, right_hip)
+    features["left_knee_angle"] = calculate_angle_2d(left_hip, left_knee, left_ankle)
+    features["right_knee_angle"] = calculate_angle_2d(right_hip, right_knee, right_ankle)
+    features["left_hip_angle"] = calculate_angle_2d(left_shoulder, left_hip, left_knee)
+    features["right_hip_angle"] = calculate_angle_2d(right_shoulder, right_hip, right_knee)
+    features["left_elbow_angle"] = calculate_angle_2d(left_shoulder, left_elbow, left_wrist)
+    features["right_elbow_angle"] = calculate_angle_2d(right_shoulder, right_elbow, right_wrist)
+    features["left_shoulder_angle"] = calculate_angle_2d(left_elbow, left_shoulder, left_hip)
+    features["right_shoulder_angle"] = calculate_angle_2d(right_elbow, right_shoulder, right_hip)
     features["torso_angle"] = _torso_angle_degrees(hip_center, shoulder_center)
     features["shoulder_tilt"] = _vertical_delta(left_shoulder, right_shoulder, height)
     features["hip_tilt"] = _vertical_delta(left_hip, right_hip, height)

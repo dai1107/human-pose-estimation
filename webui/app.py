@@ -30,6 +30,7 @@ from hyrox.features import extract_basic_pose_features
 from hyrox.registry import create_action_analyzer
 from hyrox.view_policy import CAMERA_VIEWS
 from src.biomechanics.kinematics_3d import ThreeDKinematicsTracker
+from src.backends.base import Keypoint, PoseResult
 from src.backends.mediapipe_backend import MediaPipeBackend
 from src.backends.catalog import is_experimental_backend
 from src.backends.yolo_guided_mediapipe_backend import YoloGuidedMediaPipeBackend
@@ -60,6 +61,18 @@ from webui.realtime import (
 )
 from webui.sample_cache import load_sample_pose_backend
 from webui.review import create_review_blueprint
+from webui.upload_performance import (
+    UploadVideoProfiler,
+    video_duration_matches,
+)
+from webui.upload_pipeline import UploadInferenceAudit
+from webui.angle_trace import angle_source_summary, trace_angle_sources
+from webui.pose_cache import (
+    CachedPoseBackend,
+    PoseCacheIdentity,
+    PoseCacheWriter,
+    load_pose_cache,
+)
 
 
 PROJECT_ROOT = installation_root()
@@ -215,7 +228,12 @@ def _draw_angle_overlay(frame: Any, result: Any, assessment: Mapping[str, Any]) 
             continue
         x, y = to_pixel(point.x, point.y, width, height)
         color = (70, 220, 110) if item.get("status") != "bad" else (50, 70, 245)
-        label = f"{float(item.get('value', 0)):.0f} deg 3D"
+        source_label = (
+            "3D"
+            if str(item.get("display_angle_source", "")).startswith("world_")
+            else "2D"
+        )
+        label = f"{float(item.get('value', 0)):.0f} deg {source_label}"
         origin = (x + 8, max(20, y - 8))
         (text_width, text_height), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.48, 1)
         cv2.rectangle(
@@ -241,6 +259,223 @@ def _backend_plan(config: Mapping[str, Any]) -> tuple[str, str]:
     return requested, "tracking"
 
 
+def _mediapipe_upload_cache_identity(
+    *,
+    video_path: str,
+    source_width: int,
+    source_height: int,
+    source_fps: float,
+    source_frame_count: int,
+) -> PoseCacheIdentity:
+    model_path = PROJECT_ROOT / "models" / "pose_landmarker_full.task"
+    pose_config = {
+        "running_mode": "video",
+        "num_poses": 1,
+        "min_pose_detection_confidence": 0.5,
+        "min_pose_presence_confidence": 0.5,
+        "min_tracking_confidence": 0.5,
+        "output_segmentation_masks": False,
+    }
+    return PoseCacheIdentity.create(
+        video_path=video_path,
+        backend="mediapipe",
+        model_type="pose_landmarker_full",
+        model_path=model_path,
+        inference_width=source_width,
+        inference_height=source_height,
+        segmentation_enabled=False,
+        pose_config=pose_config,
+        source_width=source_width,
+        source_height=source_height,
+        source_fps=source_fps,
+        source_frame_count=source_frame_count,
+    )
+
+
+def _cached_render_frame(
+    *,
+    frame_index: int,
+    result: PoseResult,
+    visible_names: set[str],
+    assessment: Mapping[str, Any],
+    action: str,
+    phase: str,
+    reps: int,
+    candidate_count: int,
+    contacts: Mapping[str, Any],
+    foot_events: Mapping[str, Any],
+    last_rep_decision: Mapping[str, Any],
+    feedback: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "frame_index": int(frame_index),
+        "keypoints": [
+            {
+                "name": point.name,
+                "x": float(point.x),
+                "y": float(point.y),
+                "z": float(point.z),
+                "confidence": float(point.confidence),
+                "visibility": point.visibility,
+                "presence": point.presence,
+                "source_model": point.source_model,
+            }
+            for point in result.keypoints
+        ],
+        "connections": tuple(result.connections),
+        "model_name": result.model_name,
+        "visible_names": frozenset(visible_names),
+        "assessment": dict(assessment),
+        "action_state": {
+            "action": action,
+            "phase": phase,
+            "rep_count": int(reps),
+            "candidate_count": int(candidate_count),
+            "feedback_messages": [dict(item) for item in feedback],
+            "last_rep_decision": dict(last_rep_decision),
+            "debug": {
+                "contacts": dict(contacts),
+                "foot_events": dict(foot_events),
+            },
+        },
+    }
+
+
+def _pose_result_from_cached_frame(record: Mapping[str, Any]) -> PoseResult:
+    points = [
+        Keypoint(
+            name=str(point["name"]),
+            x=float(point["x"]),
+            y=float(point["y"]),
+            z=float(point.get("z", 0.0)),
+            confidence=float(point.get("confidence", 0.0)),
+            source_model=str(point.get("source_model", "")),
+            visibility=point.get("visibility"),
+            presence=point.get("presence"),
+        )
+        for point in record.get("keypoints", ())
+    ]
+    return PoseResult(
+        keypoints=points,
+        connections=tuple(
+            (int(start), int(end))
+            for start, end in record.get("connections", ())
+        ),
+        model_name=str(record.get("model_name", "cached-pose")),
+        num_keypoints=len(points),
+        success=bool(points),
+        inference_time_ms=0.0,
+        extra={"rendered_from_pose_cache": True},
+    )
+
+
+def _render_cached_annotated_video(
+    *,
+    source_path: str,
+    output_path: Path,
+    source_fps: float,
+    cached_frames: Sequence[Mapping[str, Any]],
+    progress_callback: Any | None = None,
+) -> dict[str, Any]:
+    capture = cv2.VideoCapture(source_path)
+    writer = None
+    output_frame_count = 0
+    started = time.perf_counter()
+    try:
+        if not capture.isOpened():
+            raise RuntimeError("第二遍渲染无法重新打开上传视频")
+        ok, first_frame = capture.read()
+        if not ok or first_frame is None:
+            raise RuntimeError("第二遍渲染无法读取上传视频")
+        height, width = first_frame.shape[:2]
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        writer = cv2.VideoWriter(
+            str(output_path),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            source_fps,
+            (width, height),
+        )
+        if not writer.isOpened():
+            raise RuntimeError("无法创建完整标注视频")
+
+        for index, record in enumerate(cached_frames):
+            if index == 0:
+                frame = first_frame
+            else:
+                ok, frame = capture.read()
+                if not ok or frame is None:
+                    raise RuntimeError(
+                        "第二遍渲染读取帧数少于首遍分析缓存"
+                    )
+            result = _pose_result_from_cached_frame(record)
+            assessment = record.get("assessment")
+            assessment = assessment if isinstance(assessment, Mapping) else {}
+            visible_names = set(record.get("visible_names", ()))
+            skeleton_color = {
+                "bad": (50, 70, 245),
+                "good": (70, 220, 110),
+            }.get(str(assessment.get("status")), (70, 190, 240))
+            draw_pose_result_filtered(
+                frame,
+                result,
+                visible_names=visible_names,
+                line_color=skeleton_color,
+                point_color=skeleton_color,
+            )
+            _draw_angle_overlay(frame, result, assessment)
+            action_state = record.get("action_state")
+            if isinstance(action_state, Mapping):
+                draw_hyrox_action_overlay(frame, action_state, origin=(16, 32))
+            writer.write(frame)
+            output_frame_count += 1
+            if progress_callback is not None:
+                progress_callback(output_frame_count, len(cached_frames))
+    finally:
+        capture.release()
+        if writer is not None:
+            writer.release()
+
+    output_capture = cv2.VideoCapture(str(output_path))
+    try:
+        if not output_capture.isOpened():
+            raise RuntimeError("完整标注视频生成后无法验证")
+        actual_output_fps = float(output_capture.get(cv2.CAP_PROP_FPS))
+        actual_output_frames = int(output_capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    finally:
+        output_capture.release()
+    fps_tolerance = max(1e-3, abs(source_fps) * 1e-4)
+    if abs(actual_output_fps - source_fps) > fps_tolerance:
+        raise RuntimeError(
+            "完整标注视频 FPS 与源视频不一致："
+            f"source={source_fps}, output={actual_output_fps}"
+        )
+    duration_matches, difference, tolerance = video_duration_matches(
+        input_frame_count=len(cached_frames),
+        input_fps=source_fps,
+        output_frame_count=actual_output_frames,
+        output_fps=actual_output_fps,
+    )
+    if not duration_matches:
+        raise RuntimeError(
+            "完整标注视频时长与源视频不一致："
+            f"difference={difference:.6f}s, tolerance={tolerance:.6f}s"
+        )
+    return {
+        "rendered_from_pose_cache": True,
+        "pose_inference_count": 0,
+        "input_frame_count": len(cached_frames),
+        "output_frame_count": actual_output_frames,
+        "source_fps": round(float(source_fps), 6),
+        "output_fps": round(actual_output_fps, 6),
+        "duration_difference_ms": round(difference * 1000.0, 3),
+        "duration_tolerance_ms": round(tolerance * 1000.0, 3),
+        "render_time_ms": round(
+            (time.perf_counter() - started) * 1000.0,
+            3,
+        ),
+    }
+
+
 class PoseStreamEngine:
     """Owns one local capture and publishes its latest annotated frame."""
 
@@ -249,6 +484,7 @@ class PoseStreamEngine:
         output_dir: Path | None = None,
         *,
         allow_experimental_backends: bool = False,
+        pose_cache_root: Path | None = None,
     ) -> None:
         self._allow_experimental_backends = bool(allow_experimental_backends)
         self._lock = threading.RLock()
@@ -260,6 +496,7 @@ class PoseStreamEngine:
         self._frame_version = 0
         self._record_requested = False
         self._output_dir = output_dir or WEB_OUTPUT_DIR
+        self._pose_cache_root = pose_cache_root or (OUTPUT_ROOT / "cache")
         self._history: deque[dict[str, Any]] = deque(maxlen=9000)
         self._voice_feedback = RepVoiceFeedbackTracker()
         self._settings: dict[str, Any] = {
@@ -305,6 +542,28 @@ class PoseStreamEngine:
             "record_path": "",
             "paused": False,
             "error": "",
+            "processed_fps": 0.0,
+            "pose_inference_count": 0,
+            "performance_bottleneck": "",
+            "performance_profile_path": "",
+            "performance_summary_path": "",
+            "performance_summary": {},
+            "playback_ready": False,
+            "decoded_frame_count": 0,
+            "analyzed_frame_count": 0,
+            "model_initialization_count": 0,
+            "pose_cache_frame_count": 0,
+            "pose_cache_hit": False,
+            "pose_cache_key": "",
+            "pose_cache_path": "",
+            "pose_cache_metadata_path": "",
+            "single_inference_per_frame": True,
+            "analysis_pass_complete": False,
+            "generate_annotated_video": False,
+            "annotated_video_ready": False,
+            "annotated_video_path": "",
+            "annotated_video_render": {},
+            "render_progress": 0.0,
         }
 
     def snapshot(self) -> dict[str, Any]:
@@ -367,6 +626,30 @@ class PoseStreamEngine:
                     "record_path": "",
                     "paused": False,
                     "error": "",
+                    "processed_fps": 0.0,
+                    "pose_inference_count": 0,
+                    "performance_bottleneck": "",
+                    "performance_profile_path": "",
+                    "performance_summary_path": "",
+                    "performance_summary": {},
+                    "playback_ready": False,
+                    "decoded_frame_count": 0,
+                    "analyzed_frame_count": 0,
+                    "model_initialization_count": 0,
+                    "pose_cache_frame_count": 0,
+                    "pose_cache_hit": False,
+                    "pose_cache_key": "",
+                    "pose_cache_path": "",
+                    "pose_cache_metadata_path": "",
+                    "single_inference_per_frame": True,
+                    "analysis_pass_complete": False,
+                    "generate_annotated_video": bool(
+                        config.get("generate_annotated_video", False)
+                    ),
+                    "annotated_video_ready": False,
+                    "annotated_video_path": "",
+                    "annotated_video_render": {},
+                    "render_progress": 0.0,
                 }
             )
         self._stop_event = threading.Event()
@@ -384,6 +667,38 @@ class PoseStreamEngine:
                 self._state.update({"running": False, "status": "idle", "status_text": "已停止", "recording": False})
             self._frame_ready.notify_all()
         self._thread = None
+
+    def delete_pose_cache(self) -> None:
+        self.stop()
+        with self._lock:
+            raw_landmarks = str(self._state.get("pose_cache_path", ""))
+            raw_metadata = str(
+                self._state.get("pose_cache_metadata_path", "")
+            )
+        cache_root = self._pose_cache_root.resolve()
+        cache_dir: Path | None = None
+        for raw_path in (raw_landmarks, raw_metadata):
+            if not raw_path:
+                continue
+            path = Path(raw_path).resolve()
+            if cache_root not in path.parents:
+                raise RuntimeError("拒绝删除关键点缓存目录之外的文件")
+            path.unlink(missing_ok=True)
+            cache_dir = path.parent
+        if cache_dir is not None:
+            try:
+                cache_dir.rmdir()
+            except OSError:
+                pass
+        with self._lock:
+            self._state.update(
+                {
+                    "pose_cache_hit": False,
+                    "pose_cache_key": "",
+                    "pose_cache_path": "",
+                    "pose_cache_metadata_path": "",
+                }
+            )
 
     def update_settings(self, values: Mapping[str, Any]) -> dict[str, Any]:
         allowed = {
@@ -447,7 +762,7 @@ class PoseStreamEngine:
         with self._lock:
             frames = list(self._history)
             state = dict(self._state)
-        return enrich_report({
+        report = enrich_report({
             **artifact_metadata("web_pose_report"),
             "generated_at_unix_ms": int(time.time() * 1000),
             "retention_minutes": 10,
@@ -469,6 +784,44 @@ class PoseStreamEngine:
             },
             "frames": frames,
         })
+        report["performance"] = dict(state.get("performance_summary") or {})
+        report["performance_artifacts"] = {
+            "profile_csv": state.get("performance_profile_path", ""),
+            "summary_json": state.get("performance_summary_path", ""),
+        }
+        report["upload_pipeline"] = {
+            "decoded_frame_count": state.get("decoded_frame_count", 0),
+            "analyzed_frame_count": state.get("analyzed_frame_count", 0),
+            "pose_inference_count": state.get("pose_inference_count", 0),
+            "model_initialization_count": state.get(
+                "model_initialization_count",
+                0,
+            ),
+            "pose_cache_frame_count": state.get("pose_cache_frame_count", 0),
+            "pose_cache_hit": state.get("pose_cache_hit", False),
+            "pose_cache_key": state.get("pose_cache_key", ""),
+            "pose_cache_path": state.get("pose_cache_path", ""),
+            "pose_cache_metadata_path": state.get(
+                "pose_cache_metadata_path",
+                "",
+            ),
+            "single_inference_per_frame": state.get(
+                "single_inference_per_frame",
+                True,
+            ),
+            "analysis_pass_complete": state.get(
+                "analysis_pass_complete",
+                False,
+            ),
+            "generate_annotated_video": state.get(
+                "generate_annotated_video",
+                False,
+            ),
+            "annotated_video_render": dict(
+                state.get("annotated_video_render") or {}
+            ),
+        }
+        return report
 
     def report_csv(self) -> str:
         output = io.StringIO(newline="")
@@ -600,21 +953,78 @@ class PoseStreamEngine:
         record_path: Path | None = None
         finished_normally = False
         hand_overlay = WebHandOverlay(PROJECT_ROOT / "models" / "hand_landmarker.task")
+        profiler: UploadVideoProfiler | None = None
+        inference_audit: UploadInferenceAudit | None = None
+        render_cache: list[dict[str, Any]] = []
+        pose_cache_identity: PoseCacheIdentity | None = None
+        pose_cache_writer: PoseCacheWriter | None = None
+        pose_cache_hit = False
+        pose_cache_path = ""
+        pose_cache_metadata_path = ""
+        annotated_video_path: Path | None = None
+        annotated_video_render: dict[str, Any] = {}
+        analysis_pass_time_ms: float | None = None
+        analysis_started = time.perf_counter()
         try:
             source_path = str(config.get("video_path", ""))
             capture, source_fps, total_frames = self._open_capture(config)
+            source_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+            source_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            if config["source_mode"] == "upload":
+                inference_audit = UploadInferenceAudit()
+                profiler = UploadVideoProfiler(
+                    source_fps=source_fps,
+                    source_frame_count=total_frames,
+                    output_dir=self._output_dir / "performance",
+                )
+                profiler.start(analysis_started)
             cached_source_backend = ""
+            backend_request, target_select = _backend_plan(config)
+            if config["source_mode"] == "upload":
+                cache_backend = resolve_backend_choice(
+                    backend_request,
+                    action_type=str(config["action"]),
+                    input_video=source_path,
+                    product_mode=not self._allow_experimental_backends,
+                )
+                if cache_backend == "mediapipe":
+                    pose_cache_identity = _mediapipe_upload_cache_identity(
+                        video_path=source_path,
+                        source_width=source_width,
+                        source_height=source_height,
+                        source_fps=source_fps,
+                        source_frame_count=total_frames,
+                    )
+                    cached_pose = load_pose_cache(
+                        self._pose_cache_root,
+                        pose_cache_identity,
+                    )
+                    if cached_pose is not None:
+                        backend = CachedPoseBackend(cached_pose)
+                        pose_cache_hit = True
+                        pose_cache_path = str(
+                            cached_pose.cache_dir / "pose_landmarks.npz"
+                        )
+                        pose_cache_metadata_path = str(
+                            cached_pose.cache_dir / "pose_metadata.json"
+                        )
+                        cached_source_backend = "mediapipe"
+                    else:
+                        pose_cache_writer = PoseCacheWriter(
+                            pose_cache_identity
+                        )
             if config["source_mode"] == "sample":
                 backend = load_sample_pose_backend(
                     action=str(config["action"]),
                     video_path=source_path,
                     total_frames=total_frames,
                 )
-            if backend is not None:
+            if pose_cache_hit:
+                resolved_backend = "mediapipe-pose-cache"
+            elif backend is not None:
                 resolved_backend = "sample-cache"
                 cached_source_backend = str(backend.source_backend)
             else:
-                backend_request, target_select = _backend_plan(config)
                 backend, resolved_backend = self._create_backend(
                     backend_request,
                     config["action"],
@@ -624,6 +1034,12 @@ class PoseStreamEngine:
                         config.get("bundled_sample_tracking")
                     ),
                 )
+            pose_inference_ran = resolved_backend not in {
+                "sample-cache",
+                "mediapipe-pose-cache",
+            }
+            if inference_audit is not None and pose_inference_ran:
+                inference_audit.record_model_initialization()
             smoother = KeypointSmoother(
                 # Example videos are also validation inputs.  Dropping frames or
                 # disabling temporal smoothing here changes phase confirmation,
@@ -649,9 +1065,23 @@ class PoseStreamEngine:
                     {
                         "backend": resolved_backend,
                         "cached_source_backend": cached_source_backend,
+                        "pose_cache_hit": pose_cache_hit,
+                        "pose_cache_key": (
+                            pose_cache_identity.cache_key
+                            if pose_cache_identity is not None
+                            else ""
+                        ),
+                        "pose_cache_path": pose_cache_path,
+                        "pose_cache_metadata_path": (
+                            pose_cache_metadata_path
+                        ),
                         "status": "running",
                         "status_text": (
-                            "播放预计算示例" if resolved_backend == "sample-cache" else "分析中"
+                            "播放预计算示例"
+                            if resolved_backend == "sample-cache"
+                            else "使用关键点缓存分析中"
+                            if pose_cache_hit
+                            else "分析中"
                         ),
                     }
                 )
@@ -665,17 +1095,57 @@ class PoseStreamEngine:
                     continue
 
                 frame_started = time.perf_counter()
+                decode_started = time.perf_counter()
                 ok, raw_frame = capture.read()
+                decode_ms = (time.perf_counter() - decode_started) * 1000.0
                 if not ok or raw_frame is None:
                     finished_normally = config["source_mode"] != "camera"
                     break
                 frame_index += 1
+                current_frame_index = frame_index - 1
+                if inference_audit is not None:
+                    inference_audit.record_decoded(current_frame_index)
                 frame = cv2.flip(raw_frame, 1) if config["source_mode"] == "camera" and settings["mirror"] else raw_frame.copy()
-                timestamp_ms = int(round((frame_index * 1000.0) / source_fps)) if config["source_mode"] != "camera" else int((time.perf_counter() - started) * 1000)
-                result = smoother.smooth_result(backend.detect(frame, timestamp_ms=timestamp_ms))
+                if config["source_mode"] != "camera":
+                    # Keep the established analyzer clock unchanged while the
+                    # playback timeline is zero-based for video.currentTime.
+                    analysis_timestamp_ms = int(round((frame_index * 1000.0) / source_fps))
+                    timeline_timestamp_ms = round(
+                        ((frame_index - 1) * 1000.0) / source_fps,
+                        3,
+                    )
+                else:
+                    analysis_timestamp_ms = int(
+                        (time.perf_counter() - started) * 1000
+                    )
+                    timeline_timestamp_ms = float(analysis_timestamp_ms)
+                inference_started = time.perf_counter()
+                detected_result = backend.detect(
+                    frame,
+                    timestamp_ms=analysis_timestamp_ms,
+                )
+                if (
+                    inference_audit is not None
+                    and pose_inference_ran
+                ):
+                    inference_audit.record_inference(current_frame_index)
+                if pose_cache_writer is not None:
+                    pose_cache_writer.append(
+                        frame_index=current_frame_index,
+                        timestamp_ms=timeline_timestamp_ms,
+                        result=detected_result,
+                    )
+                inference_wall_ms = (time.perf_counter() - inference_started) * 1000.0
+                backend_performance = detected_result.extra.get("performance")
+                if not isinstance(backend_performance, Mapping):
+                    backend_performance = {}
+                smoothing_started = time.perf_counter()
+                result = smoother.smooth_result(detected_result)
+                smoothing_ms = (time.perf_counter() - smoothing_started) * 1000.0
+                feature_started = time.perf_counter()
                 result, three_d_result = three_d_tracker.attach(
                     result,
-                    capture_timestamp_ns=timestamp_ms * 1_000_000,
+                    capture_timestamp_ns=analysis_timestamp_ms * 1_000_000,
                     pose_age_ms=0.0,
                 )
                 three_d_payload = three_d_result.as_dict()
@@ -691,7 +1161,11 @@ class PoseStreamEngine:
                         if show_hand_overlay and isinstance(cached_hands, Mapping)
                         else {}
                     )
-                    hand_overlay.update(frame, timestamp_ms=timestamp_ms, enabled=False)
+                    hand_overlay.update(
+                        frame,
+                        timestamp_ms=analysis_timestamp_ms,
+                        enabled=False,
+                    )
                 else:
                     hand_detections = (
                         rtmw_hand_detections(result.extra)
@@ -700,13 +1174,13 @@ class PoseStreamEngine:
                     )
                     hand_detections = hand_detections or hand_overlay.update(
                         frame,
-                        timestamp_ms=timestamp_ms,
+                        timestamp_ms=analysis_timestamp_ms,
                         enabled=show_hand_overlay,
                     )
                 if hand_detections and result.extra.get("rtmw_hand_keypoints"):
                     hand_overlay.update(
                         frame,
-                        timestamp_ms=timestamp_ms,
+                        timestamp_ms=analysis_timestamp_ms,
                         enabled=False,
                     )
 
@@ -725,6 +1199,8 @@ class PoseStreamEngine:
                     analyzer_key = key
                 action_state = None
                 features = None
+                feature_ms = (time.perf_counter() - feature_started) * 1000.0
+                rule_ms = 0.0
                 if analyzer is not None:
                     manual_points = settings.get("manual_floor_points") or []
                     analyzer.set_manual_floor_line(
@@ -732,6 +1208,7 @@ class PoseStreamEngine:
                         manual_points[1] if len(manual_points) == 2 else None,
                     )
                     if has_pose:
+                        feature_started = time.perf_counter()
                         height, width = frame.shape[:2]
                         features = extract_basic_pose_features(
                             result.keypoints,
@@ -740,7 +1217,15 @@ class PoseStreamEngine:
                             segmentation_mask=result.extra.get("segmentation_mask"),
                         )
                         features["three_d_kinematics"] = three_d_payload
-                    action_state = analyzer.attach_view_context(analyzer.update(features, timestamp_ms=timestamp_ms))
+                        feature_ms += (time.perf_counter() - feature_started) * 1000.0
+                    rule_started = time.perf_counter()
+                    action_state = analyzer.attach_view_context(
+                        analyzer.update(
+                            features,
+                            timestamp_ms=analysis_timestamp_ms,
+                        )
+                    )
+                    rule_ms = (time.perf_counter() - rule_started) * 1000.0
 
                 phase = "idle" if action_state is None else str(action_state.get("phase", "unknown"))
                 action_debug = action_state.get("debug") if isinstance(action_state, Mapping) else None
@@ -773,29 +1258,57 @@ class PoseStreamEngine:
                 all_feedback = _feedback_items(action_state, phase_aware=False)
                 feedback = visible_feedback(all_feedback, evaluation_phase)
                 assessment = assess_action(settings["action"], evaluation_phase, features, feedback)
-                annotated = frame.copy()
+                height, width = frame.shape[:2]
+                angle_observations = trace_angle_sources(
+                    frame_index=current_frame_index,
+                    timestamp_ms=timeline_timestamp_ms,
+                    raw_result=detected_result,
+                    smoothed_result=result,
+                    image_width=width,
+                    image_height=height,
+                    rule_features=features,
+                    assessment=assessment,
+                )
+                angle_sources = angle_source_summary(angle_observations)
                 result_names = {point.name for point in result.keypoints}
                 visible_names = _result_visible_names(
                     settings["landmark_profile"],
                     result_names,
                     show_fingers=bool(settings["show_fingers"]),
                 )
-                skeleton_color = {
-                    "bad": (50, 70, 245),
-                    "good": (70, 220, 110),
-                }.get(str(assessment["status"]), (70, 190, 240))
-                draw_pose_result_filtered(
-                    annotated,
-                    result,
-                    visible_names=visible_names,
-                    line_color=skeleton_color,
-                    point_color=skeleton_color,
-                )
-                if hand_detections:
-                    draw_hand_overlay(annotated, hand_detections)
-                _draw_angle_overlay(annotated, result, assessment)
-                if action_state is not None:
-                    draw_hyrox_action_overlay(annotated, action_state, origin=(16, 32))
+                publish_annotated_frame = config["source_mode"] != "upload"
+                if publish_annotated_frame:
+                    draw_started = time.perf_counter()
+                    annotated = frame.copy()
+                    skeleton_color = {
+                        "bad": (50, 70, 245),
+                        "good": (70, 220, 110),
+                    }.get(str(assessment["status"]), (70, 190, 240))
+                    draw_pose_result_filtered(
+                        annotated,
+                        result,
+                        visible_names=visible_names,
+                        line_color=skeleton_color,
+                        point_color=skeleton_color,
+                    )
+                    if hand_detections:
+                        draw_hand_overlay(annotated, hand_detections)
+                    _draw_angle_overlay(annotated, result, assessment)
+                    if action_state is not None:
+                        draw_hyrox_action_overlay(
+                            annotated,
+                            action_state,
+                            origin=(16, 32),
+                        )
+                    draw_ms = (
+                        time.perf_counter() - draw_started
+                    ) * 1000.0
+                else:
+                    # Upload pass one is analysis only. The browser overlays
+                    # the timeline, and optional full rendering happens later
+                    # from cached pose results without another model call.
+                    annotated = frame
+                    draw_ms = 0.0
 
                 now = time.perf_counter()
                 instant_fps = 1.0 / max(now - last_frame_time, 1e-6)
@@ -844,63 +1357,154 @@ class PoseStreamEngine:
                 hand_keypoints, _ = serialize_hand_overlay(hand_detections)
                 keypoints.extend(hand_keypoints)
 
-                if record_requested and writer is None:
+                if (
+                    bool(config.get("generate_annotated_video"))
+                    and config["source_mode"] == "upload"
+                ):
+                    render_cache.append(
+                        _cached_render_frame(
+                            frame_index=current_frame_index,
+                            result=result,
+                            visible_names=visible_names,
+                            assessment=assessment,
+                            action=str(settings["action"]),
+                            phase=phase,
+                            reps=reps,
+                            candidate_count=candidate_count,
+                            contacts=contacts,
+                            foot_events=foot_events,
+                            last_rep_decision=last_rep_decision,
+                            feedback=all_feedback,
+                        )
+                    )
+
+                if publish_annotated_frame and record_requested and writer is None:
                     record_path = self._output_dir / "recordings" / f"{time.strftime('%Y-%m-%d_%H%M%S')}.mp4"
                     record_path.parent.mkdir(parents=True, exist_ok=True)
                     height, width = annotated.shape[:2]
-                    writer = cv2.VideoWriter(str(record_path), cv2.VideoWriter_fourcc(*"mp4v"), min(60.0, max(1.0, source_fps)), (width, height))
+                    writer = cv2.VideoWriter(
+                        str(record_path),
+                        cv2.VideoWriter_fourcc(*"mp4v"),
+                        source_fps,
+                        (width, height),
+                    )
                     if not writer.isOpened():
                         writer = None
                         raise RuntimeError("无法创建录制文件")
-                elif not record_requested and writer is not None:
+                elif (
+                    publish_annotated_frame
+                    and not record_requested
+                    and writer is not None
+                ):
                     writer.release()
                     writer = None
                 if writer is not None:
+                    writer_started = time.perf_counter()
                     writer.write(annotated)
+                    writer_encode_ms = (time.perf_counter() - writer_started) * 1000.0
+                    if profiler is not None:
+                        profiler.record_output_frame(source_fps)
+                else:
+                    writer_encode_ms = 0.0
 
-                encoded, jpeg = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 86])
+                if publish_annotated_frame:
+                    jpeg_started = time.perf_counter()
+                    encoded, jpeg = cv2.imencode(
+                        ".jpg",
+                        annotated,
+                        [int(cv2.IMWRITE_JPEG_QUALITY), 86],
+                    )
+                    jpeg_encode_ms = (
+                        time.perf_counter() - jpeg_started
+                    ) * 1000.0
+                else:
+                    encoded = True
+                    jpeg = None
+                    jpeg_encode_ms = 0.0
                 if encoded:
                     progress = (frame_index / total_frames * 100.0) if total_frames > 0 else 0.0
-                    with self._frame_ready:
-                        self._history.append(
-                            {
-                                "sequence": frame_index,
-                                "timestamp_unix_ms": int(time.time() * 1000),
-                                "action": settings["action"],
-                                "phase": phase,
-                                "reps": reps,
-                                "candidate_count": candidate_count,
-                                "pose_valid_rep_count": pose_valid_rep_count,
-                                "no_rep_count": no_rep_count,
-                                "unsure_count": unsure_count,
-                                "floor_reference": floor_reference,
-                                "contacts": contacts,
-                                "foot_events": foot_events,
-                                "last_rep_decision": last_rep_decision,
-                                "last_rep_observability": last_rep_observability,
-                                "pose_detected": has_pose,
-                                "hands_detected": bool(hand_keypoints),
-                                "feedback": feedback,
-                                "voice_feedback": voice_feedback,
-                                "detected_issues": all_feedback,
-                                "assessment": assessment,
-                                "world_angles": three_d_payload["angles_3d"],
-                                "three_d_kinematics": three_d_payload,
-                                "keypoints": keypoints,
-                                "metrics": {
-                                    "backend": resolved_backend,
-                                    "cached_source_backend": cached_source_backend,
-                                    "inference_ms": round(float(result.inference_time_ms), 1),
-                                    "server_ms": round((time.perf_counter() - frame_started) * 1000.0, 1),
-                                    "width": int(annotated.shape[1]),
-                                    "height": int(annotated.shape[0]),
-                                    "fps": round(smooth_fps, 1),
-                                },
-                            }
+                    serialize_started = time.perf_counter()
+                    frame_record = {
+                        "sequence": frame_index,
+                        "frame_index": current_frame_index,
+                        "timestamp_ms": timeline_timestamp_ms,
+                        "analysis_timestamp_ms": analysis_timestamp_ms,
+                        "timestamp_unix_ms": int(time.time() * 1000),
+                        "action": settings["action"],
+                        "phase": phase,
+                        "reps": reps,
+                        "candidate_count": candidate_count,
+                        "pose_valid_rep_count": pose_valid_rep_count,
+                        "no_rep_count": no_rep_count,
+                        "unsure_count": unsure_count,
+                        "floor_reference": floor_reference,
+                        "contacts": contacts,
+                        "foot_events": foot_events,
+                        "last_rep_decision": last_rep_decision,
+                        "last_rep_observability": last_rep_observability,
+                        "pose_detected": has_pose,
+                        "hands_detected": bool(hand_keypoints),
+                        "feedback": feedback,
+                        "voice_feedback": voice_feedback,
+                        "detected_issues": all_feedback,
+                        "assessment": assessment,
+                        "angle_observations": angle_observations,
+                        "angle_sources": angle_sources,
+                        "world_angles": three_d_payload["angles_3d"],
+                        "three_d_kinematics": three_d_payload,
+                        "keypoints": keypoints,
+                        "metrics": {
+                            "backend": resolved_backend,
+                            "cached_source_backend": cached_source_backend,
+                            "inference_ms": round(float(result.inference_time_ms), 1),
+                            "server_ms": round((time.perf_counter() - frame_started) * 1000.0, 1),
+                            "width": int(annotated.shape[1]),
+                            "height": int(annotated.shape[0]),
+                            "fps": round(smooth_fps, 1),
+                        },
+                    }
+                    json.dumps(frame_record, ensure_ascii=False, separators=(",", ":"))
+                    serialize_ms = (time.perf_counter() - serialize_started) * 1000.0
+                    total_frame_ms = (time.perf_counter() - frame_started) * 1000.0
+                    if profiler is not None:
+                        profiler.record_frame(
+                            frame_index=current_frame_index,
+                            timestamp_ms=timeline_timestamp_ms,
+                            timings={
+                                "decode_ms": decode_ms,
+                                "resize_ms": backend_performance.get("resize_ms", 0.0),
+                                "color_convert_ms": backend_performance.get("color_convert_ms", 0.0),
+                                "pose_inference_ms": backend_performance.get(
+                                    "pose_inference_ms",
+                                    inference_wall_ms,
+                                ),
+                                "smoothing_ms": smoothing_ms,
+                                "feature_ms": feature_ms,
+                                "rule_ms": rule_ms,
+                                "draw_ms": draw_ms,
+                                "encode_ms": writer_encode_ms + jpeg_encode_ms,
+                                "serialize_ms": serialize_ms,
+                                "web_transfer_ms": 0.0,
+                                "total_frame_ms": total_frame_ms,
+                            },
+                            pose_inference_ran=pose_inference_ran,
                         )
-                        self._latest_frame = annotated
-                        self._latest_jpeg = jpeg.tobytes()
-                        self._frame_version += 1
+                        live_profile = profiler.live_metrics(
+                            time.perf_counter() - analysis_started
+                        )
+                    else:
+                        live_profile = {}
+                    if inference_audit is not None:
+                        inference_audit.record_analyzed(current_frame_index)
+                        audit_state = inference_audit.as_dict()
+                    else:
+                        audit_state = {}
+                    with self._frame_ready:
+                        self._history.append(frame_record)
+                        if jpeg is not None:
+                            self._latest_frame = annotated
+                            self._latest_jpeg = jpeg.tobytes()
+                            self._frame_version += 1
                         self._state.update(
                             {
                                 "running": True,
@@ -932,22 +1536,151 @@ class PoseStreamEngine:
                                 "recording": writer is not None,
                                 "record_path": str(record_path.relative_to(PROJECT_ROOT)) if record_path else "",
                                 "paused": False,
+                                "pose_cache_frame_count": (
+                                    inference_audit.analyzed_frame_count
+                                    if inference_audit is not None
+                                    else 0
+                                ),
+                                **audit_state,
+                                **live_profile,
                             }
                         )
                         self._frame_ready.notify_all()
 
-                # File-backed sources should be presented at their encoded
-                # frame rate.  Cached sample poses make processing much faster
-                # than realtime, so without this pacing the MJPEG stream looks
-                # like fast-forward playback.  Keep every frame; only wait for
-                # the remainder of its source-frame interval.
-                if config["source_mode"] != "camera":
+                # Bundled samples still use the legacy MJPEG preview and are
+                # paced at their encoded frame rate. Uploaded files deliberately
+                # skip this wait: they are analyzed as fast as possible, then
+                # the browser plays its local original on the media clock.
+                if config["source_mode"] == "sample":
                     elapsed = time.perf_counter() - frame_started
                     remaining = (1.0 / source_fps) - elapsed
                     if remaining > 0:
                         self._stop_event.wait(remaining)
 
+            if (
+                finished_normally
+                and config["source_mode"] == "upload"
+                and inference_audit is not None
+            ):
+                analysis_pass_time_ms = (
+                    time.perf_counter() - analysis_started
+                ) * 1000.0
+                inference_audit.validate_complete(
+                    inference_expected=pose_inference_ran
+                )
+                if pose_cache_writer is not None:
+                    pose_cache_path_obj, pose_cache_metadata_path_obj = (
+                        pose_cache_writer.write(self._pose_cache_root)
+                    )
+                    pose_cache_path = str(pose_cache_path_obj)
+                    pose_cache_metadata_path = str(
+                        pose_cache_metadata_path_obj
+                    )
+                audit_state = inference_audit.as_dict()
+                with self._frame_ready:
+                    self._state.update(
+                        {
+                            **audit_state,
+                            "pose_cache_frame_count": (
+                                inference_audit.analyzed_frame_count
+                            ),
+                            "analysis_pass_complete": True,
+                            "pose_cache_hit": pose_cache_hit,
+                            "pose_cache_key": (
+                                pose_cache_identity.cache_key
+                                if pose_cache_identity is not None
+                                else ""
+                            ),
+                            "pose_cache_path": pose_cache_path,
+                            "pose_cache_metadata_path": (
+                                pose_cache_metadata_path
+                            ),
+                        }
+                    )
+                    self._frame_ready.notify_all()
+
+                # Release the pose model before any optional second pass. This
+                # makes it impossible for rendering to run pose inference.
+                if backend is not None:
+                    backend.close()
+                    backend = None
+                if capture is not None:
+                    capture.release()
+                    capture = None
+
+                if bool(config.get("generate_annotated_video")):
+                    if len(render_cache) != inference_audit.analyzed_frame_count:
+                        raise RuntimeError(
+                            "第二遍渲染缓存帧数与首遍分析帧数不一致"
+                        )
+                    annotated_video_path = (
+                        self._output_dir
+                        / "annotated"
+                        / f"{time.strftime('%Y-%m-%d_%H%M%S')}.mp4"
+                    )
+
+                    def update_render_progress(
+                        completed: int,
+                        expected: int,
+                    ) -> None:
+                        progress = (
+                            completed / expected * 100.0
+                            if expected > 0
+                            else 100.0
+                        )
+                        with self._frame_ready:
+                            self._state.update(
+                                {
+                                    "running": True,
+                                    "status": "rendering",
+                                    "status_text": "正在生成完整标注视频",
+                                    "render_progress": round(
+                                        min(progress, 100.0),
+                                        1,
+                                    ),
+                                }
+                            )
+                            self._frame_ready.notify_all()
+
+                    annotated_video_render = _render_cached_annotated_video(
+                        source_path=source_path,
+                        output_path=annotated_video_path,
+                        source_fps=source_fps,
+                        cached_frames=render_cache,
+                        progress_callback=update_render_progress,
+                    )
+                    if profiler is not None:
+                        profiler.record_output_video(
+                            output_fps=float(
+                                annotated_video_render["output_fps"]
+                            ),
+                            frame_count=int(
+                                annotated_video_render[
+                                    "output_frame_count"
+                                ]
+                            ),
+                        )
+                    with self._frame_ready:
+                        self._state.update(
+                            {
+                                "annotated_video_ready": True,
+                                "annotated_video_path": str(
+                                    annotated_video_path
+                                ),
+                                "annotated_video_render": (
+                                    annotated_video_render
+                                ),
+                                "render_progress": 100.0,
+                            }
+                        )
+                        self._frame_ready.notify_all()
+
         except Exception as exc:
+            if (
+                annotated_video_path is not None
+                and not annotated_video_render
+            ):
+                annotated_video_path.unlink(missing_ok=True)
             with self._frame_ready:
                 self._state.update({"running": False, "status": "error", "status_text": "运行出错", "error": str(exc), "recording": False})
                 self._frame_ready.notify_all()
@@ -961,6 +1694,29 @@ class PoseStreamEngine:
                 backend.close()
             if config.get("delete_source_after") and config.get("video_path"):
                 Path(str(config["video_path"])).unlink(missing_ok=True)
+            profile_state: dict[str, Any] = {}
+            if profiler is not None:
+                try:
+                    profile_path, summary_path, summary = profiler.write(
+                        analysis_pass_time_ms
+                        if analysis_pass_time_ms is not None
+                        else (
+                            (time.perf_counter() - analysis_started) * 1000.0
+                        )
+                    )
+                    profile_state = {
+                        "performance_profile_path": str(profile_path),
+                        "performance_summary_path": str(summary_path),
+                        "performance_summary": summary,
+                        "processed_fps": summary["processed_fps"],
+                        "pose_inference_count": summary["pose_inference_count"],
+                        "performance_bottleneck": summary["primary_bottleneck"],
+                    }
+                except OSError as exc:
+                    logging.getLogger("pose.web").warning(
+                        "Unable to write upload performance profile: %s",
+                        exc,
+                    )
             with self._frame_ready:
                 if self._state["status"] != "error":
                     self._state.update(
@@ -970,6 +1726,22 @@ class PoseStreamEngine:
                             "status_text": "视频分析完成" if finished_normally else "已停止",
                             "progress": 100.0 if finished_normally else self._state["progress"],
                             "recording": False,
+                            "playback_ready": bool(
+                                finished_normally and config["source_mode"] == "upload"
+                            ),
+                            "annotated_video_ready": bool(
+                                annotated_video_path is not None
+                                and annotated_video_render
+                            ),
+                            "annotated_video_path": (
+                                str(annotated_video_path)
+                                if annotated_video_path is not None
+                                else ""
+                            ),
+                            "annotated_video_render": (
+                                annotated_video_render
+                            ),
+                            **profile_state,
                         }
                     )
                 self._frame_ready.notify_all()
@@ -1307,6 +2079,10 @@ def create_app(
                     "audio": False,
                     "stores_camera_frames": False,
                     "stores_uploaded_video": False,
+                    "stores_annotated_video_on_request": True,
+                    "stores_pose_landmark_cache": True,
+                    "pose_landmark_cache_contains_video_frames": False,
+                    "pose_landmark_cache_deleted_with_session_request": True,
                     "report_retention_minutes": 10,
                 },
             }
@@ -1379,6 +2155,7 @@ def create_app(
                 "manual_floor_points": validate_manual_floor_points(
                     data.get("manual_floor_points", ())
                 ),
+                "generate_annotated_video": False,
             }
             if source_mode == "camera":
                 camera_index = int(data.get("camera_index", 0))
@@ -1403,6 +2180,12 @@ def create_app(
                     }
                 )
             else:
+                generate_annotated_video = data.get(
+                    "generate_annotated_video",
+                    False,
+                )
+                if not isinstance(generate_annotated_video, bool):
+                    raise ValueError("完整标注视频选项必须是布尔值")
                 upload_id = str(data.get("video_id", ""))
                 upload = item.uploads.pop(upload_id, None)
                 if upload is None:
@@ -1412,6 +2195,9 @@ def create_app(
                         "video_path": upload["path"],
                         "source_name": upload["name"],
                         "delete_source_after": True,
+                        "generate_annotated_video": (
+                            generate_annotated_video
+                        ),
                     }
                 )
             item.engine.start(config)
@@ -1506,9 +2292,41 @@ def create_app(
         response.headers["Cache-Control"] = "private, no-store"
         return response
 
+    @app.get("/api/annotated-video")
+    def download_annotated_video() -> tuple[Response, int] | Response:
+        item = current_session()
+        snapshot = item.engine.snapshot()
+        raw_path = str(snapshot.get("annotated_video_path", ""))
+        if not snapshot.get("annotated_video_ready") or not raw_path:
+            return json_error(
+                "当前会话没有生成完整标注视频",
+                409,
+                "annotated_video_unavailable",
+            )
+        path = Path(raw_path).resolve()
+        output_root = (storage_root / item.session_id / "outputs").resolve()
+        if output_root not in path.parents or not path.is_file():
+            return json_error(
+                "完整标注视频文件不可用",
+                404,
+                "annotated_video_missing",
+            )
+        response = send_file(
+            path,
+            mimetype="video/mp4",
+            as_attachment=True,
+            download_name="hyrox-annotated.mp4",
+            conditional=True,
+        )
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
+
     @app.delete("/api/session")
     def delete_session_data() -> Response:
-        session_id = current_session().session_id
+        item = current_session()
+        session_id = item.session_id
+        if hasattr(item.engine, "delete_pose_cache"):
+            item.engine.delete_pose_cache()
         manager.delete(session_id)
         response = jsonify({"status": "deleted"})
         response.delete_cookie(SESSION_COOKIE)

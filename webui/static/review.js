@@ -19,6 +19,15 @@ const state = {
   oniCheckpoints: [],
   disagreementClipIndex: 0,
   clipLoop: false,
+  angleRevision: 0,
+  angleAnnotations: [],
+  angleDraft: null,
+  angleEvents: [],
+  angleEventsCompatibilityMode: false,
+  anglePoints: [],
+  anglePointFrame: null,
+  angleEditingId: null,
+  angleJoints: {},
 };
 
 const $ = (selector, root = document) => root.querySelector(selector);
@@ -139,6 +148,79 @@ const OBSERVABILITY_LABELS = {
   UNSURE: "无法确认",
   UNKNOWN: "未知",
 };
+const ANGLE_EVENT_LABELS = {
+  unspecified: "未指定",
+  lowest_point: "最低点",
+  highest_point: "最高点",
+  full_extension: "完全伸展",
+  contact: "接触",
+  release: "释放",
+  takeoff: "起跳",
+  landing: "落地",
+  other: "其他",
+};
+const ANGLE_TASK_GUIDANCE = {
+  lunge: "负重箭步蹲：优先标左右膝或髋，选择后膝接近地面的最低点，以及站直后的完全伸展帧。",
+  wall_ball: "Wall Ball：优先标左右膝或髋，选择下蹲最低点或投球时完全伸展帧；手臂清晰时可补肘或肩。",
+  burpee_broad_jump: "波比跳远：优先标膝或髋的最低点、起跳或落地帧；手撑地清晰时可补肘角。",
+  farmers_carry: "农夫行走：选择身体完整且脚步清晰的支撑帧，优先标膝、髋或躯干角度。",
+  rowing: "划船机：选择收腿起始或蹬腿结束的清晰帧，优先标膝、髋或肘角。",
+  skierg: "SkiErg：选择手臂最高点或下拉最低点，优先标髋、肘、肩或躯干角度。",
+  sled_push: "推雪橇：选择稳定发力步的清晰侧面帧，优先标膝、髋、肘或躯干角度。",
+  sled_pull: "拉雪橇：选择前伸或拉回结束的清晰帧，优先标肘、肩、髋或躯干角度。",
+};
+const ANGLE_EVENTS_BY_ACTION = {
+  lunge: [
+    ["unspecified", "未指定"], ["rep_start", "本次开始"], ["descent", "下降"],
+    ["lowest_point", "最低点"], ["rear_knee_contact", "后膝接触"],
+    ["ascent", "站起"], ["full_extension", "完全伸展"], ["other", "其他"],
+  ],
+  wall_ball: [
+    ["unspecified", "未指定"], ["catch", "接球／持球准备"], ["descent", "下蹲下降"],
+    ["lowest_point", "下蹲最低点"], ["ascent", "起身上升"],
+    ["full_extension", "完全伸展"], ["release", "出球"], ["other", "其他"],
+  ],
+  burpee_broad_jump: [
+    ["unspecified", "未指定"], ["hands_down", "双手撑地"], ["chest_contact", "胸部触地"],
+    ["takeoff", "起跳"], ["flight", "腾空"], ["landing", "落地"],
+    ["stabilization", "落地稳定"], ["other", "其他"],
+  ],
+  farmers_carry: [
+    ["unspecified", "未指定"], ["carry_start", "开始行走"], ["left_support", "左脚支撑"],
+    ["right_support", "右脚支撑"], ["double_support", "双脚支撑／换步"],
+    ["carry_stop", "停止行走"], ["other", "其他"],
+  ],
+  rowing: [
+    ["unspecified", "未指定"], ["catch", "接桨／收腿起始"], ["drive_start", "驱动开始"],
+    ["finish", "蹬腿拉动结束"], ["recovery", "回程"], ["other", "其他"],
+  ],
+  skierg: [
+    ["unspecified", "未指定"], ["highest_point", "手臂最高点"], ["pull_start", "下拉开始"],
+    ["lowest_point", "下拉最低点"], ["return", "回程"], ["other", "其他"],
+  ],
+  sled_push: [
+    ["unspecified", "未指定"], ["setup", "发力准备"], ["step_contact", "落脚／蹬地"],
+    ["drive", "持续推进"], ["full_extension", "蹬伸完成"], ["other", "其他"],
+  ],
+  sled_pull: [
+    ["unspecified", "未指定"], ["reach", "手臂前伸"], ["pull_start", "拉动开始"],
+    ["pull_finish", "拉动结束"], ["recovery", "回位／再次前伸"], ["other", "其他"],
+  ],
+};
+
+function angleEventsForRecord(payload) {
+  const fromServer = Array.isArray(payload.angle_events)
+    ? payload.angle_events.filter((item) => item && item.value && item.label)
+    : [];
+  if (fromServer.length) return fromServer;
+  const fallback = ANGLE_EVENTS_BY_ACTION[payload.record?.action]
+    || [["unspecified", "未指定"], ["other", "其他"]];
+  const legacyValues = Array.isArray(payload.event_values) ? new Set(payload.event_values) : null;
+  const compatible = legacyValues
+    ? fallback.filter(([value]) => legacyValues.has(value))
+    : fallback;
+  return compatible.map(([value, label]) => ({value, label}));
+}
 
 const getPath = (object, path, fallback = undefined) => (
   path.split(".").reduce((value, key) => (value == null ? undefined : value[key]), object) ?? fallback
@@ -321,6 +403,7 @@ function taskRecords() {
   if (state.task === "oni") return state.bootstrap.oni_records || [];
   if (state.task === "view") return state.bootstrap.view_prior_records || [];
   if (state.task === "error") return state.bootstrap.error_truth_records || [];
+  if (state.task === "angle") return state.bootstrap.records || [];
   if (state.task === "core") return (state.bootstrap.records || []).filter((record) => record.core);
   if (state.task === "remaining") return (state.bootstrap.records || []).filter((record) => !record.core);
   if (state.task === "disagreement") return (state.bootstrap.records || []).filter((record) => record.disagreement_clip_count > 0);
@@ -331,6 +414,7 @@ function isOniTask(task = state.task) {
 }
 function recordStatus(record) {
   if (isOniTask()) return record;
+  if (state.task === "angle") return record.angle_annotation || {saved: false, complete: false};
   if (state.task === "disagreement") return record.disagreement_review || {saved: false, complete: false};
   const review = record.reviewer_a || {saved: false, fine_complete: false};
   return {...review, complete: Boolean(review.fine_complete)};
@@ -343,17 +427,25 @@ function switchTask(task) {
   state.record = null;
   state.review = null;
   state.dirty = false;
+  state.angleRevision = 0;
+  state.angleAnnotations = [];
+  state.anglePoints = [];
+  state.anglePointFrame = null;
+  state.angleEditingId = null;
   state.records = taskRecords();
   $$(".task-switcher button").forEach((button) => button.classList.toggle("active", button.dataset.task === task));
   $("#queueTitle").textContent = task === "core" ? "15 段核心动作"
     : task === "remaining" ? "其余 15 段手机 RGB"
-      : task === "disagreement" ? "高分歧短片段" : "64 个模态任务";
+      : task === "disagreement" ? "高分歧短片段"
+        : task === "angle" ? "人工角度参考真值" : "64 个模态任务";
   $("#queueEyebrow").textContent = task === "core" ? "已确认核心精标"
     : task === "remaining" ? "人工 4 · 逐次/阶段/事件/错误"
       : task === "disagreement" ? "人工 4 · 0.5–1.0 秒复核"
+        : task === "angle" ? "逐帧三点关节角标注"
         : task === "oni" ? "Depth / IR 主体复核" : task === "view" ? "视角 × 可观察性" : "录制意图错误裁决";
   $("#phoneReviewContent").hidden = true;
   $("#oniReviewContent").hidden = true;
+  $("#angleReviewContent").hidden = true;
   $("#emptyState").hidden = false;
   renderRecordList();
   updateProgress();
@@ -365,6 +457,7 @@ function renderDashboard() {
   const taskName = state.task === "core" ? "phone_rgb_fine_review"
     : state.task === "remaining" ? "phone_rgb_remaining_fine_review"
       : state.task === "disagreement" ? "phone_rgb_disagreement_review"
+        : state.task === "angle" ? "manual_joint_angle_annotation"
     : state.task === "oni" ? "oni_subject_review"
       : state.task === "view" ? "oni_view_prior_review" : "oni_error_truth_review";
   const current = taskRows.find((item) => item.task === taskName);
@@ -403,6 +496,7 @@ function renderRecordList() {
   }).join("");
   $$(".quick-record").forEach((button) => button.addEventListener("click", () => {
     if (isOniTask()) selectOniRecord(button.dataset.id, button.dataset.modality);
+    else if (state.task === "angle") selectAngleRecord(button.dataset.id);
     else selectRecord(button.dataset.id);
   }));
 }
@@ -416,6 +510,7 @@ function updateProgress() {
   const taskLabel = state.task === "core" ? "核心动作精标"
     : state.task === "remaining" ? "人工 4 · 其余 RGB 精标"
       : state.task === "disagreement" ? "人工 4 · 高分歧片段"
+        : state.task === "angle" ? "人工角度标注"
         : state.task === "oni" ? "ONI 主体复核" : state.task === "view" ? "视角先验复核" : "ONI 错误真值复核";
   $("#topProgressText").textContent = `${taskLabel} · ${completed}/${total} 已完成`;
   $("#topProgressBar").style.width = `${total ? completed / total * 100 : 0}%`;
@@ -460,6 +555,7 @@ async function selectRecord(recordId) {
 function renderRecord() {
   $("#emptyState").hidden = true;
   $("#oniReviewContent").hidden = true;
+  $("#angleReviewContent").hidden = true;
   $("#phoneReviewContent").hidden = false;
   $("#recordAction").textContent = state.record.action_label;
   $("#recordTitle").textContent = state.record.record_id;
@@ -796,6 +892,7 @@ async function selectOniRecord(recordId, modality) {
 function renderOniRecord() {
   $("#emptyState").hidden = true;
   $("#phoneReviewContent").hidden = true;
+  $("#angleReviewContent").hidden = true;
   $("#oniReviewContent").hidden = false;
   $("#oniRecordAction").textContent = `${state.record.action_label} · ${state.record.modality_label}`;
   $("#oniRecordTitle").textContent = state.record.record_id;
@@ -1045,7 +1142,362 @@ function selectNextRecord() {
   const next = [...state.records.slice(currentIndex + 1), ...state.records.slice(0, currentIndex)].find((record) => !recordStatus(record).complete);
   if (!next) return toast("当前任务的全部记录都已完成");
   if (isOniTask()) selectOniRecord(next.record_id, next.modality);
+  else if (state.task === "angle") selectAngleRecord(next.record_id);
   else selectRecord(next.record_id);
+}
+
+function selectedAngleDefinition() {
+  return state.angleJoints[$("#angleJoint").value] || null;
+}
+function manualAngle2d(points) {
+  if (!Array.isArray(points) || points.length !== 3) return null;
+  const [a, b, c] = points;
+  const ba = [a[0] - b[0], a[1] - b[1]];
+  const bc = [c[0] - b[0], c[1] - b[1]];
+  const normBa = Math.hypot(...ba);
+  const normBc = Math.hypot(...bc);
+  if (normBa <= 1e-8 || normBc <= 1e-8) return null;
+  const cosine = Math.max(-1, Math.min(1, (ba[0] * bc[0] + ba[1] * bc[1]) / (normBa * normBc)));
+  return Math.acos(cosine) * 180 / Math.PI;
+}
+function angleCurrentFrame() {
+  if (!state.record?.video) return 0;
+  const max = Number(state.record.video.decoded_frame_count) - 1;
+  const fps = Number(state.record.video.fps);
+  return Math.max(0, Math.min(max, Math.floor($("#angleVideo").currentTime * fps + 1e-6)));
+}
+function angleFrameTime(frame) {
+  const fps = Number(state.record?.video?.fps);
+  if (!Number.isFinite(fps) || fps <= 0) return 0;
+  return (Number(frame) + 0.5) / fps;
+}
+function setAngleFrame(frame) {
+  if (!state.record?.video) return;
+  const max = Number(state.record.video.decoded_frame_count) - 1;
+  const value = Math.max(0, Math.min(max, Math.round(Number(frame) || 0)));
+  $("#angleVideo").currentTime = angleFrameTime(value);
+  updateAngleFrame();
+}
+function resetAnglePoints({keepEditing = false} = {}) {
+  state.anglePoints = [];
+  state.anglePointFrame = null;
+  if (!keepEditing) {
+    state.angleEditingId = null;
+    $("#angleCancelEditButton").hidden = true;
+    $("#angleSaveButton").textContent = "保存当前标注";
+  }
+  state.dirty = false;
+  renderAnglePoints();
+  drawAngleCanvas();
+}
+function updateAngleFrame() {
+  const frame = angleCurrentFrame();
+  $("#angleCurrentFrame").textContent = String(frame);
+  $("#angleFrameJump").value = String(frame);
+  if (state.anglePoints.length && state.anglePointFrame !== frame) {
+    resetAnglePoints();
+    toast("已切换帧，未保存的三个点已清空");
+  } else {
+    drawAngleCanvas();
+  }
+}
+function renderAnglePoints() {
+  const definition = selectedAngleDefinition();
+  const labels = definition?.point_labels || ["点 A", "点 B（顶点）", "点 C"];
+  $("#anglePointList").innerHTML = labels.map((label, index) => {
+    const point = state.anglePoints[index];
+    return `<li class="${point ? "marked" : ""}">${escapeHtml(label)}${point ? ` · (${point[0].toFixed(1)}, ${point[1].toFixed(1)})` : ""}</li>`;
+  }).join("");
+  const nextIndex = state.anglePoints.length;
+  $("#anglePointPrompt").textContent = nextIndex < 3
+    ? `第 ${nextIndex + 1} 点：${labels[nextIndex]}`
+    : "三个点已完成，可保存或继续微调";
+  const angle = manualAngle2d(state.anglePoints);
+  const ready = angle != null;
+  $("#manualAngleValue").textContent = angle == null ? "—" : `${angle.toFixed(1)}°`;
+  $("#manualAngleFrame").textContent = angle == null
+    ? "尚未完成三个点"
+    : `第 ${state.anglePointFrame} 帧 · 第二点为顶点`;
+  $("#anglePointProgress").textContent = `已点 ${state.anglePoints.length}/3`;
+  $("#angleSaveHelp").textContent = ready
+    ? "三点已完成。检查关节、事件和可见性，然后点击下方任一保存按钮。"
+    : state.anglePoints.length === 3
+      ? "三点不能形成有效角度；可以先保存当前进度，稍后再修改。"
+      : `可以立即保存当前进度；还需点击 ${3 - state.anglePoints.length} 个点才能生成正式角度。`;
+  $(".angle-point-progress").classList.toggle("ready", ready);
+  ["angleSaveButton", "angleSaveNextButton"].forEach((id) => {
+    const button = $(`#${id}`);
+    button.classList.toggle("draft-ready", !ready);
+    button.dataset.ready = String(ready);
+  });
+  $("#angleSaveButton").textContent = ready
+    ? (state.angleEditingId ? "保存修改" : "保存当前标注")
+    : "保存当前进度";
+  $("#angleSaveNextButton").textContent = ready
+    ? "保存并进入下一个视频 →"
+    : "保存进度并进入下一个视频 →";
+}
+function drawAngleCanvas() {
+  const canvas = $("#angleCanvas");
+  const wrap = $(".angle-video-wrap");
+  const video = $("#angleVideo");
+  if (!canvas || !wrap || !video) return;
+  const videoRect = video.getBoundingClientRect();
+  const wrapRect = wrap.getBoundingClientRect();
+  const displayWidth = Math.max(1, videoRect.width);
+  const displayHeight = Math.max(1, videoRect.height);
+  canvas.style.left = `${videoRect.left - wrapRect.left}px`;
+  canvas.style.top = `${videoRect.top - wrapRect.top}px`;
+  canvas.style.right = "auto";
+  canvas.style.bottom = "auto";
+  canvas.style.width = `${displayWidth}px`;
+  canvas.style.height = `${displayHeight}px`;
+  canvas.width = Math.max(1, Math.round(displayWidth));
+  canvas.height = Math.max(1, Math.round(displayHeight));
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  if (!video.videoWidth || !video.videoHeight || !state.anglePoints.length) return;
+  const scaleX = canvas.width / video.videoWidth;
+  const scaleY = canvas.height / video.videoHeight;
+  const displayPoints = state.anglePoints.map(([x, y]) => [x * scaleX, y * scaleY]);
+  if (displayPoints.length >= 2) {
+    context.beginPath();
+    context.moveTo(...displayPoints[0]);
+    for (const point of displayPoints.slice(1)) context.lineTo(...point);
+    context.strokeStyle = "#d8ff45";
+    context.lineWidth = 4;
+    context.stroke();
+  }
+  displayPoints.forEach(([x, y], index) => {
+    context.beginPath();
+    context.arc(x, y, index === 1 ? 9 : 7, 0, Math.PI * 2);
+    context.fillStyle = index === 1 ? "#ff7047" : "#d8ff45";
+    context.fill();
+    context.lineWidth = 2;
+    context.strokeStyle = "#111";
+    context.stroke();
+    context.fillStyle = "#111";
+    context.font = "bold 10px sans-serif";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(String(index + 1), x, y);
+  });
+}
+function anglePointerToNative(event) {
+  const video = $("#angleVideo");
+  const canvas = $("#angleCanvas");
+  if (!video.videoWidth || !video.videoHeight) return null;
+  const rect = canvas.getBoundingClientRect();
+  if (
+    event.clientX < rect.left || event.clientX > rect.right
+    || event.clientY < rect.top || event.clientY > rect.bottom
+  ) return null;
+  return [
+    (event.clientX - rect.left) / rect.width * video.videoWidth,
+    (event.clientY - rect.top) / rect.height * video.videoHeight,
+  ];
+}
+function addAnglePoint(event) {
+  event.preventDefault();
+  const point = anglePointerToNative(event);
+  if (!point) return toast("请在视频实际画面内标点", true);
+  if (state.anglePoints.length >= 3) return toast("三个点已完成；请保存、撤销或清空后继续");
+  $("#angleVideo").pause();
+  const frame = angleCurrentFrame();
+  if (state.anglePointFrame != null && state.anglePointFrame !== frame) resetAnglePoints();
+  state.anglePointFrame = frame;
+  state.anglePoints.push(point);
+  state.dirty = true;
+  renderAnglePoints();
+  drawAngleCanvas();
+}
+async function selectAngleRecord(recordId) {
+  if (state.dirty && !window.confirm("当前有未保存的角度点，仍要切换记录吗？")) return;
+  const payload = await api(`/api/review/angles/${encodeURIComponent(recordId)}?role=${QUICK_ROLE}&reviewer_id=${QUICK_REVIEWER}`);
+  state.currentId = recordId;
+  state.currentModality = null;
+  state.record = payload.record;
+  state.meta = state.records.find((record) => record.record_id === recordId);
+  state.angleRevision = payload.revision || 0;
+  state.angleAnnotations = payload.annotations || [];
+  state.angleDraft = payload.draft || null;
+  state.angleEventsCompatibilityMode = !Array.isArray(payload.angle_events)
+    || !payload.angle_events.length;
+  state.angleEvents = angleEventsForRecord(payload);
+  state.angleEvents.forEach(({value, label}) => { ANGLE_EVENT_LABELS[value] = label; });
+  state.angleJoints = payload.joints || {};
+  state.dirty = false;
+  state.anglePoints = [];
+  state.anglePointFrame = null;
+  state.angleEditingId = null;
+  renderAngleWorkspace();
+  renderRecordList();
+}
+function renderAngleWorkspace() {
+  $("#emptyState").hidden = true;
+  $("#phoneReviewContent").hidden = true;
+  $("#oniReviewContent").hidden = true;
+  $("#angleReviewContent").hidden = false;
+  $("#angleRecordAction").textContent = state.record.action_label;
+  $("#angleRecordTitle").textContent = state.record.record_id;
+  $("#angleRecordMeta").textContent = `${state.record.video.decoded_frame_count} 帧 · ${Number(state.record.video.fps).toFixed(2)} FPS · ${state.record.video.width}×${state.record.video.height}`;
+  $("#angleTaskTarget").textContent = ANGLE_TASK_GUIDANCE[state.record.action]
+    || "选择最能代表动作幅度的清晰关键帧，优先标膝、髋、肘或躯干角度。";
+  $("#angleVideo").src = state.record.video_url;
+  $("#angleJoint").innerHTML = Object.entries(state.angleJoints)
+    .map(([value, definition]) => `<option value="${escapeHtml(value)}">${escapeHtml(definition.label)}</option>`)
+    .join("");
+  $("#angleView").value = state.record.camera_view || "unsure";
+  $("#angleEvent").innerHTML = state.angleEvents
+    .map(({value, label}) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`)
+    .join("");
+  $("#angleEvent").value = "unspecified";
+  $("#angleEventHelp").textContent = state.angleEventsCompatibilityMode
+    ? "当前后台服务尚未重启，仅显示可安全保存的兼容事件；重启服务后会显示完整动作事件。"
+    : `已根据${state.record.action_label}列出对应事件。`;
+  $("#angleEventHelp").classList.toggle("compatibility-warning", state.angleEventsCompatibilityMode);
+  $("#angleVisibility").value = "high";
+  $("#angleNotes").value = "";
+  $("#angleCancelEditButton").hidden = true;
+  restoreAngleDraft();
+  renderAnglePoints();
+  renderAngleHistory();
+  updateAngleSaveIndicator();
+}
+function updateAngleSaveIndicator() {
+  const count = state.angleAnnotations.length;
+  const hasDraft = Boolean(state.angleDraft);
+  const indicator = $("#angleSaveIndicator");
+  indicator.textContent = hasDraft
+    ? `草稿已保存 · ${state.angleDraft.manual_points.length}/3 点 · r${state.angleRevision}`
+    : count ? `已保存 ${count} 条 · r${state.angleRevision}` : "未标注";
+  indicator.className = `save-indicator ${count || hasDraft ? "saved" : ""}`;
+}
+function restoreAngleDraft() {
+  const draft = state.angleDraft;
+  if (!draft) return;
+  $("#angleJoint").value = draft.joint;
+  $("#angleView").value = draft.camera_view;
+  $("#angleEvent").value = draft.event;
+  $("#angleVisibility").value = draft.visibility;
+  $("#angleNotes").value = draft.notes || "";
+  state.anglePoints = (draft.manual_points || []).map((point) => [...point]);
+  state.anglePointFrame = Number(draft.frame_index);
+  state.angleEditingId = draft.editing_annotation_id || null;
+  $("#angleCancelEditButton").hidden = !state.angleEditingId;
+}
+function renderAngleHistory() {
+  const annotations = [...state.angleAnnotations].sort((a, b) => a.frame_index - b.frame_index);
+  $("#angleHistoryCount").textContent = `${annotations.length} 条`;
+  $("#angleHistory").innerHTML = annotations.length
+    ? annotations.map((annotation) => `<article class="angle-history-item">
+        <strong>${escapeHtml(annotation.joint_label || annotation.joint)} · ${Number(annotation.manual_angle_deg).toFixed(1)}°</strong>
+        <span>第 ${annotation.frame_index} 帧</span>
+        <span>${escapeHtml(ANGLE_EVENT_LABELS[annotation.event] || annotation.event)} · 可见性 ${escapeHtml(annotation.visibility)}</span>
+        <div>
+          <button type="button" data-angle-jump="${escapeHtml(annotation.annotation_id)}">定位</button>
+          <button type="button" data-angle-edit="${escapeHtml(annotation.annotation_id)}">编辑</button>
+          <button class="delete-angle" type="button" data-angle-delete="${escapeHtml(annotation.annotation_id)}">删除</button>
+        </div>
+      </article>`).join("")
+    : '<div class="angle-history-empty">本视频还没有角度标注</div>';
+  $$("[data-angle-jump]", $("#angleHistory")).forEach((button) => button.addEventListener("click", () => {
+    const annotation = state.angleAnnotations.find((item) => item.annotation_id === button.dataset.angleJump);
+    if (annotation) setAngleFrame(annotation.frame_index);
+  }));
+  $$("[data-angle-edit]", $("#angleHistory")).forEach((button) => button.addEventListener("click", () => editAngleAnnotation(button.dataset.angleEdit)));
+  $$("[data-angle-delete]", $("#angleHistory")).forEach((button) => button.addEventListener("click", () => deleteAngleAnnotation(button.dataset.angleDelete)));
+}
+function editAngleAnnotation(annotationId) {
+  const annotation = state.angleAnnotations.find((item) => item.annotation_id === annotationId);
+  if (!annotation) return;
+  state.angleEditingId = annotationId;
+  $("#angleJoint").value = annotation.joint;
+  $("#angleView").value = annotation.camera_view;
+  $("#angleEvent").value = annotation.event;
+  $("#angleVisibility").value = annotation.visibility;
+  $("#angleNotes").value = annotation.notes || "";
+  const order = annotation.point_order || [];
+  state.anglePoints = order.map((name) => [...annotation.manual_points[name]]);
+  state.anglePointFrame = Number(annotation.frame_index);
+  state.dirty = true;
+  $("#angleCancelEditButton").hidden = false;
+  $("#angleSaveButton").textContent = "保存修改";
+  setAngleFrame(annotation.frame_index);
+  renderAnglePoints();
+  drawAngleCanvas();
+}
+async function reloadAngleAnnotations() {
+  const payload = await api(`/api/review/angles/${encodeURIComponent(state.currentId)}?role=${QUICK_ROLE}&reviewer_id=${QUICK_REVIEWER}`);
+  state.angleRevision = payload.revision || 0;
+  state.angleAnnotations = payload.annotations || [];
+  state.angleDraft = payload.draft || null;
+  renderAngleHistory();
+  updateAngleSaveIndicator();
+}
+async function saveAngleAnnotation({next = false} = {}) {
+  const complete = state.anglePoints.length === 3 && manualAngle2d(state.anglePoints) != null;
+  try {
+    const payload = await api(`/api/review/angles/${encodeURIComponent(state.currentId)}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        role: QUICK_ROLE,
+        reviewer_id: QUICK_REVIEWER,
+        base_revision: state.angleRevision,
+        save_as_draft: !complete,
+        annotation: {
+          annotation_id: state.angleEditingId,
+          frame_index: state.anglePointFrame ?? angleCurrentFrame(),
+          joint: $("#angleJoint").value,
+          camera_view: $("#angleView").value,
+          event: $("#angleEvent").value,
+          visibility: $("#angleVisibility").value,
+          notes: $("#angleNotes").value,
+          manual_points: state.anglePoints,
+        },
+      }),
+    });
+    state.angleRevision = payload.revision;
+    state.dirty = false;
+    if (payload.save_status === "draft") {
+      state.angleDraft = payload.draft;
+      updateAngleSaveIndicator();
+      renderAnglePoints();
+      await refreshRecords();
+      toast(`当前进度已保存：${payload.draft.manual_points.length}/3 点，可稍后继续`);
+      if (next) selectNextRecord();
+      return;
+    }
+    state.angleDraft = null;
+    resetAnglePoints();
+    $("#angleNotes").value = "";
+    await reloadAngleAnnotations();
+    await refreshRecords();
+    toast(`已写入服务器：${Number(payload.annotation.manual_angle_deg).toFixed(1)}°，不需要另外提交`);
+    if (next) selectNextRecord();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+async function deleteAngleAnnotation(annotationId) {
+  if (!window.confirm("确定删除这条角度标注吗？")) return;
+  try {
+    const payload = await api(`/api/review/angles/${encodeURIComponent(state.currentId)}/${encodeURIComponent(annotationId)}`, {
+      method: "DELETE",
+      body: JSON.stringify({
+        role: QUICK_ROLE,
+        reviewer_id: QUICK_REVIEWER,
+        base_revision: state.angleRevision,
+      }),
+    });
+    state.angleRevision = payload.revision;
+    if (state.angleEditingId === annotationId) resetAnglePoints();
+    await reloadAngleAnnotations();
+    await refreshRecords();
+    toast("角度标注已删除");
+  } catch (error) {
+    toast(error.message, true);
+  }
 }
 
 function currentFrame() {
@@ -1144,6 +1596,56 @@ function initializeEvents() {
   $("#reviewVideo").addEventListener("seeked", updateFrame);
   $$("[data-step]").forEach((button) => button.addEventListener("click", () => setFrame(currentFrame() + Number(button.dataset.step))));
   $("#jumpButton").addEventListener("click", () => setFrame($("#frameJump").value));
+  $("#angleVideo").addEventListener("timeupdate", updateAngleFrame);
+  $("#angleVideo").addEventListener("seeked", updateAngleFrame);
+  $("#angleVideo").addEventListener("loadedmetadata", () => {
+    if (state.anglePointFrame != null) {
+      $("#angleVideo").currentTime = angleFrameTime(state.anglePointFrame);
+    }
+    updateAngleFrame();
+    drawAngleCanvas();
+  });
+  $("#angleVideo").addEventListener("play", () => { $("#anglePlayButton").textContent = "暂停"; });
+  $("#angleVideo").addEventListener("pause", () => { $("#anglePlayButton").textContent = "播放"; });
+  $("#anglePlayButton").addEventListener("click", () => {
+    const video = $("#angleVideo");
+    if (video.paused) video.play().catch((error) => toast(error.message, true));
+    else video.pause();
+  });
+  $$("[data-angle-step]").forEach((button) => button.addEventListener("click", () => {
+    $("#angleVideo").pause();
+    setAngleFrame(angleCurrentFrame() + Number(button.dataset.angleStep));
+  }));
+  $("#angleJumpButton").addEventListener("click", () => {
+    $("#angleVideo").pause();
+    setAngleFrame($("#angleFrameJump").value);
+  });
+  $("#angleCanvas").addEventListener("pointerdown", addAnglePoint);
+  $("#angleUndoPointButton").addEventListener("click", () => {
+    state.anglePoints.pop();
+    if (!state.anglePoints.length) state.anglePointFrame = null;
+    state.dirty = true;
+    renderAnglePoints();
+    drawAngleCanvas();
+  });
+  $("#angleResetPointsButton").addEventListener("click", () => {
+    resetAnglePoints();
+    state.dirty = true;
+  });
+  $("#angleJoint").addEventListener("change", () => {
+    resetAnglePoints();
+    state.dirty = true;
+    renderAnglePoints();
+  });
+  $("#angleCancelEditButton").addEventListener("click", () => {
+    resetAnglePoints();
+    $("#angleNotes").value = "";
+  });
+  ["angleView", "angleEvent", "angleVisibility", "angleNotes"].forEach((id) => {
+    $(`#${id}`).addEventListener(id === "angleNotes" ? "input" : "change", () => { state.dirty = true; });
+  });
+  $("#angleSaveButton").addEventListener("click", () => saveAngleAnnotation());
+  $("#angleSaveNextButton").addEventListener("click", () => saveAngleAnnotation({next: true}));
   $("#previousClipButton").addEventListener("click", () => selectDisagreementClip(-1));
   $("#nextClipButton").addEventListener("click", () => selectDisagreementClip(1));
   $("#playClipButton").addEventListener("click", playCurrentDisagreementClip);
@@ -1171,9 +1673,12 @@ function initializeEvents() {
   $("#exportButton").addEventListener("click", () => { window.location.href = "/api/review/export?scope=a"; });
   $("#exportDataButton").addEventListener("click", () => { $("#exportPopover").hidden = !$("#exportPopover").hidden; });
   $("#copyCodexButton").addEventListener("click", async () => {
-    const text = "请读取 datasets/hyrox/reviews/human_v1/reviewer_a/ 下的单人人工复核结果。人工 4 使用 reps、phase_error_intervals、events 与 disagreement_clips；滑雪机和推雪橇采用两个临时 subject 分组，其余动作各一个分组。ONI 暂不属于本轮人工 4。";
+    const text = "请读取我导出的 angle_validation_report_v1.json。把 annotations 中的人工角度作为参考真值，按 record_id + frame_index + joint 匹配模型角度，统计绝对误差及按关节、视角、事件、可见性的分组误差；优先检查高可见性样本，并列出疑似左右侧、顶点顺序或帧对齐错误。";
     await navigator.clipboard.writeText(text);
     toast("结果说明已复制");
+  });
+  window.addEventListener("resize", () => {
+    if (!$("#angleReviewContent").hidden) drawAngleCanvas();
   });
   window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.preventDefault(); event.returnValue = ""; } });
 }

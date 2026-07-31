@@ -67,7 +67,13 @@ def coerce_point(
             visibility=_read_float(point.get("visibility"), confidence),
             presence=_read_float(point.get("presence"), confidence),
         )
-    elif isinstance(point, Sequence) and not isinstance(point, (str, bytes, bytearray)):
+    elif (
+        isinstance(point, Sequence)
+        or (
+            hasattr(point, "__len__")
+            and hasattr(point, "__getitem__")
+        )
+    ) and not isinstance(point, (str, bytes, bytearray)):
         normalized = PosePoint(
             x=_sequence_value(point, 0, float("nan")),
             y=_sequence_value(point, 1, float("nan")),
@@ -124,6 +130,130 @@ def angle_3pts(
     return degrees(acos(cosine))
 
 
+def calculate_angle_2d(
+    a: object | None,
+    b: object | None,
+    c: object | None,
+    frame_width: int | float | None = None,
+    frame_height: int | float | None = None,
+) -> float | None:
+    """Return the A-B-C projected angle in degrees, with B as the vertex.
+
+    When positive frame dimensions are supplied and all coordinates look
+    normalized, x/y are converted to pixels before the angle is calculated.
+    Low visibility does not change the geometry result; callers should carry
+    visibility separately when deciding whether the observation is reliable.
+    """
+
+    points = tuple(
+        coerce_point(
+            point,
+            min_visibility=0.0,
+            min_presence=0.0,
+        )
+        for point in (a, b, c)
+    )
+    if any(point is None for point in points):
+        return None
+    point_a, vertex, point_c = points
+    assert point_a is not None and vertex is not None and point_c is not None
+    width = _positive_dimension(frame_width)
+    height = _positive_dimension(frame_height)
+    if (
+        frame_width is not None or frame_height is not None
+    ) and (width is None or height is None):
+        return None
+    normalized = (
+        width is not None
+        and height is not None
+        and all(
+            -1.5 <= value <= 1.5
+            for point in points
+            if point is not None
+            for value in (point.x, point.y)
+        )
+    )
+    scale_x = width if normalized and width is not None else 1.0
+    scale_y = height if normalized and height is not None else 1.0
+    return _vector_angle_degrees(
+        (
+            (point_a.x - vertex.x) * scale_x,
+            (point_a.y - vertex.y) * scale_y,
+        ),
+        (
+            (point_c.x - vertex.x) * scale_x,
+            (point_c.y - vertex.y) * scale_y,
+        ),
+    )
+
+
+def calculate_angle_3d(
+    a: object | None,
+    b: object | None,
+    c: object | None,
+) -> float | None:
+    """Return the A-B-C spatial angle in degrees, with B as the vertex."""
+
+    points = tuple(
+        coerce_point(
+            point,
+            min_visibility=0.0,
+            min_presence=0.0,
+        )
+        for point in (a, b, c)
+    )
+    if any(point is None for point in points):
+        return None
+    point_a, vertex, point_c = points
+    assert point_a is not None and vertex is not None and point_c is not None
+    return _vector_angle_degrees(
+        (
+            point_a.x - vertex.x,
+            point_a.y - vertex.y,
+            point_a.z - vertex.z,
+        ),
+        (
+            point_c.x - vertex.x,
+            point_c.y - vertex.y,
+            point_c.z - vertex.z,
+        ),
+    )
+
+
+def _positive_dimension(value: int | float | None) -> float | None:
+    try:
+        numeric = float(value) if value is not None else 0.0
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return numeric if isfinite(numeric) and numeric > 0.0 else None
+
+
+def _vector_angle_degrees(
+    first: Sequence[float],
+    second: Sequence[float],
+) -> float | None:
+    if (
+        len(first) != len(second)
+        or not first
+        or any(not isfinite(float(value)) for value in (*first, *second))
+    ):
+        return None
+    norm_first = sqrt(sum(float(value) ** 2 for value in first))
+    norm_second = sqrt(sum(float(value) ** 2 for value in second))
+    if norm_first <= 1e-8 or norm_second <= 1e-8:
+        return None
+    dot = sum(
+        float(left) * float(right)
+        for left, right in zip(first, second, strict=True)
+    )
+    cosine = max(
+        -1.0,
+        min(1.0, dot / (norm_first * norm_second)),
+    )
+    value = degrees(acos(cosine))
+    return value if isfinite(value) else None
+
+
 def safe_distance(
     p1: object | None,
     p2: object | None,
@@ -164,6 +294,8 @@ def midpoint(
 __all__ = [
     "PosePoint",
     "angle_3pts",
+    "calculate_angle_2d",
+    "calculate_angle_3d",
     "coerce_point",
     "midpoint",
     "safe_distance",

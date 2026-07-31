@@ -211,6 +211,38 @@ Rowing、SkiErg、Sled Push 和 Sled Pull 的 `cycle_count` 只是动作分析�
 
 网页版会话、上传和报告默认写入当前目录的 `outputs/`，可用 `POSE_OUTPUT_DIR` 覆盖。桌面版可通过 `--save-dir` 和 `--log-dir` 指定输出位置。
 
+## 人工角度对照
+
+上传视频报告中的 `angle_observations` 会同时保留原始/平滑 2D、原始/平滑 3D、屏幕显示角度和正式规则角度。可先检查并导出指定关节曲线：
+
+```powershell
+python tools\inspect_joint_angles.py outputs\report.json `
+  --joint left_knee `
+  --csv outputs\angle_validation\left_knee_curves.csv
+```
+
+在真实视频指定帧上依次点击三个点并保存人工角度。膝角的顺序是髋、膝、踝，第二个点始终是角顶点：
+
+```powershell
+python tools\manual_angle_annotation.py input.mp4 `
+  --report outputs\report.json `
+  --joint left_knee `
+  --frame 326 `
+  --camera-view side `
+  --event lowest_point
+```
+
+无图形界面时可增加 `--points "812,342;834,581;902,811"`。完成 30～50 个代表性帧后生成误差和延迟报告：
+
+```powershell
+python tools\compare_manual_angles.py `
+  outputs\angle_validation\manual_angles.json `
+  --report outputs\report.json `
+  --output-dir outputs\angle_validation
+```
+
+输出包含人工对照 MAE、中位绝对误差、P90/P95、最低点/完全伸展事件偏移，以及原始与平滑角度曲线的帧延迟和毫秒延迟。正面视角的 2D 膝角只表示屏幕投影角，不能解释为真实三维关节角。
+
 ## 个人参考动作与 DTW 比较
 
 桌面版完成会话后，可从指定时间段创建个人参考动作：

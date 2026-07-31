@@ -141,6 +141,11 @@
               <input id="mirrorToggle" type="checkbox" checked>
               <span class="switch" aria-hidden="true"></span>
             </label>
+            <label class="switch-row" id="annotatedVideoOption" hidden>
+              <span><strong>生成完整标注视频</strong><small>可选第二遍渲染；复用首遍关键点，不再次运行姿态模型</small></span>
+              <input id="annotatedVideoToggle" type="checkbox">
+              <span class="switch" aria-hidden="true"></span>
+            </label>
           </div>
         </details>
 
@@ -172,7 +177,7 @@
             <strong>画面将在这里显示</strong>
             <p>建议让全身完整入镜，并保持背景简洁</p>
           </div>
-          <video id="localVideo" playsinline muted aria-label="本机摄像头实时预览" hidden></video>
+          <video id="localVideo" playsinline muted aria-label="本机摄像头或上传视频预览" hidden></video>
           <img id="streamImage" alt="视频姿态识别画面" hidden>
           <canvas id="overlayCanvas" aria-label="姿态骨架与分析反馈叠加层" hidden></canvas>
           <canvas id="captureCanvas" width="640" height="480" hidden></canvas>
@@ -184,7 +189,7 @@
           <div class="video-rep-badge" id="videoRepBadge" hidden aria-live="polite">
             <span>完整周期</span><strong id="videoRepCount">0</strong>
           </div>
-          <div class="loading-overlay" id="loadingOverlay" hidden><span class="spinner"></span><strong>正在加载模型</strong><small>首次启动可能需要几秒</small></div>
+          <div class="loading-overlay" id="loadingOverlay" hidden><span class="spinner"></span><strong id="loadingTitle">正在加载模型</strong><small id="loadingDetail">首次启动可能需要几秒</small></div>
         </div>
         <div class="progress-track" id="progressTrack" hidden><span id="progressBar"></span></div>
         <div class="recording-review" id="recordingReview" hidden>
@@ -264,6 +269,7 @@
             <a id="downloadText" href="/api/report.txt" download aria-disabled="true">文字报告</a>
             <a id="downloadJson" href="/api/report.json" download aria-disabled="true">JSON</a>
             <a id="downloadCsv" href="/api/report.csv" download aria-disabled="true">CSV</a>
+            <a id="downloadAnnotated" href="/api/annotated-video" download hidden>完整标注视频</a>
             <button id="deleteSessionButton" type="button">删除本次数据</button>
           </div>
           <div class="report-preview" id="reportPreview" hidden></div>
@@ -274,7 +280,7 @@
     <footer class="privacy-footer">
       <details>
         <summary>隐私与摄像头说明</summary>
-        <p>摄像头只会在你点击“开启摄像头”后启用。浏览器只请求视频权限，麦克风始终关闭；语音提示由浏览器在本机根据文字建议合成，不上传音频。支持时姿态模型在浏览器 Worker 中运行，只向服务器发送人体关键点和时间戳；若页面明确显示“服务器兼容姿态”，摄像头帧会临时发送给服务器推理，但不会写入磁盘。关闭、切换设备或离开页面时会立即停止所有视频轨道。你主动使用“录制”时，带骨架画面只在浏览器内生成并供你本机回放或保存，不上传服务器。上传视频仅作为临时分析输入，完成后删除。结构化分析结果最多保留 10 分钟，你也可以随时点击“删除本次数据”。</p>
+        <p>摄像头只会在你点击“开启摄像头”后启用。浏览器只请求视频权限，麦克风始终关闭；语音提示由浏览器在本机根据文字建议合成，不上传音频。支持时姿态模型在浏览器 Worker 中运行，只向服务器发送人体关键点和时间戳；若页面明确显示“服务器兼容姿态”，摄像头帧会临时发送给服务器推理，但不会写入磁盘。关闭、切换设备或离开页面时会立即停止所有视频轨道。你主动使用“录制”时，带骨架画面只在浏览器内生成并供你本机回放或保存，不上传服务器。上传视频仅作为临时分析输入，分析或可选的第二遍标注渲染完成后删除；系统会保留不含视频画面的姿态关键点缓存，以便同一视频修改规则后无需再次运行姿态模型。显式生成的标注视频和会话结构化结果最多保留 10 分钟；点击“删除本次数据”也会删除当前视频对应的关键点缓存。</p>
       </details>
     </footer>
   </div>

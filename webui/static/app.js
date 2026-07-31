@@ -91,6 +91,11 @@ const ui = {
   poseWorkerModelSwitching: false,
   latestAnalysisResult: null,
   lastFeedbackSignature: "",
+  uploadPlaybackUrl: "",
+  uploadPlaybackActive: false,
+  uploadTimeline: [],
+  uploadPlaybackCallbackId: null,
+  uploadPlaybackRafId: null,
 };
 
 const displayPosePredictor = new DisplayPosePredictor();
@@ -1009,6 +1014,10 @@ function settingsPayload() {
     mirror: $("#mirrorToggle").checked,
     paused: ui.paused,
     manual_floor_points: ui.manualFloorPoints,
+    generate_annotated_video: (
+      ui.sourceMode === "upload"
+      && $("#annotatedVideoToggle").checked
+    ),
   };
 }
 
@@ -1045,10 +1054,12 @@ function setConnectionMetricForSource(mode = ui.sourceMode) {
 function selectSource(mode) {
   if (ui.running) return;
   if (ui.sourceMode === "camera" && mode !== "camera") closeCamera();
+  if (ui.uploadPlaybackActive && mode !== "upload") stopUploadPlayback({ hideVideo: true });
   ui.sourceMode = mode;
   $$("#sourceTabs .segment").forEach(button => button.classList.toggle("active", button.dataset.source === mode));
   $$(".source-pane").forEach(pane => pane.classList.toggle("active", pane.dataset.pane === mode));
   $("#mirrorToggle").checked = mode === "camera";
+  $("#annotatedVideoOption").hidden = mode !== "upload";
   $("#startButton span:first-child").textContent = mode === "camera" ? "开始实时分析" : "开始分析";
   $("#stopButton").textContent = mode === "camera" ? "停止摄像头" : "停止";
   if (mode === "sample" && !ui.samplesByAction.has($("#actionSelect").value)) {
@@ -1068,7 +1079,7 @@ function setRunning(running) {
   $("#pauseButton").disabled = !running;
   $("#recordButton").disabled = !running || !window.MediaRecorder;
   $("#screenshotButton").disabled = !running;
-  $$("#sourceTabs button, #videoFile, #backendSelect, #poseRuntimeSelect, #poseModelSelect, #openCameraButton").forEach(node => { node.disabled = running; });
+  $$("#sourceTabs button, #videoFile, #backendSelect, #poseRuntimeSelect, #poseModelSelect, #openCameraButton, #annotatedVideoToggle").forEach(node => { node.disabled = running; });
   $("#switchCameraButton").disabled = !ui.mediaStream;
   $("#cameraDevice").disabled = !ui.mediaStream;
 }
@@ -1146,6 +1157,7 @@ async function openCamera({ deviceId = "", facingMode = ui.facingMode } = {}) {
     }
     ui.mediaStream = stream;
     const video = $("#localVideo");
+    video.controls = false;
     video.srcObject = stream;
     video.muted = true;
     video.playsInline = true;
@@ -1687,7 +1699,7 @@ function drawSkeleton(result, opacity = 1, now = performance.now(), displayLandm
 function drawSkeletonCore(result, opacity = 1, now = performance.now(), displayLandmarks = null) {
   const video = cachedNode("#localVideo");
   const canvas = cachedNode("#overlayCanvas");
-  if (!ui.mediaStream || !video.videoWidth || !result) return;
+  if ((!ui.mediaStream && !ui.uploadPlaybackActive) || !video.videoWidth || !result) return;
   resizeOverlayIfNeeded();
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1695,7 +1707,7 @@ function drawSkeletonCore(result, opacity = 1, now = performance.now(), displayL
   ctx.globalAlpha = Math.max(0, Math.min(1, opacity));
   const contentRect = cachedVideoContentRect(canvas, video);
   const { drawWidth, drawHeight, offsetX, offsetY } = contentRect;
-  const mirrored = cachedNode("#mirrorToggle").checked;
+  const mirrored = ui.sourceMode === "camera" && cachedNode("#mirrorToggle").checked;
   drawingCache.pointPresent.fill(0);
   for (const point of displayLandmarks || result.keypoints || []) {
     const index = poseNameToIndex.get(point.name);
@@ -1815,7 +1827,11 @@ function updateAngleDrawingCache(angles) {
     const index = drawingCache.angleCount;
     const entry = drawingCache.angleEntries[index] || {};
     entry.anchorIndex = anchorIndex;
-    entry.label = `${angle.label} ${Math.round(angle.value)}° 3D`;
+    const sourceLabel = String(angle.display_angle_source || angle.source || "")
+      .startsWith("world_") || angle.source === "3d"
+      ? "3D"
+      : "2D";
+    entry.label = `${angle.label} ${Math.round(angle.value)}° ${sourceLabel}`;
     entry.color = angle.status === "bad"
       ? "#ff5b50"
       : angle.status === "good" ? "#59e481" : "#f5f5ef";
@@ -2004,6 +2020,112 @@ function resizeOverlayIfNeeded() {
   if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
 }
 
+function setUploadPlaybackUrl(file) {
+  if (ui.uploadPlaybackUrl) URL.revokeObjectURL(ui.uploadPlaybackUrl);
+  ui.uploadPlaybackUrl = file ? URL.createObjectURL(file) : "";
+}
+
+function stopUploadPlayback({ hideVideo = false } = {}) {
+  const video = $("#localVideo");
+  ui.uploadPlaybackActive = false;
+  ui.uploadTimeline = [];
+  if (ui.uploadPlaybackCallbackId !== null && video.cancelVideoFrameCallback) {
+    video.cancelVideoFrameCallback(ui.uploadPlaybackCallbackId);
+  }
+  if (ui.uploadPlaybackRafId !== null) cancelAnimationFrame(ui.uploadPlaybackRafId);
+  ui.uploadPlaybackCallbackId = null;
+  ui.uploadPlaybackRafId = null;
+  video.pause();
+  video.controls = false;
+  clearOverlay();
+  if (hideVideo) video.hidden = true;
+}
+
+function timelineFrameAt(timestampMs) {
+  const timeline = ui.uploadTimeline;
+  let low = 0;
+  let high = timeline.length - 1;
+  let selected = -1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (Number(timeline[middle].timestamp_ms || 0) <= timestampMs) {
+      selected = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return selected >= 0 ? timeline[selected] : null;
+}
+
+function scheduleUploadPlaybackFrame() {
+  if (!ui.uploadPlaybackActive) return;
+  const video = $("#localVideo");
+  if (video.requestVideoFrameCallback) {
+    ui.uploadPlaybackCallbackId = video.requestVideoFrameCallback(renderUploadPlaybackFrame);
+  } else {
+    ui.uploadPlaybackRafId = requestAnimationFrame(renderUploadPlaybackFrame);
+  }
+}
+
+function renderUploadPlaybackFrame() {
+  if (!ui.uploadPlaybackActive) return;
+  const video = $("#localVideo");
+  const currentTimestampMs = video.currentTime * 1000;
+  const result = timelineFrameAt(currentTimestampMs);
+  const differenceMs = result
+    ? currentTimestampMs - Number(result.timestamp_ms || 0)
+    : Number.POSITIVE_INFINITY;
+  if (result && differenceMs <= 150) {
+    drawSkeleton(result, 1, performance.now());
+    setTextIfChanged("#videoRepCount", result.candidate_count ?? result.reps ?? 0);
+    setTextIfChanged("#repCount", result.candidate_count ?? result.reps ?? 0);
+    setTextIfChanged("#poseValidRepCount", result.pose_valid_rep_count ?? result.reps ?? 0);
+    setTextIfChanged("#noRepCount", result.no_rep_count ?? 0);
+    setTextIfChanged("#unsureCount", result.unsure_count ?? 0);
+    setTextIfChanged("#phaseValue", phaseLabels[result.phase] || result.phase || "—");
+    renderFeedback(result.feedback || [], Boolean(result.pose_detected), true);
+  } else {
+    clearOverlay();
+  }
+  scheduleUploadPlaybackFrame();
+}
+
+async function startUploadPlayback(report) {
+  if (!ui.uploadPlaybackUrl) throw new Error("浏览器中的原始视频已不可用，请重新选择文件");
+  stopUploadPlayback();
+  ui.uploadTimeline = [...(report.frames || [])]
+    .filter(frame => Number.isFinite(Number(frame.timestamp_ms)))
+    .sort((left, right) => Number(left.timestamp_ms) - Number(right.timestamp_ms));
+  const video = $("#localVideo");
+  video.srcObject = null;
+  video.src = ui.uploadPlaybackUrl;
+  video.controls = true;
+  video.muted = true;
+  video.playsInline = true;
+  video.classList.remove("mirrored");
+  video.hidden = false;
+  $("#streamImage").src = "";
+  $("#streamImage").hidden = true;
+  $("#emptyStage").hidden = true;
+  $("#overlayCanvas").hidden = false;
+  $("#videoBadges").hidden = false;
+  $("#progressTrack").hidden = true;
+  $("#sourceBadge").textContent = report.summary?.source_name || "上传视频";
+  $("#poseModeBadge").textContent = "原速回放 · 时间轴叠加";
+  ui.uploadPlaybackActive = true;
+  await new Promise((resolve, reject) => {
+    if (video.readyState >= 1) {
+      resolve();
+      return;
+    }
+    video.addEventListener("loadedmetadata", resolve, { once: true });
+    video.addEventListener("error", () => reject(new Error("原始视频无法在浏览器中播放")), { once: true });
+  });
+  scheduleUploadPlaybackFrame();
+  await video.play().catch(() => undefined);
+}
+
 async function uploadSelectedVideo() {
   const file = $("#videoFile").files[0];
   if (!file) throw new Error("请先选择本地视频");
@@ -2021,6 +2143,7 @@ async function startAnalysis() {
   $("#reportPreview").hidden = true;
   $("#reportReadyBanner").hidden = true;
   $$("#downloadText, #downloadJson, #downloadCsv").forEach(link => link.setAttribute("aria-disabled", "true"));
+  $("#downloadAnnotated").hidden = true;
   try {
     $("#startButton").disabled = true;
     $("#startButton span:first-child").textContent = "正在启动…";
@@ -2063,9 +2186,15 @@ async function startAnalysis() {
     const state = await api("/api/start", { method: "POST", body: JSON.stringify(payload) });
     setRunning(true);
     $("#emptyStage").hidden = true;
-    $("#streamImage").hidden = false;
-    $("#streamImage").src = `/api/stream?t=${Date.now()}`;
+    const analyzeThenPlay = ui.sourceMode === "upload";
+    $("#streamImage").hidden = analyzeThenPlay;
+    $("#streamImage").src = analyzeThenPlay ? "" : `/api/stream?t=${Date.now()}`;
+    $("#localVideo").hidden = true;
     $("#loadingOverlay").hidden = false;
+    $("#loadingTitle").textContent = analyzeThenPlay ? "正在分析：0%" : "正在加载模型";
+    $("#loadingDetail").textContent = analyzeThenPlay
+      ? "分析完成后将按原始视频时间正常播放"
+      : "首次启动可能需要几秒";
     $("#videoBadges").hidden = false;
     $("#progressTrack").hidden = false;
     updateState(state);
@@ -2110,6 +2239,7 @@ function resetStage(clearImage = true) {
   ui.stateTimer = null;
   stopCaptureLoop();
   stopPoseDrawLoop();
+  if (ui.sourceMode === "upload") stopUploadPlayback({ hideVideo: true });
   setRunning(false);
   $("#videoRepCount").textContent = "0";
   ui.paused = false;
@@ -2162,7 +2292,9 @@ async function togglePause() {
 }
 
 function takeScreenshot() {
-  const video = ui.sourceMode === "camera" ? $("#localVideo") : $("#streamImage");
+  const video = ui.sourceMode === "camera" || ui.uploadPlaybackActive
+    ? $("#localVideo")
+    : $("#streamImage");
   const overlay = $("#overlayCanvas");
   const canvas = document.createElement("canvas");
   canvas.width = video.videoWidth || video.naturalWidth || 1280;
@@ -2171,7 +2303,9 @@ function takeScreenshot() {
   if (ui.sourceMode === "camera" && $("#mirrorToggle").checked) { ctx.translate(canvas.width, 0); ctx.scale(-1, 1); }
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   if (ui.sourceMode === "camera" && $("#mirrorToggle").checked) ctx.setTransform(1, 0, 0, 1, 0, 0);
-  if (ui.sourceMode === "camera") ctx.drawImage(overlay, 0, 0, canvas.width, canvas.height);
+  if (ui.sourceMode === "camera" || ui.uploadPlaybackActive) {
+    ctx.drawImage(overlay, 0, 0, canvas.width, canvas.height);
+  }
   canvas.toBlob(blob => {
     if (!blob) return;
     const url = URL.createObjectURL(blob);
@@ -2193,7 +2327,9 @@ function drawRecordingFrame() {
   if (!ui.recordingCanvas || !ui.recorder || ui.recorder.state === "inactive") return;
   const canvas = ui.recordingCanvas;
   const ctx = canvas.getContext("2d", { alpha: false });
-  const source = ui.sourceMode === "camera" ? $("#localVideo") : $("#streamImage");
+  const source = ui.sourceMode === "camera" || ui.uploadPlaybackActive
+    ? $("#localVideo")
+    : $("#streamImage");
   const sourceWidth = source.videoWidth || source.naturalWidth || 0;
   const sourceHeight = source.videoHeight || source.naturalHeight || 0;
   ctx.fillStyle = "#171816";
@@ -2212,7 +2348,7 @@ function drawRecordingFrame() {
       ctx.drawImage(source, x, y, width, height);
     }
   }
-  if (ui.sourceMode === "camera" && !$("#overlayCanvas").hidden) {
+  if ((ui.sourceMode === "camera" || ui.uploadPlaybackActive) && !$("#overlayCanvas").hidden) {
     ctx.drawImage($("#overlayCanvas"), 0, 0, canvas.width, canvas.height);
   }
   ui.recordingAnimation = requestAnimationFrame(drawRecordingFrame);
@@ -2304,7 +2440,16 @@ async function pollState() {
         $$("#downloadText, #downloadJson, #downloadCsv").forEach(link => link.setAttribute("aria-disabled", "false"));
         $("#generateReportButton").disabled = false;
         $("#reportReadyBanner").hidden = false;
+        $("#downloadAnnotated").hidden = !state.annotated_video_ready;
         toast("视频分析完成，上传文件已删除");
+        if (ui.sourceMode === "upload" && state.playback_ready) {
+          try {
+            const playbackReport = await api("/api/report");
+            await startUploadPlayback(playbackReport);
+          } catch (error) {
+            toast(error.message || "原始视频回放启动失败", true);
+          }
+        }
         await generateReport({ auto: true });
       }
       if (state.status === "error") toast(state.error || "分析出错", true);
@@ -2320,6 +2465,26 @@ function updateState(state) {
   try {
     const isStarting = state.status === "starting";
     setHiddenIfChanged("#loadingOverlay", !isStarting);
+    if (ui.sourceMode === "upload" && state.running) {
+      $("#loadingOverlay").hidden = false;
+      const rendering = state.status === "rendering";
+      const activeProgress = rendering
+        ? Number(state.render_progress || 0)
+        : Number(state.progress || 0);
+      $("#loadingTitle").textContent = rendering
+        ? `正在生成完整标注视频：${activeProgress.toFixed(1)}%`
+        : `正在分析：${activeProgress.toFixed(1)}%`;
+      const bottleneckLabels = {
+        pose_inference_ms: "姿态推理",
+        draw_ms: "骨架绘制",
+        encode_ms: "视频编码",
+        web_transfer_ms: "网页传输",
+      };
+      const bottleneck = bottleneckLabels[state.performance_bottleneck] || "正在采样";
+      $("#loadingDetail").textContent = rendering
+        ? "正在复用首遍关键点缓存绘制和编码，不运行姿态模型"
+        : `已处理 ${Number(state.frame_index || 0)} 帧 · ${Number(state.processed_fps || 0).toFixed(1)} FPS · 主要耗时：${bottleneck}`;
+    }
     setTextIfChanged("#topStatus", state.error || state.status_text || "系统就绪");
     setClassIfChanged(
       "#statusDot",
@@ -2364,7 +2529,10 @@ function updateState(state) {
         "#phaseIndicator",
         state.pose_detected ? `${Math.min(100, 18 + ((state.frame_index || 0) % 5) * 19)}%` : "8%",
       );
-      setWidthIfChanged("#progressBar", `${state.progress || 0}%`);
+      setWidthIfChanged(
+        "#progressBar",
+        `${state.status === "rendering" ? state.render_progress || 0 : state.progress || 0}%`,
+      );
     }
     setTextIfChanged("#actionLabel", state.action_label || "动作指导关闭");
     const actionSource = state.action_source === "auto"
@@ -2420,6 +2588,8 @@ async function deleteCurrentSession() {
 $$("#sourceTabs .segment").forEach(button => button.addEventListener("click", () => selectSource(button.dataset.source)));
 $("#videoFile").addEventListener("change", event => {
   const file = event.target.files[0];
+  stopUploadPlayback({ hideVideo: true });
+  setUploadPlaybackUrl(file);
   $("#uploadTitle").textContent = file ? file.name : "选择一个视频";
   $("#uploadDetail").textContent = file ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : "MP4、MOV、AVI、MKV 或 WebM";
   ui.uploadId = "";
@@ -2476,6 +2646,7 @@ window.addEventListener("pagehide", () => {
   stopMediaTracks();
   ui.socket?.close();
   if (ui.recordingUrl) URL.revokeObjectURL(ui.recordingUrl);
+  if (ui.uploadPlaybackUrl) URL.revokeObjectURL(ui.uploadPlaybackUrl);
 });
 document.addEventListener("visibilitychange", () => { if (document.hidden && ui.mediaStream) stopAnalysis(); });
 

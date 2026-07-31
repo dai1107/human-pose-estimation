@@ -25,6 +25,7 @@
           <a href="/api/review/export/oni_subject_review_v1">ONI 主体</a>
           <a href="/api/review/export/oni_error_truth_review_v1">ONI 错误真值</a>
           <a href="/api/review/export/view_observability_summary_v1">可观察性汇总</a>
+          <a href="/api/review/export/angle_validation_report_v1">角度人工标注报告</a>
         </div>
       </div>
       <button id="exportButton" class="accent-button" type="button">导出结果</button>
@@ -40,6 +41,7 @@
         <button data-task="oni" type="button">ONI 主体复核<small>Depth / IR 独立</small></button>
         <button data-task="view" type="button">视角先验复核<small>视角 × 可观察性</small></button>
         <button data-task="error" type="button">ONI 错误真值<small>仅录制意图错误</small></button>
+        <button data-task="angle" type="button">角度人工标注<small>逐帧三点标注与独立报告</small></button>
       </div>
       <div class="sidebar-title">
         <div><small id="queueEyebrow">人工 4 · 逐次/阶段/事件/错误</small><h1 id="queueTitle">其余 15 段手机 RGB</h1></div>
@@ -279,6 +281,117 @@
         </div>
       </div>
 
+      <div id="angleReviewContent" hidden>
+        <div class="quick-record-head">
+          <div>
+            <small id="angleRecordAction">角度参考真值</small>
+            <h1 id="angleRecordTitle">—</h1>
+            <p id="angleRecordMeta">—</p>
+          </div>
+          <span class="save-indicator" id="angleSaveIndicator">未标注</span>
+        </div>
+        <div class="angle-task-guide">
+          <header>
+            <span>本轮任务</span>
+            <strong>每个视频至少保存 1 条代表性关节角度</strong>
+          </header>
+          <p id="angleTaskTarget">优先选择动作最低点或完全伸展帧，并标画面中最清晰的膝或髋。</p>
+          <ol>
+            <li><b>1 · 定关键帧</b><span>播放视频，在动作最低点、完全伸展、起跳或落地处暂停。</span></li>
+            <li><b>2 · 选关节和事件</b><span>右侧选择要测的关节，并确认该帧属于哪个动作事件。</span></li>
+            <li><b>3 · 按顺序点三点</b><span>在视频上按提示点 A、B、C；第二点 B 永远是角度顶点。</span></li>
+            <li><b>4 · 随时保存</b><span>未点完三个点也能保存进度；返回该视频时会自动恢复，完成三点后生成正式角度。</span></li>
+          </ol>
+          <div class="angle-complete-rule">
+            <strong>怎样算这个视频完成？</strong>
+            成功保存至少 1 条后，左侧视频圆点会变绿。清晰视频可再补一个不同关键事件，总量建议 30–50 条。
+          </div>
+        </div>
+        <div class="angle-review-grid">
+          <section class="angle-media-panel">
+            <div class="video-wrap angle-video-wrap">
+              <video id="angleVideo" playsinline preload="metadata"></video>
+              <canvas id="angleCanvas" aria-label="角度三点标注画布"></canvas>
+              <div class="frame-badge"><span>帧</span><strong id="angleCurrentFrame">0</strong></div>
+            </div>
+            <div class="simple-player-controls">
+              <button id="anglePlayButton" type="button">播放</button>
+              <button type="button" data-angle-step="-10">−10</button>
+              <button type="button" data-angle-step="-1">上一帧</button>
+              <label>跳到 <input id="angleFrameJump" type="number" min="0" value="0"></label>
+              <button id="angleJumpButton" type="button">定位</button>
+              <button type="button" data-angle-step="1">下一帧</button>
+              <button type="button" data-angle-step="10">+10</button>
+            </div>
+            <div class="angle-point-guide">
+              <div>
+                <strong id="anglePointPrompt">请选择关节后开始标点</strong>
+                <small>建议放大浏览器页面并暂停视频，点错可撤销上一个点。</small>
+              </div>
+              <button id="angleUndoPointButton" type="button">撤销一点</button>
+              <button id="angleResetPointsButton" type="button">清空三点</button>
+            </div>
+            <ol class="angle-point-list" id="anglePointList"></ol>
+          </section>
+
+          <section class="angle-form-panel">
+            <div class="section-head"><span>01</span><div><h2>当前角度</h2><p>使用 A-B-C 顺序，B 为顶点</p></div></div>
+            <div class="angle-value-card">
+              <span>人工测量</span>
+              <strong id="manualAngleValue">—</strong>
+              <small id="manualAngleFrame">尚未完成三个点</small>
+            </div>
+            <div class="angle-point-progress">
+              <strong id="anglePointProgress">已点 0/3</strong>
+              <span id="angleSaveHelp">可以随时保存当前进度；完成三个有效点后会生成正式角度。</span>
+            </div>
+            <div class="form-grid two angle-fields">
+              <label>关节
+                <select id="angleJoint"></select>
+              </label>
+              <label>相机视角
+                <select id="angleView">
+                  <option value="front">正面</option>
+                  <option value="back">背面</option>
+                  <option value="side">侧面</option>
+                  <option value="oblique_front">斜前方</option>
+                  <option value="oblique_back">斜后方</option>
+                  <option value="unsure">无法确认</option>
+                </select>
+              </label>
+              <label>动作事件
+                <select id="angleEvent">
+                  <option value="unspecified">未指定</option>
+                </select>
+                <small id="angleEventHelp">选项会根据当前动作自动更新。</small>
+              </label>
+              <label>点位可见性
+                <select id="angleVisibility">
+                  <option value="high">高：三点清楚</option>
+                  <option value="medium">中：有轻微遮挡</option>
+                  <option value="low">低：位置主要靠估计</option>
+                </select>
+              </label>
+            </div>
+            <label class="angle-notes">备注
+              <textarea id="angleNotes" placeholder="例如：远侧膝有轻微遮挡；该帧为弓步最低点。"></textarea>
+            </label>
+            <div class="angle-form-actions">
+              <span>每次保存都会立即写入；不满三个有效点时保存为可恢复草稿。</span>
+              <button id="angleCancelEditButton" type="button" hidden>取消编辑</button>
+              <button id="angleSaveButton" class="accent-button draft-ready" type="button" data-ready="false">保存当前进度</button>
+              <button id="angleSaveNextButton" class="accent-button draft-ready" type="button" data-ready="false">保存进度并进入下一个视频 →</button>
+            </div>
+
+            <div class="angle-history-head">
+              <div><strong>本视频已保存</strong><small id="angleHistoryCount">0 条</small></div>
+              <a href="/api/review/export/angle_validation_report_v1">单独导出报告</a>
+            </div>
+            <div class="angle-history" id="angleHistory"></div>
+          </section>
+        </div>
+      </div>
+
       <div id="oniReviewContent" hidden>
         <div class="quick-record-head">
           <div><small id="oniRecordAction">—</small><h1 id="oniRecordTitle">—</h1><p id="oniRecordMeta">—</p></div>
@@ -385,6 +498,6 @@
     <div class="simple-row"><div class="row-fields"></div><button class="remove-button" type="button" title="删除">×</button></div>
   </template>
   <div class="quick-toast" id="toast"></div>
-  <script src="{{ url_for('static', filename='review.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='review.js') }}?v=20260801-angle-overlay-align" defer></script>
 </body>
 </html>

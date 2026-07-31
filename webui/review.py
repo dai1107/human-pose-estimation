@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import threading
@@ -16,6 +17,7 @@ from typing import Any
 from flask import Blueprint, Response, g, jsonify, render_template, request, send_file
 
 from hyrox.features import extract_basic_pose_features
+from hyrox.geometry import calculate_angle_2d
 from hyrox.registry import create_action_analyzer
 
 
@@ -34,6 +36,128 @@ PHONE_ACTIONS = {
     "sled_pull",
 }
 ONI_MODALITIES = ("depth", "ir")
+ANGLE_VISIBILITY_VALUES = ("high", "medium", "low")
+ANGLE_EVENTS_BY_ACTION = {
+    "lunge": (
+        ("unspecified", "未指定"),
+        ("rep_start", "本次开始"),
+        ("descent", "下降"),
+        ("lowest_point", "最低点"),
+        ("rear_knee_contact", "后膝接触"),
+        ("ascent", "站起"),
+        ("full_extension", "完全伸展"),
+        ("other", "其他"),
+    ),
+    "wall_ball": (
+        ("unspecified", "未指定"),
+        ("catch", "接球／持球准备"),
+        ("descent", "下蹲下降"),
+        ("lowest_point", "下蹲最低点"),
+        ("ascent", "起身上升"),
+        ("full_extension", "完全伸展"),
+        ("release", "出球"),
+        ("other", "其他"),
+    ),
+    "burpee_broad_jump": (
+        ("unspecified", "未指定"),
+        ("hands_down", "双手撑地"),
+        ("chest_contact", "胸部触地"),
+        ("takeoff", "起跳"),
+        ("flight", "腾空"),
+        ("landing", "落地"),
+        ("stabilization", "落地稳定"),
+        ("other", "其他"),
+    ),
+    "farmers_carry": (
+        ("unspecified", "未指定"),
+        ("carry_start", "开始行走"),
+        ("left_support", "左脚支撑"),
+        ("right_support", "右脚支撑"),
+        ("double_support", "双脚支撑／换步"),
+        ("carry_stop", "停止行走"),
+        ("other", "其他"),
+    ),
+    "rowing": (
+        ("unspecified", "未指定"),
+        ("catch", "接桨／收腿起始"),
+        ("drive_start", "驱动开始"),
+        ("finish", "蹬腿拉动结束"),
+        ("recovery", "回程"),
+        ("other", "其他"),
+    ),
+    "skierg": (
+        ("unspecified", "未指定"),
+        ("highest_point", "手臂最高点"),
+        ("pull_start", "下拉开始"),
+        ("lowest_point", "下拉最低点"),
+        ("return", "回程"),
+        ("other", "其他"),
+    ),
+    "sled_push": (
+        ("unspecified", "未指定"),
+        ("setup", "发力准备"),
+        ("step_contact", "落脚／蹬地"),
+        ("drive", "持续推进"),
+        ("full_extension", "蹬伸完成"),
+        ("other", "其他"),
+    ),
+    "sled_pull": (
+        ("unspecified", "未指定"),
+        ("reach", "手臂前伸"),
+        ("pull_start", "拉动开始"),
+        ("pull_finish", "拉动结束"),
+        ("recovery", "回位／再次前伸"),
+        ("other", "其他"),
+    ),
+}
+ANGLE_DEFAULT_EVENTS = (("unspecified", "未指定"), ("other", "其他"))
+ANGLE_JOINT_DEFINITIONS = {
+    "left_knee": {
+        "label": "左膝",
+        "point_order": ("left_hip", "left_knee", "left_ankle"),
+        "point_labels": ("左髋", "左膝（顶点）", "左踝"),
+    },
+    "right_knee": {
+        "label": "右膝",
+        "point_order": ("right_hip", "right_knee", "right_ankle"),
+        "point_labels": ("右髋", "右膝（顶点）", "右踝"),
+    },
+    "left_hip": {
+        "label": "左髋",
+        "point_order": ("left_shoulder", "left_hip", "left_knee"),
+        "point_labels": ("左肩", "左髋（顶点）", "左膝"),
+    },
+    "right_hip": {
+        "label": "右髋",
+        "point_order": ("right_shoulder", "right_hip", "right_knee"),
+        "point_labels": ("右肩", "右髋（顶点）", "右膝"),
+    },
+    "left_elbow": {
+        "label": "左肘",
+        "point_order": ("left_shoulder", "left_elbow", "left_wrist"),
+        "point_labels": ("左肩", "左肘（顶点）", "左腕"),
+    },
+    "right_elbow": {
+        "label": "右肘",
+        "point_order": ("right_shoulder", "right_elbow", "right_wrist"),
+        "point_labels": ("右肩", "右肘（顶点）", "右腕"),
+    },
+    "left_shoulder": {
+        "label": "左肩",
+        "point_order": ("left_elbow", "left_shoulder", "left_hip"),
+        "point_labels": ("左肘", "左肩（顶点）", "左髋"),
+    },
+    "right_shoulder": {
+        "label": "右肩",
+        "point_order": ("right_elbow", "right_shoulder", "right_hip"),
+        "point_labels": ("右肘", "右肩（顶点）", "右髋"),
+    },
+    "torso": {
+        "label": "躯干与竖直方向",
+        "point_order": ("shoulder_center", "hip_center", "vertical_reference"),
+        "point_labels": ("双肩中点", "双髋中点（顶点）", "髋部正上方参考点"),
+    },
+}
 TIMELINE_LABELS = (
     "idle",
     "setup",
@@ -1142,6 +1266,10 @@ def _record_path(review_root: Path, role: str, record_id: str) -> Path:
     return review_root / VALID_ROLES[role] / "records" / f"{record_id}.json"
 
 
+def _angle_annotation_path(review_root: Path, role: str, record_id: str) -> Path:
+    return review_root / VALID_ROLES[role] / "angle_annotations" / f"{record_id}.json"
+
+
 def _oni_record_path(review_root: Path, record_id: str, modality: str) -> Path:
     return review_root / VALID_ROLES["a"] / "oni_records" / f"{record_id}__{modality}.json"
 
@@ -1438,6 +1566,7 @@ def _handoff_payload(review_root: Path, record_index: dict[str, dict[str, Any]])
 def _build_review_exports(
     review_root: Path,
     oni_index: dict[str, dict[str, Any]],
+    record_index: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     generated_at = _utc_now()
     view_records: list[dict[str, Any]] = []
@@ -1555,7 +1684,7 @@ def _build_review_exports(
         "protocol_version": PROTOCOL_VERSION,
         "generated_at": generated_at,
     }
-    return {
+    exports = {
         "view_observability_review_v1.json": {
             **base,
             "artifact_type": "view_observability_review_v1",
@@ -1577,6 +1706,72 @@ def _build_review_exports(
             "groups": list(summary_groups.values()),
         },
     }
+    angle_records: list[dict[str, Any]] = []
+    angle_annotations: list[dict[str, Any]] = []
+    angle_summary: dict[str, dict[str, int]] = {
+        "by_joint": {},
+        "by_camera_view": {},
+        "by_event": {},
+        "by_visibility": {},
+    }
+    angle_directory = review_root / VALID_ROLES["a"] / "angle_annotations"
+    for path in sorted(angle_directory.glob("*.json")):
+        saved = _read_json(path, {})
+        record_id = str(saved.get("record_id") or path.stem)
+        source = (record_index or {}).get(record_id, {})
+        record_annotations = saved.get("annotations") or []
+        angle_records.append(
+            {
+                "record_id": record_id,
+                "action": source.get("action"),
+                "source_filename": source.get("source_filename"),
+                "video_sha256": source.get("sha256"),
+                "revision": int(saved.get("revision", 0)),
+                "reviewer_id": saved.get("reviewer_id"),
+                "updated_at": saved.get("updated_at"),
+                "annotation_count": len(record_annotations),
+            }
+        )
+        for annotation in record_annotations:
+            exported = {
+                "record_id": record_id,
+                "action": source.get("action"),
+                "source_filename": source.get("source_filename"),
+                **copy.deepcopy(annotation),
+                "model_angle_deg": None,
+                "angle_error_deg": None,
+                "comparison_status": "manual_truth_pending_model_match",
+            }
+            angle_annotations.append(exported)
+            for key, field in (
+                ("by_joint", "joint"),
+                ("by_camera_view", "camera_view"),
+                ("by_event", "event"),
+                ("by_visibility", "visibility"),
+            ):
+                value = str(exported.get(field) or "unspecified")
+                angle_summary[key][value] = angle_summary[key].get(value, 0) + 1
+    exports["angle_validation_report_v1.json"] = {
+        **base,
+        "artifact_type": "manual_joint_angle_validation_report_v1",
+        "coordinate_system": "native_video_pixels",
+        "angle_definition": "A-B-C projected 2D angle in degrees; B is always the vertex",
+        "record_count": len(angle_records),
+        "annotation_count": len(angle_annotations),
+        "summary": angle_summary,
+        "records": angle_records,
+        "annotations": angle_annotations,
+        "model_comparison_note": (
+            "模型角度未在标注时臆造；model_angle_deg 与 angle_error_deg 保持 null，"
+            "回传后再按 record_id、frame_index、joint 匹配模型轨迹。"
+        ),
+        "codex_feedback_prompt": (
+            "请读取此 angle_validation_report_v1.json。把 annotations 中的人工角度作为参考真值，"
+            "按 record_id + frame_index + joint 匹配模型角度，统计绝对误差及按关节、视角、事件、"
+            "可见性的分组误差；优先检查高可见性样本，并列出疑似左右侧、顶点顺序或帧对齐错误。"
+        ),
+    }
+    return exports
 
 
 def create_review_blueprint(project_root: Path) -> Blueprint:
@@ -1652,9 +1847,202 @@ def create_review_blueprint(project_root: Path) -> Blueprint:
     def saved_review(role: str, record_id: str) -> dict[str, Any] | None:
         return _read_json(_record_path(review_root, role, record_id), None)
 
+    def saved_angles(role: str, record_id: str) -> dict[str, Any] | None:
+        return _read_json(_angle_annotation_path(review_root, role, record_id), None)
+
     def check_reviewer(payload: dict[str, Any] | None, reviewer_id: str) -> None:
         if payload and payload.get("reviewer_id") not in {None, "", reviewer_id}:
             raise PermissionError("该角色已有另一复核者 ID 的记录；为保护独立结果，当前页面不能覆盖")
+
+    def angle_session(
+        body: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, str] | None, tuple[Response, int] | None]:
+        binding, error = require_bound_session("a", "b")
+        if error:
+            return None, error
+        requested_role = str((body or {}).get("role") or request.args.get("role") or "")
+        requested_reviewer = (body or {}).get("reviewer_id") or request.args.get("reviewer_id")
+        try:
+            reviewer_id = _safe_reviewer_id(requested_reviewer)
+        except ValueError as exc:
+            return None, json_error(str(exc), 400, "invalid_reviewer")
+        if requested_role not in VALID_ROLES:
+            return None, json_error("role 必须为 a 或 b", 400, "invalid_role")
+        requested = {"role": requested_role, "reviewer_id": reviewer_id}
+        if binding != requested:
+            return None, json_error("请求角色与当前复核会话不一致", 403, "review_session_mismatch")
+        return requested, None
+
+    def validate_angle_annotation(
+        annotation: Any,
+        record: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, tuple[Response, int] | None]:
+        if not isinstance(annotation, dict):
+            return None, json_error("annotation 必须为对象", 400, "invalid_annotation")
+        joint = str(annotation.get("joint") or "")
+        definition = ANGLE_JOINT_DEFINITIONS.get(joint)
+        if definition is None:
+            return None, json_error("不支持该关节角度", 422, "invalid_joint")
+        video = record.get("video") or {}
+        frame_count = int(video.get("decoded_frame_count") or 0)
+        try:
+            raw_frame_index = annotation.get("frame_index")
+            frame_index = int(raw_frame_index)
+        except (TypeError, ValueError):
+            return None, json_error("frame_index 必须为整数", 422, "invalid_frame")
+        if (
+            isinstance(raw_frame_index, bool)
+            or not math.isfinite(float(raw_frame_index))
+            or float(raw_frame_index) != frame_index
+        ):
+            return None, json_error("frame_index 必须为整数", 422, "invalid_frame")
+        if frame_index < 0 or frame_index >= frame_count:
+            return None, json_error("frame_index 超出视频范围", 422, "invalid_frame")
+        width = int(video.get("width") or 0)
+        height = int(video.get("height") or 0)
+        if width <= 0 or height <= 0:
+            return None, json_error("视频原始分辨率无效", 422, "invalid_video_dimensions")
+        point_order = list(definition["point_order"])
+        source_points = annotation.get("manual_points")
+        if isinstance(source_points, dict):
+            points = [source_points.get(name) for name in point_order]
+        else:
+            points = source_points
+        if not isinstance(points, list) or len(points) != 3:
+            return None, json_error("manual_points 必须恰好包含三个点", 422, "invalid_points")
+        normalized_points: list[list[float]] = []
+        for index, point in enumerate(points):
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                return None, json_error(
+                    f"manual_points[{index}] 必须为 [x, y]",
+                    422,
+                    "invalid_points",
+                )
+            try:
+                x, y = float(point[0]), float(point[1])
+            except (TypeError, ValueError):
+                return None, json_error("坐标必须为数字", 422, "invalid_points")
+            if not math.isfinite(x) or not math.isfinite(y):
+                return None, json_error("坐标必须为有限数字", 422, "invalid_points")
+            if x < 0 or x >= width or y < 0 or y >= height:
+                return None, json_error("坐标超出视频原始画面范围", 422, "point_out_of_bounds")
+            normalized_points.append([round(x, 3), round(y, 3)])
+        manual_angle = calculate_angle_2d(*normalized_points)
+        if manual_angle is None or not math.isfinite(manual_angle):
+            return None, json_error("三个点无法形成有效角度，请重新标点", 422, "degenerate_angle")
+        camera_view = str(annotation.get("camera_view") or "unsure")
+        if camera_view not in VIEW_VALUES:
+            return None, json_error("camera_view 无效", 422, "invalid_camera_view")
+        visibility = str(annotation.get("visibility") or "medium")
+        if visibility not in ANGLE_VISIBILITY_VALUES:
+            return None, json_error("visibility 无效", 422, "invalid_visibility")
+        event = str(annotation.get("event") or "unspecified")
+        action_events = ANGLE_EVENTS_BY_ACTION.get(
+            str(record.get("action")), ANGLE_DEFAULT_EVENTS
+        )
+        if event not in {value for value, _ in action_events}:
+            return None, json_error("event 与当前动作不匹配", 422, "invalid_event")
+        annotation_id = str(annotation.get("annotation_id") or "").strip()
+        if annotation_id and not re.fullmatch(r"[A-Za-z0-9_.\-]{6,80}", annotation_id):
+            return None, json_error("annotation_id 无效", 422, "invalid_annotation_id")
+        fps = float(video.get("fps") or 0.0)
+        payload = {
+            "annotation_id": annotation_id,
+            "frame_index": frame_index,
+            "timestamp_ms": round(frame_index / fps * 1000.0, 3) if fps > 0 else None,
+            "joint": joint,
+            "joint_label": definition["label"],
+            "camera_view": camera_view,
+            "manual_points": dict(zip(point_order, normalized_points)),
+            "point_order": point_order,
+            "manual_angle_deg": round(float(manual_angle), 3),
+            "event": event,
+            "visibility": visibility,
+            "notes": str(annotation.get("notes") or "").strip()[:2000],
+            "native_frame_size": {"width": width, "height": height},
+        }
+        return payload, None
+
+    def validate_angle_draft(
+        annotation: Any,
+        record: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, tuple[Response, int] | None]:
+        """Validate a resumable angle draft without requiring three valid points."""
+        if not isinstance(annotation, dict):
+            return None, json_error("annotation 必须为对象", 400, "invalid_annotation")
+        joint = str(annotation.get("joint") or "")
+        definition = ANGLE_JOINT_DEFINITIONS.get(joint)
+        if definition is None:
+            return None, json_error("不支持该关节角度", 422, "invalid_joint")
+        video = record.get("video") or {}
+        frame_count = int(video.get("decoded_frame_count") or 0)
+        try:
+            raw_frame_index = annotation.get("frame_index")
+            frame_index = int(raw_frame_index)
+        except (TypeError, ValueError):
+            return None, json_error("frame_index 必须为整数", 422, "invalid_frame")
+        if (
+            isinstance(raw_frame_index, bool)
+            or not math.isfinite(float(raw_frame_index))
+            or float(raw_frame_index) != frame_index
+            or frame_index < 0
+            or frame_index >= frame_count
+        ):
+            return None, json_error("frame_index 超出视频范围", 422, "invalid_frame")
+        width = int(video.get("width") or 0)
+        height = int(video.get("height") or 0)
+        if width <= 0 or height <= 0:
+            return None, json_error("视频原始分辨率无效", 422, "invalid_video_dimensions")
+        source_points = annotation.get("manual_points")
+        if source_points is None:
+            source_points = []
+        if not isinstance(source_points, list) or len(source_points) > 3:
+            return None, json_error("草稿的 manual_points 必须包含 0 到 3 个点", 422, "invalid_points")
+        normalized_points: list[list[float]] = []
+        for index, point in enumerate(source_points):
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                return None, json_error(
+                    f"manual_points[{index}] 必须为 [x, y]",
+                    422,
+                    "invalid_points",
+                )
+            try:
+                x, y = float(point[0]), float(point[1])
+            except (TypeError, ValueError):
+                return None, json_error("坐标必须为数字", 422, "invalid_points")
+            if not math.isfinite(x) or not math.isfinite(y):
+                return None, json_error("坐标必须为有限数字", 422, "invalid_points")
+            if x < 0 or x >= width or y < 0 or y >= height:
+                return None, json_error("坐标超出视频原始画面范围", 422, "point_out_of_bounds")
+            normalized_points.append([round(x, 3), round(y, 3)])
+        camera_view = str(annotation.get("camera_view") or "unsure")
+        if camera_view not in VIEW_VALUES:
+            return None, json_error("camera_view 无效", 422, "invalid_camera_view")
+        visibility = str(annotation.get("visibility") or "medium")
+        if visibility not in ANGLE_VISIBILITY_VALUES:
+            return None, json_error("visibility 无效", 422, "invalid_visibility")
+        event = str(annotation.get("event") or "unspecified")
+        action_events = ANGLE_EVENTS_BY_ACTION.get(
+            str(record.get("action")), ANGLE_DEFAULT_EVENTS
+        )
+        if event not in {value for value, _ in action_events}:
+            return None, json_error("event 与当前动作不匹配", 422, "invalid_event")
+        editing_annotation_id = str(annotation.get("annotation_id") or "").strip()
+        if editing_annotation_id and not re.fullmatch(r"[A-Za-z0-9_.\-]{6,80}", editing_annotation_id):
+            return None, json_error("annotation_id 无效", 422, "invalid_annotation_id")
+        return {
+            "frame_index": frame_index,
+            "joint": joint,
+            "joint_label": definition["label"],
+            "camera_view": camera_view,
+            "manual_points": normalized_points,
+            "point_order": list(definition["point_order"]),
+            "editing_annotation_id": editing_annotation_id or None,
+            "event": event,
+            "visibility": visibility,
+            "notes": str(annotation.get("notes") or "").strip()[:2000],
+            "native_frame_size": {"width": width, "height": height},
+        }, None
 
     @blueprint.get("/review")
     def review_page() -> str:
@@ -1675,6 +2063,8 @@ def create_review_blueprint(project_root: Path) -> Blueprint:
             action_code = str(record.get("action"))
             subject_suggestion = _temporary_subject_id(record_id, action_code)
             record_clips = disagreement_clips.get(record_id, [])
+            angle_saved = saved_angles("a", record_id)
+            angle_count = len((angle_saved or {}).get("annotations") or [])
             items.append(
                 {
                     "record_id": record_id,
@@ -1700,6 +2090,12 @@ def create_review_blueprint(project_root: Path) -> Blueprint:
                     "disagreement_review": _disagreement_progress(
                         records_a.get(record_id), record_clips
                     ),
+                    "angle_annotation": {
+                        "saved": angle_count > 0,
+                        "complete": angle_count > 0,
+                        "annotation_count": angle_count,
+                        "revision": int((angle_saved or {}).get("revision", 0)),
+                    },
                     "reviewer_a": {
                         "saved": record_id in records_a,
                         "complete": _review_complete(records_a.get(record_id), core=core),
@@ -1880,6 +2276,14 @@ def create_review_blueprint(project_root: Path) -> Blueprint:
                             ),
                             "complete": sum(
                                 int(item["disagreement_review"]["completed_clip_count"]) for item in items
+                            ),
+                        },
+                        {
+                            "task": "manual_joint_angle_annotation",
+                            "label": "人工关节角度标注",
+                            "total": len(items),
+                            "complete": sum(
+                                bool(item["angle_annotation"]["complete"]) for item in items
                             ),
                         },
                         {
@@ -2111,6 +2515,267 @@ def create_review_blueprint(project_root: Path) -> Blueprint:
                         )
             track_cache[record_id] = compact
         return jsonify({"record_id": record_id, "frames": track_cache[record_id]})
+
+    @blueprint.get("/api/review/angles/<record_id>")
+    def get_angle_annotations(record_id: str) -> Response | tuple[Response, int]:
+        binding, error = angle_session()
+        if error:
+            return error
+        assert binding is not None
+        record_index, *_ = source_data()
+        record = record_index.get(record_id)
+        if record is None:
+            return json_error("记录不存在", 404, "record_not_found")
+        saved = saved_angles(binding["role"], record_id)
+        try:
+            check_reviewer(saved, binding["reviewer_id"])
+        except PermissionError as exc:
+            return json_error(str(exc), 409, "reviewer_conflict")
+        video = record.get("video") or {}
+        return jsonify(
+            {
+                "record": {
+                    "record_id": record_id,
+                    "action": record.get("action"),
+                    "action_label": ACTION_LABELS.get(
+                        str(record.get("action")),
+                        str(record.get("action")),
+                    ),
+                    "camera_view": record.get("camera_view") or "unsure",
+                    "video": video,
+                    "video_url": f"/api/review/records/{record_id}/video",
+                },
+                "revision": int((saved or {}).get("revision", 0)),
+                "annotations": (saved or {}).get("annotations") or [],
+                "draft": (saved or {}).get("draft"),
+                "joints": ANGLE_JOINT_DEFINITIONS,
+                "camera_views": list(VIEW_VALUES),
+                "visibility_values": list(ANGLE_VISIBILITY_VALUES),
+                "angle_events": [
+                    {"value": value, "label": label}
+                    for value, label in ANGLE_EVENTS_BY_ACTION.get(
+                        str(record.get("action")), ANGLE_DEFAULT_EVENTS
+                    )
+                ],
+                "coordinate_system": "native_video_pixels",
+                "angle_definition": "A-B-C projected 2D angle; B is the vertex",
+            }
+        )
+
+    @blueprint.put("/api/review/angles/<record_id>")
+    def save_angle_annotation(record_id: str) -> Response | tuple[Response, int]:
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return json_error("需要 JSON 请求体", 400, "invalid_json")
+        binding, error = angle_session(body)
+        if error:
+            return error
+        assert binding is not None
+        record_index, *_ = source_data()
+        record = record_index.get(record_id)
+        if record is None:
+            return json_error("记录不存在", 404, "record_not_found")
+        save_as_draft = body.get("save_as_draft") is True
+        validator = validate_angle_draft if save_as_draft else validate_angle_annotation
+        validated, validation_error = validator(body.get("annotation"), record)
+        if validation_error:
+            return validation_error
+        assert validated is not None
+        path = _angle_annotation_path(review_root, binding["role"], record_id)
+        with write_lock:
+            old = _read_json(path, None)
+            try:
+                check_reviewer(old, binding["reviewer_id"])
+            except PermissionError as exc:
+                return json_error(str(exc), 409, "reviewer_conflict")
+            old_revision = int((old or {}).get("revision", 0))
+            if body.get("base_revision") != old_revision:
+                return json_error(
+                    "角度标注已在其他页面更新，请刷新后重试",
+                    409,
+                    "revision_conflict",
+                )
+            annotations = copy.deepcopy((old or {}).get("annotations") or [])
+            if save_as_draft:
+                editing_id = validated.get("editing_annotation_id")
+                if editing_id and not any(
+                    item.get("annotation_id") == editing_id for item in annotations
+                ):
+                    return json_error("要编辑的角度标注不存在", 404, "annotation_not_found")
+                now = _utc_now()
+                revision = old_revision + 1
+                validated["reviewer_id"] = binding["reviewer_id"]
+                validated["updated_at"] = now
+                audit_log = list((old or {}).get("audit_log") or [])
+                audit_log.append(
+                    {
+                        "revision": revision,
+                        "operation": "save_draft",
+                        "annotation_id": editing_id,
+                        "reviewer_id": binding["reviewer_id"],
+                        "reviewed_at": now,
+                        "point_count": len(validated["manual_points"]),
+                    }
+                )
+                payload = {
+                    **copy.deepcopy(old or {}),
+                    "schema_version": 1,
+                    "artifact_type": "manual_joint_angle_annotations",
+                    "protocol_version": PROTOCOL_VERSION,
+                    "record_id": record_id,
+                    "reviewer_id": binding["reviewer_id"],
+                    "revision": revision,
+                    "updated_at": now,
+                    "coordinate_system": "native_video_pixels",
+                    "angle_definition": "A-B-C projected 2D angle; B is the vertex",
+                    "annotations": annotations,
+                    "draft": validated,
+                    "audit_log": audit_log,
+                }
+                _atomic_json(path, payload)
+                return jsonify(
+                    {
+                        "ok": True,
+                        "save_status": "draft",
+                        "revision": revision,
+                        "draft": validated,
+                        "annotation": None,
+                        "annotation_count": len(annotations),
+                    }
+                )
+            annotation_id = validated["annotation_id"]
+            existing_index = next(
+                (
+                    index
+                    for index, item in enumerate(annotations)
+                    if item.get("annotation_id") == annotation_id
+                ),
+                None,
+            )
+            if annotation_id and existing_index is None:
+                return json_error("要编辑的角度标注不存在", 404, "annotation_not_found")
+            now = _utc_now()
+            if existing_index is None:
+                identity = (
+                    f"{record_id}|{binding['reviewer_id']}|{now}|"
+                    f"{validated['frame_index']}|{validated['joint']}|{len(annotations)}"
+                )
+                validated["annotation_id"] = f"angle_{hashlib.sha256(identity.encode()).hexdigest()[:16]}"
+                validated["created_at"] = now
+                operation = "create"
+                annotations.append(validated)
+            else:
+                validated["created_at"] = annotations[existing_index].get("created_at") or now
+                operation = "update"
+                annotations[existing_index] = validated
+            validated["reviewer_id"] = binding["reviewer_id"]
+            validated["updated_at"] = now
+            revision = old_revision + 1
+            audit_log = list((old or {}).get("audit_log") or [])
+            audit_log.append(
+                {
+                    "revision": revision,
+                    "operation": operation,
+                    "annotation_id": validated["annotation_id"],
+                    "reviewer_id": binding["reviewer_id"],
+                    "reviewed_at": now,
+                }
+            )
+            payload = {
+                **copy.deepcopy(old or {}),
+                "schema_version": 1,
+                "artifact_type": "manual_joint_angle_annotations",
+                "protocol_version": PROTOCOL_VERSION,
+                "record_id": record_id,
+                "reviewer_id": binding["reviewer_id"],
+                "revision": revision,
+                "updated_at": now,
+                "coordinate_system": "native_video_pixels",
+                "angle_definition": "A-B-C projected 2D angle; B is the vertex",
+                "annotations": annotations,
+                "draft": None,
+                "audit_log": audit_log,
+            }
+            _atomic_json(path, payload)
+        return jsonify(
+            {
+                "ok": True,
+                "save_status": "complete",
+                "revision": revision,
+                "annotation": validated,
+                "annotation_count": len(annotations),
+            }
+        )
+
+    @blueprint.delete("/api/review/angles/<record_id>/<annotation_id>")
+    def delete_angle_annotation(
+        record_id: str,
+        annotation_id: str,
+    ) -> Response | tuple[Response, int]:
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return json_error("需要 JSON 请求体", 400, "invalid_json")
+        binding, error = angle_session(body)
+        if error:
+            return error
+        assert binding is not None
+        record_index, *_ = source_data()
+        if record_id not in record_index:
+            return json_error("记录不存在", 404, "record_not_found")
+        path = _angle_annotation_path(review_root, binding["role"], record_id)
+        with write_lock:
+            old = _read_json(path, None)
+            try:
+                check_reviewer(old, binding["reviewer_id"])
+            except PermissionError as exc:
+                return json_error(str(exc), 409, "reviewer_conflict")
+            old_revision = int((old or {}).get("revision", 0))
+            if body.get("base_revision") != old_revision:
+                return json_error(
+                    "角度标注已在其他页面更新，请刷新后重试",
+                    409,
+                    "revision_conflict",
+                )
+            annotations = copy.deepcopy((old or {}).get("annotations") or [])
+            remaining = [
+                item for item in annotations if item.get("annotation_id") != annotation_id
+            ]
+            if len(remaining) == len(annotations):
+                return json_error("角度标注不存在", 404, "annotation_not_found")
+            now = _utc_now()
+            revision = old_revision + 1
+            audit_log = list((old or {}).get("audit_log") or [])
+            audit_log.append(
+                {
+                    "revision": revision,
+                    "operation": "delete",
+                    "annotation_id": annotation_id,
+                    "reviewer_id": binding["reviewer_id"],
+                    "reviewed_at": now,
+                }
+            )
+            payload = {
+                **copy.deepcopy(old or {}),
+                "schema_version": 1,
+                "artifact_type": "manual_joint_angle_annotations",
+                "protocol_version": PROTOCOL_VERSION,
+                "record_id": record_id,
+                "reviewer_id": binding["reviewer_id"],
+                "revision": revision,
+                "updated_at": now,
+                "coordinate_system": "native_video_pixels",
+                "angle_definition": "A-B-C projected 2D angle; B is the vertex",
+                "annotations": remaining,
+                "audit_log": audit_log,
+            }
+            _atomic_json(path, payload)
+        return jsonify(
+            {
+                "ok": True,
+                "revision": revision,
+                "annotation_count": len(remaining),
+            }
+        )
 
     @blueprint.put("/api/review/records/<record_id>")
     def save_review_record(record_id: str) -> Response | tuple[Response, int]:
@@ -2479,7 +3144,7 @@ def create_review_blueprint(project_root: Path) -> Blueprint:
         record_index, *_ = source_data()
         oni_index, _ = oni_source_data()
         with write_lock:
-            independent_exports = _build_review_exports(review_root, oni_index)
+            independent_exports = _build_review_exports(review_root, oni_index, record_index)
             export_directory = review_root / VALID_ROLES["a"] / "exports"
             for filename, payload in independent_exports.items():
                 _atomic_json(export_directory / filename, payload)
@@ -2611,7 +3276,8 @@ def create_review_blueprint(project_root: Path) -> Blueprint:
             return error
         filename = f"{export_name}.json" if not export_name.endswith(".json") else export_name
         oni_index, _ = oni_source_data()
-        exports = _build_review_exports(review_root, oni_index)
+        record_index, *_ = source_data()
+        exports = _build_review_exports(review_root, oni_index, record_index)
         if filename not in exports:
             return json_error("独立导出类型不存在", 404, "export_not_found")
         with write_lock:

@@ -157,16 +157,26 @@ class MediaPipeBackend:
     def detect(self, frame: np.ndarray, timestamp_ms: int | None = None) -> PoseResult:
         timestamp_ms = self._next_timestamp(timestamp_ms)
         started = time.perf_counter()
+        color_started = time.perf_counter()
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         image = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb_frame))
+        color_convert_ms = (time.perf_counter() - color_started) * 1000.0
+        inference_started = time.perf_counter()
         result = self._landmarker.detect_for_video(image, timestamp_ms)
+        pose_inference_ms = (time.perf_counter() - inference_started) * 1000.0
         inference_time_ms = (time.perf_counter() - started) * 1000.0
-        return _convert_landmarker_result(
+        converted = _convert_landmarker_result(
             result,
             model_name=self.model_name,
             timestamp_ms=timestamp_ms,
             inference_time_ms=inference_time_ms,
         )
+        converted.extra["performance"] = {
+            "resize_ms": 0.0,
+            "color_convert_ms": color_convert_ms,
+            "pose_inference_ms": pose_inference_ms,
+        }
+        return converted
 
     def close(self) -> None:
         self._landmarker.close()

@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 
+from hyrox.geometry import calculate_angle_2d, calculate_angle_3d
 from src.backends.base import Keypoint, PoseResult
 from src.product_pose import ThreeDKinematicsConfig, ThreeDQualityConfig
 from src.biomechanics.shadow_evidence_3d import (
@@ -119,45 +120,6 @@ class ThreeDKinematicsResult:
             "quality_reasons": list(self.quality_reasons),
             **flattened,
         }
-
-
-def calculate_angle_3d(
-    point_a: np.ndarray,
-    vertex: np.ndarray,
-    point_b: np.ndarray,
-) -> float | None:
-    arrays = tuple(np.asarray(point, dtype=float) for point in (point_a, vertex, point_b))
-    if any(array.shape != (3,) or not np.all(np.isfinite(array)) for array in arrays):
-        return None
-    vector_a = arrays[0] - arrays[1]
-    vector_b = arrays[2] - arrays[1]
-    norm_a = float(np.linalg.norm(vector_a))
-    norm_b = float(np.linalg.norm(vector_b))
-    if norm_a <= 1e-8 or norm_b <= 1e-8:
-        return None
-    cosine = float(np.dot(vector_a, vector_b) / (norm_a * norm_b))
-    cosine = float(np.clip(cosine, -1.0, 1.0))
-    value = float(np.degrees(np.arccos(cosine)))
-    return value if isfinite(value) else None
-
-
-def calculate_angle_2d(
-    point_a: np.ndarray,
-    vertex: np.ndarray,
-    point_b: np.ndarray,
-) -> float | None:
-    arrays = tuple(np.asarray(point, dtype=float) for point in (point_a, vertex, point_b))
-    if any(array.shape != (2,) or not np.all(np.isfinite(array)) for array in arrays):
-        return None
-    vector_a = arrays[0] - arrays[1]
-    vector_b = arrays[2] - arrays[1]
-    norm_a = float(np.linalg.norm(vector_a))
-    norm_b = float(np.linalg.norm(vector_b))
-    if norm_a <= 1e-8 or norm_b <= 1e-8:
-        return None
-    cosine = float(np.dot(vector_a, vector_b) / (norm_a * norm_b))
-    value = float(np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0))))
-    return value if isfinite(value) else None
 
 
 class ThreeDKinematicsTracker:

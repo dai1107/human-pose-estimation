@@ -581,8 +581,17 @@ def assess_action(
                 "label": label,
                 "anchor": anchor,
                 "value": round(value, 1),
+                "display_angle_deg": round(value, 1),
+                "rule_angle_deg": (
+                    round(rule_value, 1)
+                    if (rule_value := _number(values.get(key))) is not None
+                    else None
+                ),
                 "status": angle_status,
                 "source": "3d",
+                "display_angle_source": "world_landmarks_smoothed",
+                "rule_angle_source": "image_landmarks_analysis_smoothed",
+                "drawn_landmarks_source": "image_landmarks_analysis_smoothed",
             }
         )
     return {
