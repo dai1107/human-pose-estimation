@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- 完成实时姿态优化第 1–12 轮第一版：统一性能 CSV 与播放速度比、摄像头/有窗口视频
+  Latest-Frame、MediaPipe LIVE_STREAM 单槽调度、显示/分析双 One Euro、纯推理自适应
+  分辨率、统一 `JointMetric`、3D 可靠性、人体 canonical 坐标、时序地板估计、姿态
+  帧号/源时间戳门控，以及按 pose FPS→推理分辨率→可选分析频率顺序降载的
+  `RealtimeBudgetController`。视频和渲染时钟不随姿态推理降速。
+- 扩展现有人工角度工具为六通道及显式旧新版比较：raw/filtered 2D、raw/filtered
+  3D、canonical 3D、selected-rule angle、MAE/Median/P90/P95、曲线延迟、最低点/
+  完全伸展事件误差和覆盖审计。当前 150 条人工投影 2D 标注覆盖四个必选动作，缺
+  标定 30°/45°视角和成对程序事件帧；代理比较的 MAE/P95 分别退化 0.136°/1.5032°，
+  因此不修改正式 2D 阈值、不提升 3D 为正式裁决。
+- 同步更新 README、桌面/网页版使用说明、算法与数据现状、上传视频实施方案、产品契约
+  说明和实时优化任务清单，明确桌面、浏览器与无窗口批处理的不同运行边界。
 - 重构 README，将阶段性数据进步、模型优化过程、消融结果、数据接入轮次和测试基线移出
   项目介绍；README 现在只保留稳定能力、安装、使用、输出语义和限制，迭代历史统一由
   本变更日志及对应研究报告承载。
@@ -58,6 +70,15 @@ development builds use the `X.Y.Z.devN` form.
 ## [Unreleased]
 
 ### Added
+
+- Added `RealtimeBudgetController` with rolling inference/pose-age P95 and
+  queue saturation. It changes pose admission from 20 to 15 to 12 FPS before
+  requesting inference-only resolution steps and optional-analysis throttling;
+  capture, video and render clocks remain independent.
+- Added six-channel manual angle validation, canonical-3D trace export,
+  action/view coverage audits and explicit baseline-report non-regression
+  comparisons. The current report truthfully preserves missing calibrated
+  30/45-degree views and old/new event-frame evidence.
 
 - Added an internal leave-one-video-out temporal-evidence v2 runner with Ridge
   phase emissions, a causal HMM, manually calibrated phase skipping and
@@ -232,6 +253,11 @@ development builds use the `X.Y.Z.devN` form.
 
 ### Changed
 
+- Desktop MediaPipe camera and visible video playback now share a one-slot
+  latest-frame LIVE_STREAM path with strict frame/timestamp identity, stale
+  pose suppression, independent display/analysis filters, and inference-only
+  adaptive resolution. Headless offline video remains synchronous by design.
+
 - Closed the local-first architecture boundary: browser workers send only raw
   landmarks to Python HYROX analysis, constant-velocity predictions are Canvas
   only, server fallback is configuration-controlled, and report protocol
@@ -287,7 +313,7 @@ development builds use the `X.Y.Z.devN` form.
 
 ### Validation
 
-- The current full suite passes 573 Python tests and 16 Node tests. Full-model
+- The current full suite passes 752 Python tests and 17 Node tests. Full-model
   golden replay passes all 8/8 HYROX videos; Doctor, no-camera smoke,
   compileall, text-format, diff, and package-build checks also pass. Real
   camera backend and physical sensor-to-photon results remain device-site

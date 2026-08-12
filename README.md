@@ -18,6 +18,8 @@
 - 对可验证动作输出 `VALID`、`NO_REP` 和 `UNSURE`；
 - 网页版逐次动作语音改进建议；
 - 视频上传、桌面视频回放和无窗口批量处理；
+- 最新帧低延迟播放、过期姿态抑制和自适应推理负载；
+- 统一 raw/filtered 2D/3D、canonical 3D、地板与接触辅助证据；
 - 匿名网页会话及文字、JSON、CSV 报告；
 - 个人参考动作保存和 DTW 对齐比较；
 - 配置校验、运行日志、输出清理和回归验证工具。
@@ -42,9 +44,10 @@ Lunge、Wall Ball 和 Burpee Broad Jump 会形成需要人体规则验证的动�
 程序不会让姿态模型直接生成“膝盖内扣”或“伸展不足”等结论，也不会自动猜测用户正在进行的动作。用户先选择 HYROX 动作，系统再通过对应的状态机和规则分析姿态关键点。
 
 ```text
-视频帧
-  → 人体关键点
-  → 关节角度、相对位置、可见度和脚部事件
+摄像头/视频最新帧
+  → MediaPipe image + world landmarks
+  → 显示/分析两套 One Euro
+  → 统一关节角、3D 可靠性、地板和脚部证据
   → 动作专属状态机
   → 当前技术反馈与完整周期规则验证
   → 可观测性检查
@@ -62,6 +65,28 @@ Lunge、Wall Ball 和 Burpee Broad Jump 会形成需要人体规则验证的动�
 | 完整周期判定 | 整次动作候选的必需人体规则和证据质量，输出 `VALID`、`NO_REP` 或 `UNSURE` |
 
 证据不足、身体遮挡、拍摄视角不适合或关键点置信度不足时，程序会优先返回 `UNSURE`，而不是给出不可靠的有效或无效结论。具体阈值和规则见 [动作配置说明](configs/hyrox/README.md)。
+
+## 实时性能与低延迟策略
+
+桌面摄像头和有窗口的视频回放采用 Latest-Frame 架构：捕获/播放线程只保留一个最新帧，MediaPipe 忙时覆盖旧待处理帧，不形成长推理队列。每个姿态结果都携带 `frame_id` 和源时间戳；超过帧差或 `max_pose_age_ms: 120` 的结果不会进入正式规则，也不会继续画在新视频帧上。
+
+默认配置位于 `configs/product_pose.yaml`：
+
+```yaml
+pose:
+  inference_width: 640
+  adaptive_resolution: true
+realtime_latency:
+  target_pose_fps: 15
+  max_pose_fps: 20
+  queue_size: 1
+  warning_pose_age_ms: 80
+  max_pose_age_ms: 120
+```
+
+桌面 `RealtimeBudgetController` 根据滚动 P95 推理耗时、P95 姿态年龄和队列饱和度控制负载。降级顺序固定为 pose FPS `20→15→12`、推理宽度 `640→512→416→320`、可选额外分析频率；视频读取、播放和渲染时钟不会随 MediaPipe 变慢。浏览器实时链路使用本机 Worker 和唯一 pending 槽，拥有独立的 Full/Lite 自动基准与服务器兼容回退，不直接复用桌面控制器。
+
+`--save-metrics` 会输出 `source_fps`、`display_fps`、`inference_fps`、各阶段耗时、时间戳、姿态年龄、读/推理/跳过/渲染帧数、队列深度、`playback_speed_ratio` 及推理/姿态年龄 P50/P95。正常速度回放的工程目标是 `playback_speed_ratio` 接近 `1.0`；具体数值仍需在目标设备实测。
 
 ## 安装
 
@@ -213,7 +238,7 @@ Rowing、SkiErg、Sled Push 和 Sled Pull 的 `cycle_count` 只是动作分析�
 
 ## 人工角度对照
 
-上传视频报告中的 `angle_observations` 会同时保留原始/平滑 2D、原始/平滑 3D、屏幕显示角度和正式规则角度。可先检查并导出指定关节曲线：
+上传视频报告中的 `angle_observations` 会同时保留 raw/filtered 2D、raw/filtered 3D、canonical 3D、屏幕显示角度和正式 selected-rule angle。可先检查并导出指定关节曲线：
 
 ```powershell
 python tools\inspect_joint_angles.py outputs\report.json `
@@ -238,10 +263,13 @@ python tools\manual_angle_annotation.py input.mp4 `
 python tools\compare_manual_angles.py `
   outputs\angle_validation\manual_angles.json `
   --report outputs\report.json `
+  --baseline-report outputs\old_version_report.json `
   --output-dir outputs\angle_validation
 ```
 
-输出包含人工对照 MAE、中位绝对误差、P90/P95、最低点/完全伸展事件偏移，以及原始与平滑角度曲线的帧延迟和毫秒延迟。正面视角的 2D 膝角只表示屏幕投影角，不能解释为真实三维关节角。
+输出包含人工对照 MAE、中位绝对误差、P90/P95、最低点/完全伸展事件偏移、原始与平滑角度曲线延迟，以及显式旧版/新版非回归比较。现有 150 条人工标注覆盖 Lunge、Wall Ball、Burpee 和 Rowing，但缺少明确标定的 30°/45°斜侧素材和成对旧新版程序事件帧。当前代理比较中 Median/P90 改善，MAE/P95 分别变差 `0.136°/1.5032°`，严格非回归未通过，所以正式 HYROX 阈值仍使用原 2D 规则。完整结果见 [第 12 轮验证报告](outputs/angle_validation/round12/ROUND12_VALIDATION_REPORT.md)。
+
+人工标签是视频像素上的投影 2D 角，因此报告中的 3D 数值属于投影一致性差距，不是空间 3D 真值 MAE；正面视角的 2D 膝角也不能解释为真实三维关节角。
 
 ## 个人参考动作与 DTW 比较
 
@@ -308,6 +336,7 @@ configs/hyrox/           # 动作配置
 src/backends/            # 姿态后端
 src/biomechanics/        # 通用运动学数据
 src/realtime/            # 桌面运行时
+  budget.py              # 自适应推理预算控制，不改变视频/渲染时钟
 src/validation/          # 回归、性能与耐久验证
 webui/                   # 网页后端和前端资源
 tools/                   # 回放、检查和研究工具
@@ -323,6 +352,7 @@ tests/                   # 自动化测试
 - Farmers Carry 不检测壶铃重量、真实距离或完成线；
 - 拍摄视角、遮挡、光照、快速运动和多人干扰会影响识别质量；
 - 自动化测试不能替代目标设备上的真实摄像头、性能和端到端延迟验收；
+- 第 12 轮尚缺标定的 30°/45°角度素材和空间 3D 真值，当前严格角度非回归未通过；
 - 临时公网分享不等同于正式生产部署。
 
 ## 文档导航

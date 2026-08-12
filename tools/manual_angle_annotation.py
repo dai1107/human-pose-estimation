@@ -139,6 +139,8 @@ def collect_points(
                     ("2D RAW", observation.get("angle_2d_raw_deg")),
                     ("2D SMOOTH", observation.get("angle_2d_smoothed_deg")),
                     ("3D RAW", observation.get("angle_3d_raw_deg")),
+                    ("3D SMOOTH", observation.get("angle_3d_smoothed_deg")),
+                    ("3D CANON", observation.get("angle_canonical_3d_deg")),
                     ("RULE", observation.get("rule_angle_deg")),
                 )
                 for index, (label, value) in enumerate(values):

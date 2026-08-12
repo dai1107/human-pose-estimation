@@ -14,6 +14,7 @@ import time
 import uuid
 from collections import defaultdict, deque
 from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -365,6 +366,7 @@ def _pose_result_from_cached_frame(record: Mapping[str, Any]) -> PoseResult:
         num_keypoints=len(points),
         success=bool(points),
         inference_time_ms=0.0,
+        frame_id=int(record.get("frame_index", 0)),
         extra={"rendered_from_pose_cache": True},
     )
 
@@ -1124,6 +1126,15 @@ class PoseStreamEngine:
                     frame,
                     timestamp_ms=analysis_timestamp_ms,
                 )
+                detected_result = replace(
+                    detected_result,
+                    frame_id=current_frame_index,
+                    timestamp_ms=(
+                        detected_result.timestamp_ms
+                        if detected_result.timestamp_ms is not None
+                        else analysis_timestamp_ms
+                    ),
+                )
                 if (
                     inference_audit is not None
                     and pose_inference_ran
@@ -1143,10 +1154,15 @@ class PoseStreamEngine:
                 result = smoother.smooth_result(detected_result)
                 smoothing_ms = (time.perf_counter() - smoothing_started) * 1000.0
                 feature_started = time.perf_counter()
+                frame_height, frame_width = frame.shape[:2]
                 result, three_d_result = three_d_tracker.attach(
                     result,
                     capture_timestamp_ns=analysis_timestamp_ms * 1_000_000,
                     pose_age_ms=0.0,
+                    image_width=frame_width,
+                    image_height=frame_height,
+                    raw_result=detected_result,
+                    camera_view=str(settings["camera_view"]),
                 )
                 three_d_payload = three_d_result.as_dict()
                 has_pose = bool(result.success and result.keypoints)

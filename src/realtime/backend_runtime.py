@@ -7,7 +7,7 @@ import argparse
 from src.backends.base import PoseBackend
 from src.backends.catalog import is_experimental_backend
 from src.backends.factory import create_backend
-from src.product_pose import RealtimeSmoothingConfig
+from src.product_pose import DisplaySmoothingConfig, RealtimeSmoothingConfig
 from src.runtime_logging import AppError, ExitCode
 from src.utils.device import resolve_torch_device
 from src.utils.smoothing import KeypointSmoother
@@ -59,6 +59,12 @@ def create_runtime_smoother(
         max_missing_frames=args.pose_hold_frames,
         occlusion_guard=args.occlusion_guard,
     )
+
+
+def create_display_smoother(config: DisplaySmoothingConfig) -> KeypointSmoother:
+    """Create a display-only filter that never feeds rules or angle analysis."""
+
+    return KeypointSmoother.from_display_config(config)
 
 
 def next_runtime_backend(current_backend: str) -> str:

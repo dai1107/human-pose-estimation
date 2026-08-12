@@ -28,7 +28,7 @@ from src.realtime.feedback_engine import FeedbackEngine, FeedbackState
 from src.runtime_hand import HandDetection, MediaPipeHandTracker
 from src.utils.angle_utils import body_angles
 from src.utils.backend_policy import resolve_backend_choice
-from src.utils.draw_utils import draw_bbox, draw_hand_landmarks, draw_hyrox_action_overlay, draw_hyrox_action_selector, draw_hyrox_debug_overlay, draw_pose_result_filtered, draw_realtime_overlay
+from src.utils.draw_utils import draw_bbox, draw_hand_landmarks, draw_hyrox_action_overlay, draw_hyrox_action_selector, draw_hyrox_debug_overlay, draw_landmark_lag_debug, draw_pose_result_filtered, draw_realtime_overlay
 from src.utils.device import resolve_torch_device
 from src.utils.metrics import RealtimeMetrics
 from src.ui.metrics_overlay import draw_metrics_overlay
@@ -47,6 +47,7 @@ from src.version import __version__
 
 from src.realtime.backend_runtime import (
     backend_device_for,
+    create_display_smoother,
     create_runtime_backend,
     create_runtime_smoother,
     next_runtime_backend,
@@ -61,7 +62,9 @@ from src.realtime.presentation import (
     visible_keypoint_names_for_mode,
 )
 from src.realtime.recording import create_writer, make_output_path, save_screenshot
-from src.realtime.latest_frame import LatestFrameCamera
+from src.realtime.latest_frame import LatestFrameCamera, LatestFrameVideo
+from src.realtime.inference_resolution import InferenceResolutionController
+from src.realtime.budget import RealtimeBudgetController
 from src.realtime.scheduler import LatestOnlyMediaPipeScheduler, PoseAgeGate
 from src.realtime.session import build_pose_frame_from_result, current_model_label
 from src.realtime.types import CapturedFrame, TimedPoseResult
@@ -101,9 +104,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     backend = None
     fusion_runner = None
     capture = None
-    latest_frame_camera: LatestFrameCamera | None = None
+    latest_frame_source: LatestFrameCamera | LatestFrameVideo | None = None
     pose_scheduler: LatestOnlyMediaPipeScheduler | None = None
     pose_age_gate: PoseAgeGate | None = None
+    budget_controller: RealtimeBudgetController | None = None
     record_writer = None
     raw_writer = None
     save_dir = Path(args.save_dir)
@@ -136,7 +140,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         realtime_smoothing_config = product_pose_config.analysis_smoothing
         use_latest_frame_pipeline = bool(
             realtime_latency_config.latest_frame_only
-            and not args.input_video
+            and (not args.input_video or not args.headless)
             and resolved_backend == "mediapipe"
             and args.fusion == "none"
             and args.person_detector == "none"
@@ -190,7 +194,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         try:
             if use_latest_frame_pipeline:
-                backend = MediaPipeLiveStreamBackend(args.model)
+                backend = MediaPipeLiveStreamBackend(
+                    args.model,
+                    output_segmentation_masks=False,
+                    num_poses=1,
+                )
                 runtime_backend_device = "cpu"
             else:
                 backend, runtime_backend_device = create_runtime_backend(
@@ -215,22 +223,51 @@ def main(argv: Sequence[str] | None = None) -> int:
             fusion_runner = YoloRoiMediaPipeFusion(backend, yolo_detector)
         capture, input_mode, source_fps = open_capture(args)
         if use_latest_frame_pipeline:
-            latest_frame_camera = LatestFrameCamera(
-                capture,
-                source=f"camera:{args.camera}",
-            ).start()
+            latest_frame_source = (
+                LatestFrameCamera(capture, source=f"camera:{args.camera}").start()
+                if input_mode == "camera"
+                else LatestFrameVideo(
+                    capture,
+                    source_fps=source_fps,
+                    source=args.input_video,
+                ).start()
+            )
             capture = None
-            pose_scheduler = LatestOnlyMediaPipeScheduler(backend)
+            pose_scheduler = LatestOnlyMediaPipeScheduler(
+                backend,
+                target_pose_fps=realtime_latency_config.target_pose_fps,
+                max_pose_fps=realtime_latency_config.max_pose_fps,
+            )
             pose_age_gate = PoseAgeGate(
                 max_pose_age_ms=realtime_latency_config.max_pose_age_ms,
                 max_frame_gap=realtime_latency_config.max_frame_gap,
             )
             LOGGER.info(
-                "Desktop latest-frame pipeline enabled (buffer=1, max_pose_age_ms=%.0f, max_frame_gap=%d)",
+                "Desktop latest-frame pipeline enabled (source=%s, buffer=1, pose_fps=%.0f/%.0f, max_pose_age_ms=%.0f, max_frame_gap=%d)",
+                input_mode,
+                realtime_latency_config.target_pose_fps,
+                realtime_latency_config.max_pose_fps,
                 realtime_latency_config.max_pose_age_ms,
                 realtime_latency_config.max_frame_gap,
             )
-        smoother = create_runtime_smoother(args, realtime_smoothing_config)
+        analysis_smoother = create_runtime_smoother(args, realtime_smoothing_config)
+        display_smoother = create_display_smoother(product_pose_config.display_smoothing)
+        inference_resolution = InferenceResolutionController(
+            product_pose_config.pose.inference_width,
+            adaptive=product_pose_config.pose.adaptive_resolution,
+        )
+        if pose_scheduler is not None:
+            budget_controller = RealtimeBudgetController(
+                target_pose_fps=realtime_latency_config.target_pose_fps,
+                max_pose_fps=realtime_latency_config.max_pose_fps,
+                min_pose_fps=min(12.0, realtime_latency_config.target_pose_fps),
+                warning_pose_age_ms=realtime_latency_config.warning_pose_age_ms,
+            )
+        LOGGER.info(
+            "Pose inference resolution width=%d adaptive=%s (display resolution unchanged)",
+            inference_resolution.current_width,
+            inference_resolution.adaptive,
+        )
         three_d_tracker = ThreeDKinematicsTracker(
             product_pose_config.three_d_kinematics,
             product_pose_config.three_d_quality,
@@ -257,6 +294,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         result = empty_result
         latest_draw_result = empty_result
+        latest_raw_draw_result = empty_result
         latest_draw_timed: TimedPoseResult | None = None
         angles: dict[str, float | None] = {}
         feedback = FeedbackState(
@@ -276,7 +314,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             status_until = time.perf_counter() + seconds
 
         def switch_hyrox_action(action_name: str) -> bool:
-            nonlocal hyrox_action_overlay_error_reported, latest_draw_result, latest_draw_timed
+            nonlocal hyrox_action_overlay_error_reported, latest_draw_result, latest_raw_draw_result, latest_draw_timed
             if action_name == args.hyrox_action:
                 set_status(f"action remains {action_name}")
                 return True
@@ -292,8 +330,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 pose_scheduler.invalidate()
                 if pose_age_gate is not None:
                     pose_age_gate.reset()
-                smoother.reset()
+                analysis_smoother.reset()
+                display_smoother.reset()
                 latest_draw_result = empty_result
+                latest_raw_draw_result = empty_result
                 latest_draw_timed = None
             hyrox_action_overlay_error_reported = False
             set_status(f"action {action_name}", seconds=3.0)
@@ -361,17 +401,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             captured_frame: CapturedFrame | None = None
             capture_read_start_ns = 0
             capture_read_end_ns = 0
-            if latest_frame_camera is not None:
-                captured_frame = latest_frame_camera.get_latest(
+            if latest_frame_source is not None:
+                captured_frame = latest_frame_source.get_latest(
                     after_frame_id=frame_index,
                     timeout=0.1,
                 )
                 if captured_frame is None:
-                    if latest_frame_camera.terminal_read_failure:
+                    if latest_frame_source.terminal_read_failure:
                         raise InputSourceError(
                             "摄像头已断开或停止返回画面",
                             hint="重新连接摄像头后再启动程序",
                         )
+                    if input_mode == "video" and getattr(latest_frame_source, "exhausted", False):
+                        break
                     continue
                 raw_frame = captured_frame.image
                 frame_index = captured_frame.frame_id
@@ -389,7 +431,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 capture_read_end_ns = time.perf_counter_ns()
                 frame_index += 1
             frame_started = time.perf_counter()
-            display_frame = cv2.flip(raw_frame, 1) if input_mode == "camera" and mirror_enabled else raw_frame.copy()
+            display_frame = cv2.flip(raw_frame, 1) if input_mode == "camera" and mirror_enabled else raw_frame
             if session_autostart_pending and not session_writer.is_active:
                 try:
                     start_session(display_frame.shape)
@@ -407,11 +449,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raw_writer.write(raw_frame)
 
             timestamp_ms = (
-                int(captured_frame.capture_timestamp_ns // 1_000_000)
+                (
+                    captured_frame.source_timestamp_ms
+                    if captured_frame.source_timestamp_ms is not None
+                    else int(captured_frame.capture_timestamp_ns // 1_000_000)
+                )
                 if captured_frame is not None
                 else timestamp_for_frame(input_mode, started_ns, frame_index, source_fps)
             )
+            metrics.record_frame_read(
+                source_fps=source_fps,
+                frame_timestamp_ms=timestamp_ms,
+                capture_ms=max(0, capture_read_end_ns - capture_read_start_ns) / 1_000_000.0,
+                wall_time=frame_started,
+            )
             analysis_result: PoseResult | None = None
+            display_result: PoseResult | None = None
             analysis_frame_id = frame_index
             analysis_timestamp_ms = timestamp_ms
             analysis_frame_started = frame_started
@@ -422,11 +475,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             if pose_scheduler is not None:
                 if captured_frame is None or pose_age_gate is None:
                     raise RuntimeError("latest-frame pipeline is not fully initialized")
+                prepared_inference = inference_resolution.prepare(display_frame)
                 inference_frame = replace(
                     captured_frame,
-                    image=display_frame,
-                    width=int(display_frame.shape[1]),
-                    height=int(display_frame.shape[0]),
+                    image=prepared_inference.image,
+                    width=prepared_inference.width,
+                    height=prepared_inference.height,
+                    inference_width=prepared_inference.width,
+                    inference_height=prepared_inference.height,
+                    resize_ms=prepared_inference.resize_ms,
                 )
                 pose_scheduler.submit(inference_frame)
                 candidate = pose_scheduler.latest_result
@@ -435,12 +492,62 @@ def main(argv: Sequence[str] | None = None) -> int:
                     candidate,
                     current_frame_id=frame_index,
                     now_ns=now_ns,
+                    current_frame_timestamp_ms=timestamp_ms,
                 ):
                     accepted_timed = candidate
                     analysis_result = candidate.pose if candidate is not None else None
                     if candidate is not None:
+                        decision = (
+                            budget_controller.observe(
+                                inference_ms=candidate.inference_ms,
+                                pose_result_age_ms=max(
+                                    0.0,
+                                    candidate.source_age_ms(timestamp_ms),
+                                ),
+                                queue_depth=int(
+                                    pose_scheduler.pending_frame_id is not None
+                                ),
+                                resolution_can_downgrade=(
+                                    inference_resolution.can_step_down
+                                ),
+                            )
+                            if budget_controller is not None
+                            else None
+                        )
+                        if decision is not None and decision.action in {
+                            "reduce_pose_fps",
+                            "increase_pose_fps",
+                        }:
+                            pose_scheduler.set_target_pose_fps(
+                                decision.target_pose_fps
+                            )
+                        if (
+                            decision is not None
+                            and decision.action == "reduce_inference_resolution"
+                            and inference_resolution.force_step_down()
+                        ):
+                            LOGGER.info(
+                                "Realtime budget reduced pose resolution to width=%d after inference/age P95 %.1f/%.1fms",
+                                inference_resolution.current_width,
+                                decision.p95_inference_ms,
+                                decision.p95_pose_result_age_ms,
+                            )
+                        if decision is not None and decision.changed:
+                            LOGGER.info(
+                                "Realtime budget action=%s pose_fps=%.0f width=%d optional_stride=%d reason=%s queue_saturation=%.2f",
+                                decision.action,
+                                decision.target_pose_fps,
+                                inference_resolution.current_width,
+                                decision.extra_analysis_stride,
+                                decision.reason,
+                                decision.queue_saturation_ratio,
+                            )
                         analysis_frame_id = candidate.frame_id
-                        analysis_timestamp_ms = int(candidate.capture_timestamp_ns // 1_000_000)
+                        analysis_timestamp_ms = (
+                            int(candidate.pose.timestamp_ms)
+                            if candidate.pose is not None and candidate.pose.timestamp_ms is not None
+                            else int(candidate.capture_timestamp_ns // 1_000_000)
+                        )
                         analysis_frame_started = candidate.capture_timestamp_ns / 1_000_000_000.0
             elif fusion_runner is not None:
                 sync_inference_start_ns = time.perf_counter_ns()
@@ -448,10 +555,43 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sync_inference_end_ns = time.perf_counter_ns()
             else:
                 sync_inference_start_ns = time.perf_counter_ns()
-                analysis_result = backend.detect(display_frame, timestamp_ms=timestamp_ms)
+                if resolved_backend == "mediapipe":
+                    prepared_inference = inference_resolution.prepare(display_frame)
+                    analysis_result = backend.detect(
+                        prepared_inference.image,
+                        timestamp_ms=timestamp_ms,
+                    )
+                    performance = dict(analysis_result.extra.get("performance", {}))
+                    performance["resize_ms"] = prepared_inference.resize_ms
+                    extra = dict(analysis_result.extra)
+                    extra["performance"] = performance
+                    extra["inference_resolution"] = {
+                        "width": prepared_inference.width,
+                        "height": prepared_inference.height,
+                    }
+                    analysis_result = replace(analysis_result, extra=extra)
+                else:
+                    analysis_result = backend.detect(display_frame, timestamp_ms=timestamp_ms)
                 sync_inference_end_ns = time.perf_counter_ns()
+                if resolved_backend == "mediapipe" and inference_resolution.observe(
+                    (sync_inference_end_ns - sync_inference_start_ns) / 1_000_000.0
+                ):
+                    LOGGER.info(
+                        "Adaptive pose resolution reduced to width=%d after inference P95 %.1fms",
+                        inference_resolution.current_width,
+                        inference_resolution.last_p95_ms,
+                    )
 
             if analysis_result is not None:
+                analysis_result = replace(
+                    analysis_result,
+                    frame_id=analysis_frame_id,
+                    timestamp_ms=(
+                        analysis_result.timestamp_ms
+                        if analysis_result.timestamp_ms is not None
+                        else analysis_timestamp_ms
+                    ),
+                )
                 normalized_pose = None
                 try:
                     frame_height, frame_width = display_frame.shape[:2]
@@ -473,13 +613,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                         normalized_pose_error_printed = True
                 if args.normalized_pose_debug and (analysis_frame_id == 1 or analysis_frame_id % 30 == 0):
                     LOGGER.debug("%s", format_normalized_pose_debug(normalized_pose))
-                result = smoother.smooth_result(
+                postprocess_started_ns = time.perf_counter_ns()
+                observation_timestamp_ns = (
+                    accepted_timed.capture_timestamp_ns
+                    if accepted_timed is not None
+                    else int(analysis_timestamp_ms * 1_000_000)
+                )
+                result = analysis_smoother.smooth_result(
                     analysis_result,
-                    capture_timestamp_ns=(
-                        accepted_timed.capture_timestamp_ns
-                        if accepted_timed is not None
-                        else int(analysis_timestamp_ms * 1_000_000)
-                    ),
+                    capture_timestamp_ns=observation_timestamp_ns,
+                )
+                display_result = display_smoother.smooth_result(
+                    analysis_result,
+                    capture_timestamp_ns=observation_timestamp_ns,
                 )
                 result, _ = three_d_tracker.attach(
                     result,
@@ -489,10 +635,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                         else int(analysis_timestamp_ms * 1_000_000)
                     ),
                     pose_age_ms=(
-                        accepted_timed.age_ms(time.perf_counter_ns())
+                        max(0.0, accepted_timed.source_age_ms(timestamp_ms))
                         if accepted_timed is not None
                         else 0.0
                     ),
+                    image_width=frame_width,
+                    image_height=frame_height,
+                    raw_result=analysis_result,
+                    camera_view=args.camera_view,
                 )
                 if hand_overlay_enabled:
                     tracker = ensure_hand_tracker(required=False)
@@ -501,7 +651,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         hand_detections = {}
                         last_hand_detection_timestamp_ms = -1
                         set_status(hand_tracker_error or "hand tracker unavailable", seconds=3.0)
-                    elif hand_detect_interval_ms <= 0 or analysis_timestamp_ms - last_hand_detection_timestamp_ms >= hand_detect_interval_ms:
+                    elif hand_detect_interval_ms <= 0 or analysis_timestamp_ms - last_hand_detection_timestamp_ms >= hand_detect_interval_ms * (
+                        budget_controller.extra_analysis_stride
+                        if budget_controller is not None
+                        else 1
+                    ):
                         try:
                             hand_detections = tracker.detect(display_frame, timestamp_ms=analysis_timestamp_ms)
                             last_hand_detection_timestamp_ms = analysis_timestamp_ms
@@ -514,6 +668,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                                 LOGGER.warning("hand detection failed: %s", exc)
                                 hand_detection_error_printed = True
                 angles = body_angles(result)
+                postprocess_finished_ns = time.perf_counter_ns()
+                rule_started_ns = postprocess_finished_ns
                 feedback = feedback_engine.update(result, angles)
                 frame_finished = time.perf_counter()
                 snapshot = metrics.update(
@@ -552,19 +708,62 @@ def main(argv: Sequence[str] | None = None) -> int:
                     three_d_kinematics=result.extra.get("three_d_kinematics"),
                     extract_when_disabled=bool(args.hyrox_debug),
                 )
-                latest_draw_result = result
+                rule_finished_ns = time.perf_counter_ns()
+                pose_age_ms = (
+                    max(0.0, accepted_timed.source_age_ms(timestamp_ms))
+                    if accepted_timed is not None
+                    else max(0.0, (rule_finished_ns - capture_read_end_ns) / 1_000_000.0)
+                )
+                metrics.record_pose_timing(
+                    preprocess_ms=max(
+                        0.0,
+                        (
+                            (accepted_timed.inference_start_ns if accepted_timed is not None else sync_inference_start_ns)
+                            - capture_read_end_ns
+                        ) / 1_000_000.0,
+                    ),
+                    postprocess_ms=(postprocess_finished_ns - postprocess_started_ns) / 1_000_000.0,
+                    rule_ms=(rule_finished_ns - rule_started_ns) / 1_000_000.0,
+                    pose_timestamp_ms=analysis_timestamp_ms,
+                    pose_result_age_ms=pose_age_ms,
+                    queue_depth=int(pose_scheduler.pending_frame_id is not None) if pose_scheduler is not None else 0,
+                    wall_time=rule_finished_ns / 1_000_000_000.0,
+                )
+                latest_draw_result = display_result
+                latest_raw_draw_result = analysis_result
                 latest_draw_timed = accepted_timed
 
             analysis_end_ns = time.perf_counter_ns()
             if pose_scheduler is not None:
-                if pose_age_gate is not None and pose_age_gate.is_fresh(
-                    latest_draw_timed,
-                    current_frame_id=frame_index,
-                    now_ns=time.perf_counter_ns(),
-                ):
-                    result = latest_draw_result
+                display_sync = (
+                    pose_age_gate.synchronization(
+                        latest_draw_timed,
+                        current_frame_id=frame_index,
+                        now_ns=time.perf_counter_ns(),
+                        current_frame_timestamp_ms=timestamp_ms,
+                    )
+                    if pose_age_gate is not None
+                    else {"fresh": False, "reason": "gate_missing"}
+                )
+                if bool(display_sync["fresh"]):
+                    display_extra = dict(latest_draw_result.extra)
+                    display_extra["display_sync"] = display_sync
+                    display_extra["pose_result_age_ms"] = display_sync.get(
+                        "pose_result_age_ms"
+                    )
+                    draw_result = replace(
+                        latest_draw_result,
+                        extra=display_extra,
+                    )
+                    raw_draw_result = latest_raw_draw_result
                 else:
-                    result = replace(empty_result, timestamp_ms=timestamp_ms)
+                    draw_result = replace(
+                        empty_result,
+                        timestamp_ms=timestamp_ms,
+                        frame_id=frame_index,
+                        extra={"display_sync": display_sync},
+                    )
+                    raw_draw_result = draw_result
                 metrics.set_realtime_drop_counts(
                     busy=pose_scheduler.busy_drop_count,
                     stale=(
@@ -572,28 +771,63 @@ def main(argv: Sequence[str] | None = None) -> int:
                         + (pose_age_gate.stale_drop_count if pose_age_gate is not None else 0)
                     ),
                     camera_overwrite=(
-                        latest_frame_camera.overwritten_frame_count
-                        if latest_frame_camera is not None
+                        latest_frame_source.overwritten_frame_count
+                        if latest_frame_source is not None
                         else 0
                     ),
+                    queue_depth=int(pose_scheduler.pending_frame_id is not None),
+                    frames_inferred=pose_scheduler.result_count,
                 )
                 snapshot = metrics.snapshot()
-            has_pose = bool(result.success and result.keypoints)
+            else:
+                draw_result = display_result or replace(
+                    empty_result,
+                    timestamp_ms=timestamp_ms,
+                    frame_id=frame_index,
+                )
+                display_extra = dict(draw_result.extra)
+                display_extra["display_sync"] = {
+                    "fresh": True,
+                    "reason": "synchronous",
+                    "current_frame_id": frame_index,
+                    "pose_frame_id": draw_result.frame_id,
+                    "frame_gap": 0,
+                    "current_frame_timestamp_ms": timestamp_ms,
+                    "pose_timestamp_ms": draw_result.timestamp_ms,
+                    "pose_result_age_ms": max(
+                        0.0,
+                        float(timestamp_ms) - float(draw_result.timestamp_ms or timestamp_ms),
+                    ),
+                }
+                draw_result = replace(draw_result, extra=display_extra)
+                raw_draw_result = analysis_result or draw_result
+            has_pose = bool(draw_result.success and draw_result.keypoints)
 
             draw_start_ns = time.perf_counter_ns()
             annotated = display_frame.copy()
-            draw_pose_result_filtered(
-                annotated,
-                result,
-                visible_names=visible_keypoint_names_for_mode(display_mode),
-                highlight_names=highlight_keypoint_names_for_mode(display_mode),
-            )
+            visible_names = visible_keypoint_names_for_mode(display_mode)
+            highlight_names = highlight_keypoint_names_for_mode(display_mode)
+            if args.landmark_lag_debug:
+                draw_landmark_lag_debug(
+                    annotated,
+                    raw_draw_result,
+                    draw_result,
+                    visible_names=visible_names,
+                    highlight_names=highlight_names,
+                )
+            else:
+                draw_pose_result_filtered(
+                    annotated,
+                    draw_result,
+                    visible_names=visible_names,
+                    highlight_names=highlight_names,
+                )
             if hand_overlay_enabled and hand_detections:
                 draw_hand_landmarks(
                     annotated,
                     {side: detection.landmarks for side, detection in hand_detections.items()},
                 )
-            draw_bbox(annotated, result.bbox)
+            draw_bbox(annotated, draw_result.bbox)
             overlay_status = status_message if time.perf_counter() < status_until else ""
             draw_realtime_overlay(
                 annotated,
@@ -603,7 +837,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 detector_every_n=args.detector_every_n,
                 smoothing=args.smoothing,
                 input_mode=input_mode,
-                result=result,
+                result=draw_result,
                 metrics=snapshot,
                 feedback=feedback,
                 recording=recording_enabled,
@@ -664,11 +898,31 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             draw_end_ns = time.perf_counter_ns()
             imshow_return_ns = draw_end_ns
+            render_finished = time.perf_counter()
+            metrics.record_render(
+                render_ms=(draw_end_ns - draw_start_ns) / 1_000_000.0,
+                wall_time=render_finished,
+            )
+            if metrics.periodic_snapshot_due(render_finished):
+                current = metrics.snapshot()
+                LOGGER.info(
+                    "performance source=%.1f display=%.1f infer=%.1f fps playback=%.3f pose_age=%.1fms queue=%d read/inferred/skipped/rendered=%d/%d/%d/%d",
+                    current.source_fps,
+                    current.display_fps,
+                    current.inference_fps,
+                    current.playback_speed_ratio,
+                    current.pose_result_age_ms,
+                    current.queue_depth,
+                    current.frames_read,
+                    current.frames_inferred,
+                    current.frames_skipped,
+                    current.frames_rendered,
+                )
 
             if not args.headless:
                 cv2.imshow(window_name, annotated)
                 imshow_return_ns = time.perf_counter_ns()
-                delay = 1 if input_mode == "camera" else max(1, int(round(1000.0 / max(source_fps, 1.0))))
+                delay = 1 if pose_scheduler is not None or input_mode == "camera" else max(1, int(round(1000.0 / max(source_fps, 1.0))))
                 displayed_timed = latest_draw_timed if pose_scheduler is not None else None
                 pose_capture_timestamp_ns = (
                     displayed_timed.capture_timestamp_ns
@@ -686,7 +940,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     else sync_inference_end_ns
                 )
                 if (
-                    result.success
+                    draw_result.success
                     and capture_read_end_ns > 0
                     and inference_start_ns > 0
                     and inference_end_ns > 0
@@ -760,7 +1014,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     resolved_backend = target_backend
                     runtime_backend_device = new_backend_device
                     metrics.set_backend(resolved_backend, runtime_backend_device)
-                    smoother = create_runtime_smoother(args, realtime_smoothing_config)
+                    analysis_smoother = create_runtime_smoother(args, realtime_smoothing_config)
+                    display_smoother = create_display_smoother(product_pose_config.display_smoothing)
                     three_d_tracker.reset()
                     kinematics_processor.reset()
                     set_status(f"backend switched to {resolved_backend}")
@@ -776,8 +1031,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                         if pose_age_gate is not None:
                             pose_age_gate.reset()
                         latest_draw_result = empty_result
+                        latest_raw_draw_result = empty_result
                         latest_draw_timed = None
-                    smoother.reset()
+                    analysis_smoother.reset()
+                    display_smoother.reset()
                     three_d_tracker.reset()
                     kinematics_processor.reset()
                     hand_detections = {}
@@ -796,8 +1053,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                         if pose_age_gate is not None:
                             pose_age_gate.reset()
                         latest_draw_result = empty_result
+                        latest_raw_draw_result = empty_result
                         latest_draw_timed = None
-                        smoother.reset()
+                        analysis_smoother.reset()
+                        display_smoother.reset()
                     three_d_tracker.reset()
                     set_status(f"camera view {args.camera_view}", seconds=3.0)
                     LOGGER.info("Camera view: %s", args.camera_view)
@@ -909,10 +1168,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             LOGGER.info("  %s", line)
         if pose_scheduler is not None:
             LOGGER.info(
-                "  latest-frame: submitted=%d results=%d busy_drops=%d stale_drops=%d unknown_callbacks=%d",
+                "  latest-frame: submitted=%d results=%d busy_drops=%d rate_drops=%d stale_drops=%d unknown_callbacks=%d",
                 pose_scheduler.submitted_count,
                 pose_scheduler.result_count,
                 pose_scheduler.busy_drop_count,
+                pose_scheduler.rate_limit_drop_count,
                 pose_scheduler.stale_drop_count + (pose_age_gate.stale_drop_count if pose_age_gate is not None else 0),
                 pose_scheduler.unknown_callback_count,
             )
@@ -993,11 +1253,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             if error is not None:
                 cleanup_errors.append(error)
-        if latest_frame_camera is not None:
+        if latest_frame_source is not None:
             error = safe_cleanup(
                 LOGGER,
-                "latest-frame camera",
-                latest_frame_camera.stop,
+                "latest-frame source",
+                latest_frame_source.stop,
                 debug=bool(args.debug),
             )
             if error is not None:

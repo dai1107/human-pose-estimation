@@ -1,0 +1,6761 @@
+{
+  "schema_version": 1,
+  "protocol_version": "human_review_v1.0",
+  "generated_at": "2026-08-01T15:31:38.441570+00:00",
+  "artifact_type": "manual_joint_angle_validation_report_v1",
+  "coordinate_system": "native_video_pixels",
+  "angle_definition": "A-B-C projected 2D angle in degrees; B is always the vertex",
+  "record_count": 10,
+  "annotation_count": 150,
+  "summary": {
+    "by_joint": {
+      "left_elbow": 28,
+      "left_hip": 27,
+      "left_shoulder": 26,
+      "right_elbow": 9,
+      "right_shoulder": 8,
+      "torso": 15,
+      "left_knee": 24,
+      "right_hip": 7,
+      "right_knee": 6
+    },
+    "by_camera_view": {
+      "front": 55,
+      "side": 61,
+      "oblique_back": 34
+    },
+    "by_event": {
+      "chest_contact": 6,
+      "hands_down": 5,
+      "flight": 8,
+      "left_support": 4,
+      "right_support": 5,
+      "double_support": 4,
+      "rear_knee_contact": 17,
+      "ascent": 14,
+      "descent": 9,
+      "catch": 9,
+      "finish": 5,
+      "recovery": 9,
+      "lowest_point": 14,
+      "highest_point": 9,
+      "pull_start": 4,
+      "pull_finish": 5,
+      "step_contact": 5,
+      "drive": 5,
+      "full_extension": 9,
+      "release": 4
+    },
+    "by_visibility": {
+      "high": 127,
+      "medium": 20,
+      "low": 3
+    }
+  },
+  "records": [
+    {
+      "record_id": "phone_burpee_broad_jump_005",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-标准（跪姿起）-正前方-1.mp4",
+      "video_sha256": "87d9c726f30040f2de82b01859e21aa508cd635e2df55f26e9dbe2c8be1931ce",
+      "revision": 6,
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:48:15.794743+00:00",
+      "annotation_count": 6
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "video_sha256": "098abf197745c03b99cb7f157d4c79b239af8a04e789fc0020fff813cd7cd63b",
+      "revision": 14,
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:44:54.835759+00:00",
+      "annotation_count": 13
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "video_sha256": "ddae4a8cef702a3d694947cc373fa49d9de813502993181d383833bb66fc5dfc",
+      "revision": 14,
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:04:40.992243+00:00",
+      "annotation_count": 13
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "video_sha256": "d342705153da4062bbf9d7b7e953b2d7055bc80270ec43bc760af9c937712bcb",
+      "revision": 45,
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:31:34.601899+00:00",
+      "annotation_count": 36
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "video_sha256": "f8d07ac8ae467ad7accb80d57e582c6f066f6e9b86d268177ee95177ae40fe9e",
+      "revision": 15,
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:36:44.164372+00:00",
+      "annotation_count": 15
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "video_sha256": "95c46af06c2ba9cd27a6619cbba930574c32262e7f28499e3b901c4342cc03c0",
+      "revision": 29,
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:28:15.353822+00:00",
+      "annotation_count": 19
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "video_sha256": "8da5805014cba790684627943f67121b919741102186ab76a533306b1893b1a4",
+      "revision": 13,
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:18:15.560225+00:00",
+      "annotation_count": 13
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "video_sha256": "00fc16e3a33239182503def5cdcc2d3a4d3feca5de171c3988220241ec0eeab4",
+      "revision": 15,
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:55:17.913728+00:00",
+      "annotation_count": 15
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "video_sha256": "b23c157ebfa783e091be8e03d433a3a7588dc8fc4aaf17e72497fd39279720eb",
+      "revision": 16,
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:11:55.339548+00:00",
+      "annotation_count": 16
+    },
+    {
+      "record_id": "phone_wall_ball_003",
+      "action": "wall_ball",
+      "source_filename": "墙球-踮脚-侧方-1.mp4",
+      "video_sha256": "bfd38840e5bf85fee32cad80417c0cbba66b8c3ee9e593165731028ce3e11378",
+      "revision": 5,
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:06:50.661350+00:00",
+      "annotation_count": 4
+    }
+  ],
+  "annotations": [
+    {
+      "record_id": "phone_burpee_broad_jump_005",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-标准（跪姿起）-正前方-1.mp4",
+      "annotation_id": "angle_622f68ff5866f8fb",
+      "frame_index": 309,
+      "timestamp_ms": 10300.0,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          336.949,
+          827.354
+        ],
+        "left_elbow": [
+          318.253,
+          775.394
+        ],
+        "left_wrist": [
+          327.601,
+          861.327
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 13.581,
+      "event": "chest_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:46:43.460765+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:46:43.460765+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_005",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-标准（跪姿起）-正前方-1.mp4",
+      "annotation_id": "angle_fc22e3418ac9398b",
+      "frame_index": 309,
+      "timestamp_ms": 10300.0,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          332.7,
+          835.347
+        ],
+        "left_hip": [
+          350.546,
+          795.379
+        ],
+        "left_knee": [
+          341.198,
+          789.383
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 98.616,
+      "event": "chest_contact",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:47:00.231399+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:47:00.231399+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_005",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-标准（跪姿起）-正前方-1.mp4",
+      "annotation_id": "angle_18f352582c514d29",
+      "frame_index": 309,
+      "timestamp_ms": 10300.0,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "front",
+      "manual_points": {
+        "left_elbow": [
+          319.103,
+          773.895
+        ],
+        "left_shoulder": [
+          335.249,
+          835.847
+        ],
+        "left_hip": [
+          347.147,
+          801.874
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 33.909,
+      "event": "chest_contact",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:47:21.222886+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:47:21.222886+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_005",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-标准（跪姿起）-正前方-1.mp4",
+      "annotation_id": "angle_c5a8628d32da503f",
+      "frame_index": 309,
+      "timestamp_ms": 10300.0,
+      "joint": "right_elbow",
+      "joint_label": "右肘",
+      "camera_view": "front",
+      "manual_points": {
+        "right_shoulder": [
+          404.934,
+          829.852
+        ],
+        "right_elbow": [
+          416.831,
+          769.898
+        ],
+        "right_wrist": [
+          417.681,
+          859.828
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_elbow",
+        "right_wrist"
+      ],
+      "manual_angle_deg": 11.765,
+      "event": "chest_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:47:32.748089+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:47:32.748089+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_005",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-标准（跪姿起）-正前方-1.mp4",
+      "annotation_id": "angle_26d05a6eeb853967",
+      "frame_index": 309,
+      "timestamp_ms": 10300.0,
+      "joint": "right_shoulder",
+      "joint_label": "右肩",
+      "camera_view": "front",
+      "manual_points": {
+        "right_elbow": [
+          418.531,
+          767.9
+        ],
+        "right_shoulder": [
+          404.084,
+          825.855
+        ],
+        "right_hip": [
+          393.886,
+          799.875
+        ]
+      },
+      "point_order": [
+        "right_elbow",
+        "right_shoulder",
+        "right_hip"
+      ],
+      "manual_angle_deg": 35.429,
+      "event": "chest_contact",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:47:50.968033+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:47:50.968033+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_005",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-标准（跪姿起）-正前方-1.mp4",
+      "annotation_id": "angle_8da85bd0bc583c2a",
+      "frame_index": 309,
+      "timestamp_ms": 10300.0,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "front",
+      "manual_points": {
+        "shoulder_center": [
+          370.941,
+          815.863
+        ],
+        "hip_center": [
+          370.941,
+          789.883
+        ],
+        "vertical_reference": [
+          370.941,
+          677.97
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 180.0,
+      "event": "chest_contact",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:48:15.794743+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:48:15.794743+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "annotation_id": "angle_765a18b8b26dcdf2",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          330.15,
+          553.568
+        ],
+        "left_elbow": [
+          320.803,
+          589.539
+        ],
+        "left_wrist": [
+          324.202,
+          647.494
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 162.077,
+      "event": "hands_down",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:39:06.570711+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:39:06.570711+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "annotation_id": "angle_c52089383a624044",
+      "frame_index": 269,
+      "timestamp_ms": 8966.667,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          325.901,
+          723.435
+        ],
+        "left_elbow": [
+          311.455,
+          787.385
+        ],
+        "left_wrist": [
+          316.554,
+          881.311
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 164.163,
+      "event": "hands_down",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:39:35.966004+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:39:35.966004+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "annotation_id": "angle_458b58a993726456",
+      "frame_index": 269,
+      "timestamp_ms": 8966.667,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "front",
+      "manual_points": {
+        "left_elbow": [
+          314.004,
+          795.878
+        ],
+        "left_shoulder": [
+          323.352,
+          727.931
+        ],
+        "left_hip": [
+          337.799,
+          779.891
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 23.372,
+      "event": "hands_down",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:40:17.391887+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:40:17.391887+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "annotation_id": "angle_48604cbbdd470fe7",
+      "frame_index": 269,
+      "timestamp_ms": 8966.667,
+      "joint": "right_elbow",
+      "joint_label": "右肘",
+      "camera_view": "front",
+      "manual_points": {
+        "right_shoulder": [
+          386.238,
+          727.931
+        ],
+        "right_elbow": [
+          406.633,
+          789.883
+        ],
+        "right_wrist": [
+          402.384,
+          879.813
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_elbow",
+        "right_wrist"
+      ],
+      "manual_angle_deg": 159.073,
+      "event": "hands_down",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:40:31.955015+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:41:01.170292+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "annotation_id": "angle_6fd1704ba1a0bda9",
+      "frame_index": 269,
+      "timestamp_ms": 8966.667,
+      "joint": "right_shoulder",
+      "joint_label": "右肩",
+      "camera_view": "front",
+      "manual_points": {
+        "right_elbow": [
+          404.084,
+          793.88
+        ],
+        "right_shoulder": [
+          385.388,
+          727.931
+        ],
+        "right_hip": [
+          379.439,
+          779.891
+        ]
+      },
+      "point_order": [
+        "right_elbow",
+        "right_shoulder",
+        "right_hip"
+      ],
+      "manual_angle_deg": 22.359,
+      "event": "hands_down",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:40:51.408817+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:40:51.408817+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "annotation_id": "angle_9ee93d67bd1f6c7c",
+      "frame_index": 221,
+      "timestamp_ms": 7366.667,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          379.439,
+          340.234
+        ],
+        "left_elbow": [
+          406.633,
+          352.225
+        ],
+        "left_wrist": [
+          390.487,
+          298.267
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 49.546,
+      "event": "flight",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:42:27.515540+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:42:27.515540+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "annotation_id": "angle_7287eb488cdc145f",
+      "frame_index": 221,
+      "timestamp_ms": 7366.667,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          380.289,
+          342.233
+        ],
+        "left_hip": [
+          378.59,
+          486.12
+        ],
+        "left_knee": [
+          376.89,
+          630.008
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 180.0,
+      "event": "flight",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:42:44.539312+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:42:44.539312+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "annotation_id": "angle_c2cb529b9cadd537",
+      "frame_index": 221,
+      "timestamp_ms": 7366.667,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "front",
+      "manual_points": {
+        "left_hip": [
+          378.59,
+          484.122
+        ],
+        "left_knee": [
+          380.289,
+          630.008
+        ],
+        "left_ankle": [
+          380.289,
+          725.933
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 179.333,
+      "event": "flight",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:43:04.058787+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:43:04.058787+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "annotation_id": "angle_02484adf6892e0ec",
+      "frame_index": 221,
+      "timestamp_ms": 7366.667,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "front",
+      "manual_points": {
+        "left_elbow": [
+          406.633,
+          350.226
+        ],
+        "left_shoulder": [
+          380.289,
+          342.233
+        ],
+        "left_hip": [
+          378.59,
+          486.12
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 73.798,
+      "event": "flight",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:43:16.915698+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:43:16.915698+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "annotation_id": "angle_b0d5aa84ee565a80",
+      "frame_index": 221,
+      "timestamp_ms": 7366.667,
+      "joint": "right_elbow",
+      "joint_label": "右肘",
+      "camera_view": "front",
+      "manual_points": {
+        "right_shoulder": [
+          334.4,
+          348.228
+        ],
+        "right_elbow": [
+          305.506,
+          352.225
+        ],
+        "right_wrist": [
+          320.803,
+          278.283
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_elbow",
+        "right_wrist"
+      ],
+      "manual_angle_deg": 70.436,
+      "event": "flight",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:43:28.969379+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:43:28.969379+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "annotation_id": "angle_d73eb33c09028f71",
+      "frame_index": 221,
+      "timestamp_ms": 7366.667,
+      "joint": "right_hip",
+      "joint_label": "右髋",
+      "camera_view": "front",
+      "manual_points": {
+        "right_shoulder": [
+          335.249,
+          348.228
+        ],
+        "right_hip": [
+          344.597,
+          490.117
+        ],
+        "right_knee": [
+          339.498,
+          630.008
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_hip",
+        "right_knee"
+      ],
+      "manual_angle_deg": 174.143,
+      "event": "flight",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:43:49.074022+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:43:49.074022+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "annotation_id": "angle_b10def07e3e44e2f",
+      "frame_index": 221,
+      "timestamp_ms": 7366.667,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          376.89,
+          360.843
+        ],
+        "left_hip": [
+          376.89,
+          496.737
+        ],
+        "left_knee": [
+          379.439,
+          636.628
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 178.956,
+      "event": "flight",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:44:19.988896+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:44:19.988896+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_burpee_broad_jump_006",
+      "action": "burpee_broad_jump",
+      "source_filename": "波比跳-胸部未触地-正前方-1.mp4",
+      "annotation_id": "angle_a4f889112388fa28",
+      "frame_index": 221,
+      "timestamp_ms": 7366.667,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "front",
+      "manual_points": {
+        "shoulder_center": [
+          356.495,
+          372.209
+        ],
+        "hip_center": [
+          359.894,
+          502.108
+        ],
+        "vertical_reference": [
+          360.744,
+          272.287
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 1.711,
+      "event": "flight",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:44:54.835759+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:44:54.835759+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "annotation_id": "angle_487f9ceb520b5a90",
+      "frame_index": 30,
+      "timestamp_ms": 1000.0,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          358.194,
+          413.677
+        ],
+        "left_elbow": [
+          366.692,
+          539.578
+        ],
+        "left_wrist": [
+          370.092,
+          643.497
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 178.012,
+      "event": "left_support",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:56:50.137468+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:56:50.137468+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "annotation_id": "angle_2928c1333b394102",
+      "frame_index": 30,
+      "timestamp_ms": 1000.0,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          356.495,
+          425.667
+        ],
+        "left_hip": [
+          371.791,
+          587.541
+        ],
+        "left_knee": [
+          366.692,
+          783.388
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 173.111,
+      "event": "left_support",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:57:19.697201+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:57:19.697201+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "annotation_id": "angle_fb6019871fa9e2c3",
+      "frame_index": 30,
+      "timestamp_ms": 1000.0,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          371.791,
+          586.042
+        ],
+        "left_knee": [
+          366.692,
+          783.888
+        ],
+        "left_ankle": [
+          384.538,
+          919.781
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 171.042,
+      "event": "left_support",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:57:33.152691+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:57:33.152691+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "annotation_id": "angle_25a47cbad7afbd39",
+      "frame_index": 30,
+      "timestamp_ms": 1000.0,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          365.842,
+          542.077
+        ],
+        "left_shoulder": [
+          356.495,
+          414.176
+        ],
+        "left_hip": [
+          372.641,
+          594.036
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 0.95,
+      "event": "left_support",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:57:44.674641+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:57:44.674641+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "annotation_id": "angle_4b79797ccd5c4d1b",
+      "frame_index": 43,
+      "timestamp_ms": 1433.333,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          373.491,
+          400.187
+        ],
+        "left_elbow": [
+          376.04,
+          530.086
+        ],
+        "left_wrist": [
+          369.242,
+          610.023
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 174.015,
+      "event": "right_support",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:58:08.449290+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:58:08.449290+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "annotation_id": "angle_bd2c6bff149591e5",
+      "frame_index": 43,
+      "timestamp_ms": 1433.333,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          375.19,
+          392.194
+        ],
+        "left_elbow": [
+          376.04,
+          510.101
+        ],
+        "left_wrist": [
+          367.542,
+          612.022
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 174.821,
+      "event": "right_support",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:01:21.228432+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:01:21.228432+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "annotation_id": "angle_92530ebd8b4c6ed3",
+      "frame_index": 43,
+      "timestamp_ms": 1433.333,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          376.04,
+          394.192
+        ],
+        "left_hip": [
+          383.688,
+          560.062
+        ],
+        "left_knee": [
+          360.744,
+          761.905
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 170.875,
+      "event": "right_support",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:01:43.716188+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:01:43.716188+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "annotation_id": "angle_bbb8b01ea65ae834",
+      "frame_index": 43,
+      "timestamp_ms": 1433.333,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          377.74,
+          562.061
+        ],
+        "left_knee": [
+          358.194,
+          759.906
+        ],
+        "left_ankle": [
+          410.882,
+          837.845
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 140.298,
+      "event": "right_support",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:01:53.736325+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:01:53.736325+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "annotation_id": "angle_91ebaf79a662571b",
+      "frame_index": 43,
+      "timestamp_ms": 1433.333,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          377.74,
+          526.089
+        ],
+        "left_shoulder": [
+          376.04,
+          390.195
+        ],
+        "left_hip": [
+          380.289,
+          568.056
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 0.652,
+      "event": "right_support",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:02:14.465312+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:02:14.465312+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "annotation_id": "angle_1a09a0d45e603443",
+      "frame_index": 38,
+      "timestamp_ms": 1266.667,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          367.542,
+          418.173
+        ],
+        "left_elbow": [
+          373.491,
+          556.066
+        ],
+        "left_wrist": [
+          381.139,
+          598.033
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 172.142,
+      "event": "double_support",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:03:40.307412+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:03:40.307412+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "annotation_id": "angle_30b3d25f8995dfd3",
+      "frame_index": 38,
+      "timestamp_ms": 1266.667,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          365.842,
+          414.176
+        ],
+        "left_hip": [
+          379.439,
+          590.039
+        ],
+        "left_knee": [
+          388.787,
+          765.902
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 178.622,
+      "event": "double_support",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:03:54.259862+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:03:54.259862+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "annotation_id": "angle_b1f74d61bc07994e",
+      "frame_index": 38,
+      "timestamp_ms": 1266.667,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          379.439,
+          582.045
+        ],
+        "left_knee": [
+          388.787,
+          765.902
+        ],
+        "left_ankle": [
+          429.578,
+          899.797
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 165.967,
+      "event": "double_support",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:04:10.357274+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:04:10.357274+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_farmers_carry_002",
+      "action": "farmers_carry",
+      "source_filename": "农夫行走-标准-侧方-2.mp4",
+      "annotation_id": "angle_cd6826ee32e0f1ca",
+      "frame_index": 38,
+      "timestamp_ms": 1266.667,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          371.791,
+          538.08
+        ],
+        "left_shoulder": [
+          368.392,
+          416.175
+        ],
+        "left_hip": [
+          382.839,
+          582.045
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 3.381,
+      "event": "double_support",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:04:40.992243+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:04:40.992243+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_304688ea7c65a172",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          377.74,
+          537.611
+        ],
+        "left_elbow": [
+          399.835,
+          573.583
+        ],
+        "left_wrist": [
+          385.388,
+          509.633
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 18.829,
+      "event": "rear_knee_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:19:32.036557+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:19:32.036557+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_9f472a879bbb3460",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          376.89,
+          539.61
+        ],
+        "left_hip": [
+          375.19,
+          663.513
+        ],
+        "left_knee": [
+          384.538,
+          813.396
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 175.645,
+      "event": "rear_knee_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:19:47.467817+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:19:47.467817+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_7293eba8f2c0a727",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "front",
+      "manual_points": {
+        "left_hip": [
+          376.89,
+          663.981
+        ],
+        "left_knee": [
+          383.688,
+          813.864
+        ],
+        "left_ankle": [
+          393.036,
+          767.9
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 14.093,
+      "event": "rear_knee_contact",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:19:59.747308+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:19:59.747308+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_ff8a3dc7eee96e81",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "front",
+      "manual_points": {
+        "left_elbow": [
+          399.835,
+          572.053
+        ],
+        "left_shoulder": [
+          378.59,
+          542.077
+        ],
+        "left_hip": [
+          377.74,
+          661.983
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 35.733,
+      "event": "rear_knee_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:20:19.056964+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:23:05.964949+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_6b8f27879cabaa45",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "right_elbow",
+      "joint_label": "右肘",
+      "camera_view": "front",
+      "manual_points": {
+        "right_shoulder": [
+          331.0,
+          548.072
+        ],
+        "right_elbow": [
+          308.905,
+          600.031
+        ],
+        "right_wrist": [
+          326.751,
+          508.103
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_elbow",
+        "right_wrist"
+      ],
+      "manual_angle_deg": 12.051,
+      "event": "rear_knee_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:20:33.131780+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:23:01.726232+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_ad1a0efc50815f41",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "right_hip",
+      "joint_label": "右髋",
+      "camera_view": "front",
+      "manual_points": {
+        "right_shoulder": [
+          333.55,
+          550.07
+        ],
+        "right_hip": [
+          340.348,
+          655.987
+        ],
+        "right_knee": [
+          344.597,
+          693.958
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_hip",
+        "right_knee"
+      ],
+      "manual_angle_deg": 177.287,
+      "event": "rear_knee_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:20:47.034761+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:22:51.756876+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_ddbfbb3763c6bfcf",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "right_knee",
+      "joint_label": "右膝",
+      "camera_view": "front",
+      "manual_points": {
+        "right_hip": [
+          341.198,
+          655.987
+        ],
+        "right_knee": [
+          344.597,
+          691.959
+        ],
+        "right_ankle": [
+          352.246,
+          821.858
+        ]
+      },
+      "point_order": [
+        "right_hip",
+        "right_knee",
+        "right_ankle"
+      ],
+      "manual_angle_deg": 177.972,
+      "event": "rear_knee_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:20:56.649645+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:22:46.652662+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_aa51297312f6de35",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "right_shoulder",
+      "joint_label": "右肩",
+      "camera_view": "front",
+      "manual_points": {
+        "right_elbow": [
+          308.905,
+          592.037
+        ],
+        "right_shoulder": [
+          334.4,
+          554.067
+        ],
+        "right_hip": [
+          340.348,
+          653.989
+        ]
+      },
+      "point_order": [
+        "right_elbow",
+        "right_shoulder",
+        "right_hip"
+      ],
+      "manual_angle_deg": 37.286,
+      "event": "rear_knee_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:21:07.140843+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:22:43.246961+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_e544b8a73fa61198",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "front",
+      "manual_points": {
+        "shoulder_center": [
+          354.795,
+          550.07
+        ],
+        "hip_center": [
+          356.495,
+          671.975
+        ],
+        "vertical_reference": [
+          356.495,
+          382.201
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 0.799,
+      "event": "rear_knee_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:21:27.096701+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:22:39.530662+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_a226b23531cb8c9a",
+      "frame_index": 245,
+      "timestamp_ms": 8166.667,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "front",
+      "manual_points": {
+        "shoulder_center": [
+          353.945,
+          478.126
+        ],
+        "hip_center": [
+          359.044,
+          604.028
+        ],
+        "vertical_reference": [
+          354.795,
+          314.254
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 1.479,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:22:26.464313+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:22:35.424324+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_d312e7269d0ece53",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "right_shoulder",
+      "joint_label": "右肩",
+      "camera_view": "front",
+      "manual_points": {
+        "right_elbow": [
+          309.755,
+          596.034
+        ],
+        "right_shoulder": [
+          331.0,
+          554.067
+        ],
+        "right_hip": [
+          339.498,
+          653.989
+        ]
+      },
+      "point_order": [
+        "right_elbow",
+        "right_shoulder",
+        "right_hip"
+      ],
+      "manual_angle_deg": 31.711,
+      "event": "rear_knee_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:23:40.129462+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:23:40.129462+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_2eef8e4ce18e3b61",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "right_knee",
+      "joint_label": "右膝",
+      "camera_view": "front",
+      "manual_points": {
+        "right_hip": [
+          339.498,
+          653.989
+        ],
+        "right_knee": [
+          344.597,
+          693.958
+        ],
+        "right_ankle": [
+          352.246,
+          813.864
+        ]
+      },
+      "point_order": [
+        "right_hip",
+        "right_knee",
+        "right_ankle"
+      ],
+      "manual_angle_deg": 176.38,
+      "event": "rear_knee_contact",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:23:55.215095+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:23:55.215095+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_f381879ba9da1ee3",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "right_hip",
+      "joint_label": "右髋",
+      "camera_view": "front",
+      "manual_points": {
+        "right_shoulder": [
+          335.249,
+          548.072
+        ],
+        "right_hip": [
+          342.048,
+          655.987
+        ],
+        "right_knee": [
+          343.747,
+          701.952
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_hip",
+        "right_knee"
+      ],
+      "manual_angle_deg": 178.512,
+      "event": "rear_knee_contact",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:24:23.364814+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:24:23.364814+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_141307f0e721d91d",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "right_elbow",
+      "joint_label": "右肘",
+      "camera_view": "front",
+      "manual_points": {
+        "right_shoulder": [
+          331.85,
+          552.069
+        ],
+        "right_elbow": [
+          306.356,
+          594.036
+        ],
+        "right_wrist": [
+          323.352,
+          520.094
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_elbow",
+        "right_wrist"
+      ],
+      "manual_angle_deg": 18.333,
+      "event": "rear_knee_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:24:41.902644+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:24:41.902644+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_20e1854df2b44862",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "front",
+      "manual_points": {
+        "left_elbow": [
+          399.835,
+          574.052
+        ],
+        "left_shoulder": [
+          379.439,
+          540.078
+        ],
+        "left_hip": [
+          376.89,
+          661.983
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 32.176,
+      "event": "rear_knee_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:24:54.085754+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:24:54.085754+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_1bf237f7187bb922",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "front",
+      "manual_points": {
+        "left_hip": [
+          378.59,
+          657.986
+        ],
+        "left_knee": [
+          383.688,
+          813.864
+        ],
+        "left_ankle": [
+          392.187,
+          779.891
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 15.919,
+      "event": "rear_knee_contact",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:25:07.301531+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:25:07.301531+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_ef3ca4aeee02ea08",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          378.59,
+          536.081
+        ],
+        "left_hip": [
+          379.439,
+          665.98
+        ],
+        "left_knee": [
+          382.839,
+          817.861
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 179.092,
+      "event": "rear_knee_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:25:25.491363+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:25:25.491363+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_6571ca631e920e60",
+      "frame_index": 230,
+      "timestamp_ms": 7666.667,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          379.439,
+          538.08
+        ],
+        "left_elbow": [
+          399.835,
+          576.05
+        ],
+        "left_wrist": [
+          388.787,
+          506.105
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 19.267,
+      "event": "rear_knee_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:25:34.987558+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:25:34.987558+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_8fd5498e2c9fcc81",
+      "frame_index": 245,
+      "timestamp_ms": 8166.667,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          374.341,
+          466.136
+        ],
+        "left_elbow": [
+          400.685,
+          506.105
+        ],
+        "left_wrist": [
+          384.538,
+          438.158
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 20.021,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:26:32.037174+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:27:08.573613+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_7322889268e207a8",
+      "frame_index": 245,
+      "timestamp_ms": 8166.667,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          376.89,
+          466.136
+        ],
+        "left_hip": [
+          378.59,
+          596.034
+        ],
+        "left_knee": [
+          381.139,
+          725.933
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 179.626,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:27:01.133844+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:27:01.133844+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_abe03e74d1a6349f",
+      "frame_index": 245,
+      "timestamp_ms": 8166.667,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "front",
+      "manual_points": {
+        "left_hip": [
+          378.59,
+          594.036
+        ],
+        "left_knee": [
+          379.439,
+          725.933
+        ],
+        "left_ankle": [
+          387.088,
+          749.914
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 162.678,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:27:26.104262+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:27:26.104262+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_d618c776d8cf7b85",
+      "frame_index": 245,
+      "timestamp_ms": 8166.667,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "front",
+      "manual_points": {
+        "left_elbow": [
+          400.685,
+          504.106
+        ],
+        "left_shoulder": [
+          375.19,
+          472.131
+        ],
+        "left_hip": [
+          376.89,
+          598.033
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 37.793,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:27:35.985290+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:27:35.985290+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_8021ac0cee134265",
+      "frame_index": 245,
+      "timestamp_ms": 8166.667,
+      "joint": "right_elbow",
+      "joint_label": "右肘",
+      "camera_view": "front",
+      "manual_points": {
+        "right_shoulder": [
+          327.601,
+          476.128
+        ],
+        "right_elbow": [
+          307.206,
+          528.087
+        ],
+        "right_wrist": [
+          320.803,
+          434.161
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_elbow",
+        "right_wrist"
+      ],
+      "manual_angle_deg": 13.194,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:27:49.940626+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:27:49.940626+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_8857d840a62ad4cc",
+      "frame_index": 245,
+      "timestamp_ms": 8166.667,
+      "joint": "right_hip",
+      "joint_label": "右髋",
+      "camera_view": "front",
+      "manual_points": {
+        "right_shoulder": [
+          327.601,
+          476.128
+        ],
+        "right_hip": [
+          338.649,
+          586.042
+        ],
+        "right_knee": [
+          346.297,
+          697.955
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_hip",
+        "right_knee"
+      ],
+      "manual_angle_deg": 178.17,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:28:01.769328+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:28:01.769328+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_0c09a2597519e3fc",
+      "frame_index": 245,
+      "timestamp_ms": 8166.667,
+      "joint": "right_knee",
+      "joint_label": "右膝",
+      "camera_view": "front",
+      "manual_points": {
+        "right_hip": [
+          339.498,
+          590.039
+        ],
+        "right_knee": [
+          347.997,
+          701.952
+        ],
+        "right_ankle": [
+          353.945,
+          807.869
+        ]
+      },
+      "point_order": [
+        "right_hip",
+        "right_knee",
+        "right_ankle"
+      ],
+      "manual_angle_deg": 178.871,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:28:12.493273+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:28:12.493273+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_63ed1f64b91b7b96",
+      "frame_index": 245,
+      "timestamp_ms": 8166.667,
+      "joint": "right_shoulder",
+      "joint_label": "右肩",
+      "camera_view": "front",
+      "manual_points": {
+        "right_elbow": [
+          306.356,
+          524.091
+        ],
+        "right_shoulder": [
+          330.15,
+          484.122
+        ],
+        "right_hip": [
+          341.198,
+          590.039
+        ]
+      },
+      "point_order": [
+        "right_elbow",
+        "right_shoulder",
+        "right_hip"
+      ],
+      "manual_angle_deg": 36.721,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:28:25.369492+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:28:25.369492+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_c75e0d27c42c68bb",
+      "frame_index": 245,
+      "timestamp_ms": 8166.667,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "front",
+      "manual_points": {
+        "shoulder_center": [
+          352.246,
+          474.13
+        ],
+        "hip_center": [
+          359.044,
+          606.026
+        ],
+        "vertical_reference": [
+          358.194,
+          310.258
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 2.786,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:28:37.777141+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:28:37.777141+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_36b23c6752f8673a",
+      "frame_index": 288,
+      "timestamp_ms": 9600.0,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "front",
+      "manual_points": {
+        "shoulder_center": [
+          370.092,
+          526.089
+        ],
+        "hip_center": [
+          380.289,
+          689.961
+        ],
+        "vertical_reference": [
+          379.439,
+          396.19
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 3.395,
+      "event": "descent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:29:27.859362+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:29:27.859362+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_40e6fb8790bfe0b5",
+      "frame_index": 288,
+      "timestamp_ms": 9600.0,
+      "joint": "right_shoulder",
+      "joint_label": "右肩",
+      "camera_view": "front",
+      "manual_points": {
+        "right_elbow": [
+          316.554,
+          586.042
+        ],
+        "right_shoulder": [
+          344.597,
+          542.077
+        ],
+        "right_hip": [
+          357.344,
+          683.966
+        ]
+      },
+      "point_order": [
+        "right_elbow",
+        "right_shoulder",
+        "right_hip"
+      ],
+      "manual_angle_deg": 37.665,
+      "event": "descent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:29:45.237233+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:29:45.237233+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_9cc725b4ad5ca232",
+      "frame_index": 288,
+      "timestamp_ms": 9600.0,
+      "joint": "right_knee",
+      "joint_label": "右膝",
+      "camera_view": "front",
+      "manual_points": {
+        "right_hip": [
+          353.095,
+          689.961
+        ],
+        "right_knee": [
+          358.194,
+          879.813
+        ],
+        "right_ankle": [
+          367.542,
+          849.836
+        ]
+      },
+      "point_order": [
+        "right_hip",
+        "right_knee",
+        "right_ankle"
+      ],
+      "manual_angle_deg": 18.858,
+      "event": "descent",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:29:57.586127+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:29:57.586127+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_a3c8804bd6a1e17b",
+      "frame_index": 288,
+      "timestamp_ms": 9600.0,
+      "joint": "right_hip",
+      "joint_label": "右髋",
+      "camera_view": "front",
+      "manual_points": {
+        "right_shoulder": [
+          339.498,
+          542.077
+        ],
+        "right_hip": [
+          357.344,
+          685.964
+        ],
+        "right_knee": [
+          357.344,
+          871.819
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_hip",
+        "right_knee"
+      ],
+      "manual_angle_deg": 172.93,
+      "event": "descent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:30:10.283826+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:30:10.283826+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_66ce294187b542cc",
+      "frame_index": 288,
+      "timestamp_ms": 9600.0,
+      "joint": "right_elbow",
+      "joint_label": "右肘",
+      "camera_view": "front",
+      "manual_points": {
+        "right_shoulder": [
+          345.447,
+          538.08
+        ],
+        "right_elbow": [
+          317.403,
+          580.047
+        ],
+        "right_wrist": [
+          331.85,
+          500.109
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_elbow",
+        "right_wrist"
+      ],
+      "manual_angle_deg": 23.508,
+      "event": "descent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:30:30.660808+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:30:30.660808+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_5f3a9f09c58f264d",
+      "frame_index": 288,
+      "timestamp_ms": 9600.0,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "front",
+      "manual_points": {
+        "left_elbow": [
+          426.179,
+          550.07
+        ],
+        "left_shoulder": [
+          398.135,
+          512.1
+        ],
+        "left_hip": [
+          398.135,
+          671.975
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 36.449,
+      "event": "descent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:30:49.590918+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:30:49.590918+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_1cc8ba4f579abada",
+      "frame_index": 288,
+      "timestamp_ms": 9600.0,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "front",
+      "manual_points": {
+        "left_hip": [
+          398.135,
+          673.973
+        ],
+        "left_knee": [
+          395.586,
+          751.913
+        ],
+        "left_ankle": [
+          392.187,
+          893.802
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 179.499,
+      "event": "descent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:31:05.930050+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:31:05.930050+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_cb44f1917569aefc",
+      "frame_index": 288,
+      "timestamp_ms": 9600.0,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          398.135,
+          522.092
+        ],
+        "left_hip": [
+          397.285,
+          675.972
+        ],
+        "left_knee": [
+          394.736,
+          749.914
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 178.342,
+      "event": "descent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:31:19.431401+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:31:19.431401+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_lunge_005",
+      "action": "lunge",
+      "source_filename": "负重箭步蹲-髋部未伸展-正前方-1.mp4",
+      "annotation_id": "angle_630594c475e18d1c",
+      "frame_index": 288,
+      "timestamp_ms": 9600.0,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "front",
+      "manual_points": {
+        "left_shoulder": [
+          398.135,
+          518.095
+        ],
+        "left_elbow": [
+          427.878,
+          548.072
+        ],
+        "left_wrist": [
+          408.333,
+          478.126
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 29.164,
+      "event": "descent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:31:26.195923+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:31:26.195923+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_f792d2f42c8e8681",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_shoulder": [
+          341.198,
+          589.539
+        ],
+        "left_elbow": [
+          325.052,
+          641.499
+        ],
+        "left_wrist": [
+          298.708,
+          705.449
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 174.873,
+      "event": "catch",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:29:48.357721+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:29:48.357721+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_b469bcae12fe777e",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_shoulder": [
+          339.498,
+          599.532
+        ],
+        "left_hip": [
+          390.487,
+          681.468
+        ],
+        "left_knee": [
+          338.649,
+          647.494
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 24.866,
+      "event": "catch",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:30:08.421337+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:30:08.421337+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_ec6ddac6c3588b54",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_hip": [
+          381.989,
+          683.966
+        ],
+        "left_knee": [
+          337.799,
+          645.995
+        ],
+        "left_ankle": [
+          335.249,
+          767.9
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 50.527,
+      "event": "catch",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:30:42.162923+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:30:42.162923+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_a2d85fb21f162ea5",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_elbow": [
+          316.554,
+          653.989
+        ],
+        "left_shoulder": [
+          335.249,
+          602.03
+        ],
+        "left_hip": [
+          386.238,
+          681.967
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 52.321,
+      "event": "catch",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:30:59.310942+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:30:59.310942+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_5865945d1174d613",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "shoulder_center": [
+          373.491,
+          572.053
+        ],
+        "hip_center": [
+          406.633,
+          665.98
+        ],
+        "vertical_reference": [
+          406.633,
+          492.116
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 19.435,
+      "event": "catch",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:31:33.043260+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:31:33.043260+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_44899bc8689a280e",
+      "frame_index": 168,
+      "timestamp_ms": 5600.0,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_shoulder": [
+          443.175,
+          574.052
+        ],
+        "left_elbow": [
+          449.124,
+          677.97
+        ],
+        "left_wrist": [
+          415.131,
+          630.008
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 32.051,
+      "event": "finish",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:32:57.460613+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:32:57.460613+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_acfaa9c8774f2425",
+      "frame_index": 168,
+      "timestamp_ms": 5600.0,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_shoulder": [
+          444.875,
+          582.045
+        ],
+        "left_hip": [
+          418.531,
+          709.945
+        ],
+        "left_knee": [
+          359.044,
+          735.925
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 125.231,
+      "event": "finish",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:33:13.700614+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:33:13.700614+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_aa468a2053dedf86",
+      "frame_index": 168,
+      "timestamp_ms": 5600.0,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_hip": [
+          415.981,
+          713.942
+        ],
+        "left_knee": [
+          359.044,
+          743.919
+        ],
+        "left_ankle": [
+          317.403,
+          779.891
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 166.944,
+      "event": "finish",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:33:32.084461+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:33:32.084461+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_7231b5bee10fd3e9",
+      "frame_index": 168,
+      "timestamp_ms": 5600.0,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_elbow": [
+          446.574,
+          677.97
+        ],
+        "left_shoulder": [
+          445.724,
+          576.05
+        ],
+        "left_hip": [
+          419.38,
+          707.947
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 11.773,
+      "event": "finish",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:33:49.729121+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:33:49.729121+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_723256cc13f2751f",
+      "frame_index": 168,
+      "timestamp_ms": 5600.0,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "shoulder_center": [
+          468.669,
+          554.067
+        ],
+        "hip_center": [
+          442.325,
+          717.939
+        ],
+        "vertical_reference": [
+          444.025,
+          486.12
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 8.713,
+      "event": "finish",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:34:14.761391+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:34:14.761391+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_29275c0b0605e9dc",
+      "frame_index": 188,
+      "timestamp_ms": 6266.667,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "shoulder_center": [
+          420.23,
+          546.073
+        ],
+        "hip_center": [
+          410.882,
+          715.941
+        ],
+        "vertical_reference": [
+          409.183,
+          552.069
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 3.744,
+      "event": "recovery",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:34:49.768531+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:34:49.768531+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_783ebf84ef7f2bef",
+      "frame_index": 188,
+      "timestamp_ms": 6266.667,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_shoulder": [
+          391.337,
+          558.064
+        ],
+        "left_elbow": [
+          353.945,
+          622.014
+        ],
+        "left_wrist": [
+          331.0,
+          632.006
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 143.847,
+      "event": "recovery",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:35:04.010132+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:35:04.010132+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_9ba035fefe6ef6eb",
+      "frame_index": 188,
+      "timestamp_ms": 6266.667,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_shoulder": [
+          389.637,
+          556.066
+        ],
+        "left_hip": [
+          401.534,
+          709.945
+        ],
+        "left_knee": [
+          337.799,
+          675.972
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 57.52,
+      "event": "recovery",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:36:08.832790+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:36:08.832790+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_b232606224964faf",
+      "frame_index": 188,
+      "timestamp_ms": 6266.667,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_hip": [
+          398.985,
+          711.944
+        ],
+        "left_knee": [
+          337.799,
+          675.972
+        ],
+        "left_ankle": [
+          313.154,
+          771.897
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 73.957,
+      "event": "recovery",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:36:25.722703+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:36:25.722703+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_rowing_001",
+      "action": "rowing",
+      "source_filename": "划船机-标准-侧后方-1.mp4",
+      "annotation_id": "angle_7ca0df0ec613620b",
+      "frame_index": 188,
+      "timestamp_ms": 6266.667,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_elbow": [
+          353.095,
+          618.017
+        ],
+        "left_shoulder": [
+          389.637,
+          558.064
+        ],
+        "left_hip": [
+          394.736,
+          707.947
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 33.311,
+      "event": "recovery",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:36:44.164372+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:36:44.164372+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_a0f7320bd0fe8eef",
+      "frame_index": 83,
+      "timestamp_ms": 2766.659,
+      "joint": "right_elbow",
+      "joint_label": "右肘",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "right_shoulder": [
+          257.794,
+          376.956
+        ],
+        "right_elbow": [
+          243.668,
+          415.925
+        ],
+        "right_wrist": [
+          237.89,
+          480.375
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_elbow",
+        "right_wrist"
+      ],
+      "manual_angle_deg": 165.198,
+      "event": "lowest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T15:54:50.645445+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:17:04.828372+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_ab46af2f3c879074",
+      "frame_index": 57,
+      "timestamp_ms": 1899.995,
+      "joint": "right_elbow",
+      "joint_label": "右肘",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "right_shoulder": [
+          245.595,
+          275.035
+        ],
+        "right_elbow": [
+          264.857,
+          239.063
+        ],
+        "right_wrist": [
+          271.278,
+          191.101
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_elbow",
+        "right_wrist"
+      ],
+      "manual_angle_deg": 159.457,
+      "event": "highest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T16:04:06.922230+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-07-31T16:04:06.922230+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_1a29726ae728dde1",
+      "frame_index": 57,
+      "timestamp_ms": 1899.995,
+      "joint": "right_hip",
+      "joint_label": "右髋",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "right_shoulder": [
+          244.953,
+          276.159
+        ],
+        "right_hip": [
+          238.532,
+          405.059
+        ],
+        "right_knee": [
+          248.805,
+          530.96
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_hip",
+        "right_knee"
+      ],
+      "manual_angle_deg": 172.483,
+      "event": "highest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T16:04:28.993341+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-07-31T16:04:28.993341+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_1440032b81e36d89",
+      "frame_index": 57,
+      "timestamp_ms": 1899.995,
+      "joint": "right_knee",
+      "joint_label": "右膝",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "right_hip": [
+          240.458,
+          408.056
+        ],
+        "right_knee": [
+          249.447,
+          529.461
+        ],
+        "right_ankle": [
+          246.237,
+          620.89
+        ]
+      },
+      "point_order": [
+        "right_hip",
+        "right_knee",
+        "right_ankle"
+      ],
+      "manual_angle_deg": 173.755,
+      "event": "highest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T16:04:42.248773+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-07-31T16:04:42.248773+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_e297b72de3d8670e",
+      "frame_index": 57,
+      "timestamp_ms": 1899.995,
+      "joint": "right_shoulder",
+      "joint_label": "右肩",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "right_elbow": [
+          268.067,
+          231.194
+        ],
+        "right_shoulder": [
+          244.953,
+          274.66
+        ],
+        "right_hip": [
+          241.742,
+          411.054
+        ]
+      },
+      "point_order": [
+        "right_elbow",
+        "right_shoulder",
+        "right_hip"
+      ],
+      "manual_angle_deg": 153.346,
+      "event": "highest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T16:04:58.267325+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-07-31T16:04:58.267325+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_3b153045a779b688",
+      "frame_index": 83,
+      "timestamp_ms": 2766.659,
+      "joint": "right_hip",
+      "joint_label": "右髋",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "right_shoulder": [
+          257.794,
+          384.45
+        ],
+        "right_hip": [
+          226.332,
+          441.405
+        ],
+        "right_knee": [
+          245.595,
+          540.328
+        ]
+      },
+      "point_order": [
+        "right_shoulder",
+        "right_hip",
+        "right_knee"
+      ],
+      "manual_angle_deg": 140.065,
+      "event": "lowest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T16:05:34.555248+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-07-31T16:05:34.555248+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_986f7d3ad7ef752f",
+      "frame_index": 83,
+      "timestamp_ms": 2766.659,
+      "joint": "right_knee",
+      "joint_label": "右膝",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "right_hip": [
+          226.332,
+          444.403
+        ],
+        "right_knee": [
+          246.237,
+          540.328
+        ],
+        "right_ankle": [
+          242.384,
+          633.255
+        ]
+      },
+      "point_order": [
+        "right_hip",
+        "right_knee",
+        "right_ankle"
+      ],
+      "manual_angle_deg": 165.903,
+      "event": "lowest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T16:07:49.163698+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-07-31T16:07:49.163698+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_d4ca14f82ce38fa6",
+      "frame_index": 83,
+      "timestamp_ms": 2766.659,
+      "joint": "right_shoulder",
+      "joint_label": "右肩",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "right_elbow": [
+          247.521,
+          429.415
+        ],
+        "right_shoulder": [
+          259.078,
+          379.953
+        ],
+        "right_hip": [
+          226.974,
+          442.904
+        ]
+      },
+      "point_order": [
+        "right_elbow",
+        "right_shoulder",
+        "right_hip"
+      ],
+      "manual_angle_deg": 13.869,
+      "event": "lowest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T16:08:12.533068+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-07-31T16:08:12.533068+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_e6f8db54d65e1608",
+      "frame_index": 83,
+      "timestamp_ms": 2766.659,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "shoulder_center": [
+          250.089,
+          357.471
+        ],
+        "hip_center": [
+          209.638,
+          435.41
+        ],
+        "vertical_reference": [
+          211.565,
+          227.073
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 26.9,
+      "event": "lowest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T16:08:38.052830+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:17:28.928278+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_f4ed540e497e1699",
+      "frame_index": 57,
+      "timestamp_ms": 1899.995,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "shoulder_center": [
+          231.469,
+          282.529
+        ],
+        "hip_center": [
+          225.048,
+          405.433
+        ],
+        "vertical_reference": [
+          224.406,
+          215.082
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 3.184,
+      "event": "highest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T16:09:00.205663+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:16:12.436510+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_4bb59c06b2210271",
+      "frame_index": 57,
+      "timestamp_ms": 1899.995,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_shoulder": [
+          223.764,
+          280.656
+        ],
+        "left_elbow": [
+          232.753,
+          246.183
+        ],
+        "left_wrist": [
+          246.237,
+          205.714
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 176.187,
+      "event": "highest_point",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T16:17:45.692609+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:16:17.530182+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_5149844e1c730300",
+      "frame_index": 57,
+      "timestamp_ms": 1899.995,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_shoulder": [
+          224.406,
+          279.157
+        ],
+        "left_hip": [
+          219.911,
+          403.56
+        ],
+        "left_knee": [
+          229.543,
+          521.967
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 173.28,
+      "event": "highest_point",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T16:18:13.380205+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:16:22.724758+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_502b10fc040c7b3f",
+      "frame_index": 57,
+      "timestamp_ms": 1899.995,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_hip": [
+          220.554,
+          402.061
+        ],
+        "left_knee": [
+          230.827,
+          520.468
+        ],
+        "left_ankle": [
+          224.406,
+          605.902
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 170.743,
+      "event": "highest_point",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T16:18:27.969509+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:16:41.477824+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_0527eac53b87b09c",
+      "frame_index": 57,
+      "timestamp_ms": 1899.995,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_elbow": [
+          233.395,
+          240.187
+        ],
+        "left_shoulder": [
+          222.48,
+          283.653
+        ],
+        "left_hip": [
+          219.269,
+          405.059
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 167.419,
+      "event": "highest_point",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-07-31T16:18:49.485450+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:16:56.036078+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_5d27d04d523e1888",
+      "frame_index": 83,
+      "timestamp_ms": 2766.659,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_shoulder": [
+          233.395,
+          352.6
+        ],
+        "left_elbow": [
+          207.07,
+          429.04
+        ],
+        "left_wrist": [
+          204.502,
+          472.506
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 164.378,
+      "event": "lowest_point",
+      "visibility": "low",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-08-01T14:24:00.824908+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:24:00.824908+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_036e28442186ebe9",
+      "frame_index": 83,
+      "timestamp_ms": 2766.659,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_shoulder": [
+          233.395,
+          351.101
+        ],
+        "left_hip": [
+          210.28,
+          430.539
+        ],
+        "left_knee": [
+          226.332,
+          539.953
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 155.43,
+      "event": "lowest_point",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-08-01T14:24:19.002319+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:24:19.002319+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_ae2536b8273fb053",
+      "frame_index": 83,
+      "timestamp_ms": 2766.659,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_shoulder": [
+          230.827,
+          354.098
+        ],
+        "left_hip": [
+          207.07,
+          432.037
+        ],
+        "left_knee": [
+          224.406,
+          539.953
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 153.922,
+      "event": "lowest_point",
+      "visibility": "low",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-08-01T14:27:19.717837+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:27:19.717837+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_78a369f8f9803fc7",
+      "frame_index": 83,
+      "timestamp_ms": 2766.659,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_hip": [
+          205.144,
+          430.539
+        ],
+        "left_knee": [
+          225.69,
+          539.953
+        ],
+        "left_ankle": [
+          219.269,
+          611.897
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 164.265,
+      "event": "lowest_point",
+      "visibility": "medium",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-08-01T14:27:41.855982+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:27:41.855982+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_skierg_002",
+      "action": "skierg",
+      "source_filename": "滑雪机-标准-斜后方-1.mp4",
+      "annotation_id": "angle_e12d530ec583b9ef",
+      "frame_index": 83,
+      "timestamp_ms": 2766.659,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "oblique_back",
+      "manual_points": {
+        "left_elbow": [
+          216.701,
+          418.548
+        ],
+        "left_shoulder": [
+          234.037,
+          352.6
+        ],
+        "left_hip": [
+          203.86,
+          432.037
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 6.073,
+      "event": "lowest_point",
+      "visibility": "low",
+      "notes": "",
+      "native_frame_size": {
+        "width": 544,
+        "height": 960
+      },
+      "created_at": "2026-08-01T14:28:15.353822+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:28:15.353822+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "annotation_id": "angle_48d2b58cbf539188",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          364.993,
+          589.571
+        ],
+        "left_elbow": [
+          332.7,
+          611.553
+        ],
+        "left_wrist": [
+          308.905,
+          625.542
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 176.208,
+      "event": "pull_start",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:12:54.391219+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:12:54.391219+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "annotation_id": "angle_12bf6e115b9b6ad0",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          364.993,
+          591.569
+        ],
+        "left_hip": [
+          364.993,
+          683.497
+        ],
+        "left_knee": [
+          325.901,
+          661.514
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 60.649,
+      "event": "pull_start",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:13:19.863857+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:13:19.863857+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "annotation_id": "angle_6857c552484a50e5",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          365.842,
+          685.964
+        ],
+        "left_knee": [
+          324.202,
+          663.981
+        ],
+        "left_ankle": [
+          305.506,
+          749.914
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 74.443,
+      "event": "pull_start",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:13:41.271608+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:13:41.271608+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "annotation_id": "angle_026b2a5a821047ca",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          334.4,
+          606.026
+        ],
+        "left_shoulder": [
+          364.993,
+          592.037
+        ],
+        "left_hip": [
+          363.293,
+          683.966
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 64.368,
+      "event": "pull_start",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:14:01.728862+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:14:01.728862+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "annotation_id": "angle_f21cb23c476af210",
+      "frame_index": 74,
+      "timestamp_ms": 2466.667,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          427.878,
+          472.131
+        ],
+        "left_elbow": [
+          415.981,
+          524.091
+        ],
+        "left_wrist": [
+          393.886,
+          508.103
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 67.007,
+      "event": "pull_finish",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:15:23.611529+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:15:23.611529+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "annotation_id": "angle_536bbfb8fca61c31",
+      "frame_index": 74,
+      "timestamp_ms": 2466.667,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          427.029,
+          474.13
+        ],
+        "left_hip": [
+          404.934,
+          570.055
+        ],
+        "left_knee": [
+          374.341,
+          647.994
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 171.54,
+      "event": "pull_finish",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:15:38.813723+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:15:38.813723+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "annotation_id": "angle_10a5b0b5aacdefc3",
+      "frame_index": 74,
+      "timestamp_ms": 2466.667,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          404.934,
+          570.055
+        ],
+        "left_knee": [
+          373.491,
+          640.0
+        ],
+        "left_ankle": [
+          357.344,
+          747.916
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 164.304,
+      "event": "pull_finish",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:15:51.995398+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:15:51.995398+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "annotation_id": "angle_d065ba061451719e",
+      "frame_index": 74,
+      "timestamp_ms": 2466.667,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          415.131,
+          528.087
+        ],
+        "left_shoulder": [
+          428.728,
+          476.128
+        ],
+        "left_hip": [
+          402.384,
+          570.055
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 1.003,
+      "event": "pull_finish",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:16:07.721185+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:16:07.721185+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "annotation_id": "angle_e6f2be0aa166028f",
+      "frame_index": 74,
+      "timestamp_ms": 2466.667,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "side",
+      "manual_points": {
+        "shoulder_center": [
+          413.432,
+          460.14
+        ],
+        "hip_center": [
+          394.736,
+          564.059
+        ],
+        "vertical_reference": [
+          396.436,
+          396.19
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 9.619,
+      "event": "pull_finish",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:16:43.599016+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:16:43.599016+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "annotation_id": "angle_5c4779c127e15087",
+      "frame_index": 124,
+      "timestamp_ms": 4133.333,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          342.898,
+          450.148
+        ],
+        "left_elbow": [
+          328.451,
+          504.106
+        ],
+        "left_wrist": [
+          305.506,
+          536.081
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 159.326,
+      "event": "recovery",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:17:22.869439+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:17:22.869439+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "annotation_id": "angle_a46d471d13ba2696",
+      "frame_index": 124,
+      "timestamp_ms": 4133.333,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          341.198,
+          458.142
+        ],
+        "left_hip": [
+          370.941,
+          538.08
+        ],
+        "left_knee": [
+          339.498,
+          624.012
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 139.493,
+      "event": "recovery",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:17:33.640835+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:17:33.640835+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "annotation_id": "angle_7902ef0151e612b6",
+      "frame_index": 124,
+      "timestamp_ms": 4133.333,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          370.941,
+          540.078
+        ],
+        "left_knee": [
+          337.799,
+          628.009
+        ],
+        "left_ankle": [
+          332.7,
+          725.933
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 162.329,
+      "event": "recovery",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:17:56.771670+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:17:56.771670+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_pull_002",
+      "action": "sled_pull",
+      "source_filename": "拉雪橇-标准-侧方-2.mp4",
+      "annotation_id": "angle_2af6c9961567572f",
+      "frame_index": 124,
+      "timestamp_ms": 4133.333,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          330.15,
+          506.105
+        ],
+        "left_shoulder": [
+          341.198,
+          458.142
+        ],
+        "left_hip": [
+          367.542,
+          540.078
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 30.795,
+      "event": "recovery",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:18:15.560225+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:18:15.560225+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_e6ec0bccb14b7cb5",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          371.791,
+          551.569
+        ],
+        "left_elbow": [
+          404.084,
+          555.566
+        ],
+        "left_wrist": [
+          402.384,
+          621.514
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 95.579,
+      "event": "step_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:49:14.725284+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:49:14.725284+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_bacef1d6379e2d90",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          372.641,
+          551.569
+        ],
+        "left_hip": [
+          419.38,
+          567.557
+        ],
+        "left_knee": [
+          435.527,
+          665.48
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 118.248,
+      "event": "step_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:49:29.941520+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:49:29.941520+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_8ec4ec2a77ca3e36",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          415.981,
+          566.058
+        ],
+        "left_knee": [
+          439.776,
+          665.98
+        ],
+        "left_ankle": [
+          476.318,
+          712.943
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 155.508,
+      "event": "step_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:50:13.731995+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:50:13.731995+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_3355fda204c0644b",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          404.934,
+          564.059
+        ],
+        "left_shoulder": [
+          371.791,
+          550.07
+        ],
+        "left_hip": [
+          417.681,
+          566.058
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 3.675,
+      "event": "step_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:50:27.221875+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:50:27.221875+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_12fdefa8fb307718",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "side",
+      "manual_points": {
+        "shoulder_center": [
+          364.143,
+          526.089
+        ],
+        "hip_center": [
+          419.38,
+          558.064
+        ],
+        "vertical_reference": [
+          419.38,
+          396.19
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 59.935,
+      "event": "step_contact",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:50:43.310019+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:50:43.310019+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_1a827485c7cc9784",
+      "frame_index": 68,
+      "timestamp_ms": 2266.667,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "side",
+      "manual_points": {
+        "shoulder_center": [
+          343.747,
+          516.097
+        ],
+        "hip_center": [
+          402.384,
+          554.067
+        ],
+        "vertical_reference": [
+          400.685,
+          412.178
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 56.389,
+      "event": "drive",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:51:58.792017+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:51:58.792017+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_20b4655a5e9be1f9",
+      "frame_index": 68,
+      "timestamp_ms": 2266.667,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          352.246,
+          530.086
+        ],
+        "left_elbow": [
+          383.688,
+          538.08
+        ],
+        "left_wrist": [
+          383.688,
+          602.03
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 104.265,
+      "event": "drive",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:52:19.037738+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:52:19.037738+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_015f9aee5812d281",
+      "frame_index": 68,
+      "timestamp_ms": 2266.667,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          349.696,
+          534.083
+        ],
+        "left_hip": [
+          401.534,
+          562.061
+        ],
+        "left_knee": [
+          421.93,
+          657.986
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 130.36,
+      "event": "drive",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:52:29.903382+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:52:29.903382+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_e11f58ffd909d1b2",
+      "frame_index": 68,
+      "timestamp_ms": 2266.667,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          398.135,
+          560.062
+        ],
+        "left_knee": [
+          423.629,
+          657.986
+        ],
+        "left_ankle": [
+          469.519,
+          707.947
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 152.025,
+      "event": "drive",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:52:39.593013+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:52:39.593013+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_88aa9a9fefb5c07d",
+      "frame_index": 68,
+      "timestamp_ms": 2266.667,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          384.538,
+          540.078
+        ],
+        "left_shoulder": [
+          351.396,
+          532.084
+        ],
+        "left_hip": [
+          401.534,
+          564.059
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 18.966,
+      "event": "drive",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:53:16.684841+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:53:16.684841+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_beff677ad537a38e",
+      "frame_index": 176,
+      "timestamp_ms": 5866.667,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          333.55,
+          498.111
+        ],
+        "left_elbow": [
+          364.993,
+          504.106
+        ],
+        "left_wrist": [
+          363.293,
+          576.05
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 99.441,
+      "event": "full_extension",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:53:47.136431+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:53:47.136431+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_eac67d5d2b66ae35",
+      "frame_index": 176,
+      "timestamp_ms": 5866.667,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          337.799,
+          496.112
+        ],
+        "left_hip": [
+          386.238,
+          534.083
+        ],
+        "left_knee": [
+          413.432,
+          630.008
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 143.92,
+      "event": "full_extension",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:54:04.688689+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:54:04.688689+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_0c10f84bff9e3339",
+      "frame_index": 176,
+      "timestamp_ms": 5866.667,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          387.088,
+          534.738
+        ],
+        "left_knee": [
+          411.732,
+          628.634
+        ],
+        "left_ankle": [
+          466.12,
+          690.585
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 153.426,
+      "event": "full_extension",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:54:51.076936+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:54:51.076936+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_39c37218ce3312ae",
+      "frame_index": 176,
+      "timestamp_ms": 5866.667,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          366.692,
+          508.728
+        ],
+        "left_shoulder": [
+          335.249,
+          498.735
+        ],
+        "left_hip": [
+          387.937,
+          534.707
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 16.692,
+      "event": "full_extension",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:55:06.029675+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:55:06.029675+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_sled_push_003",
+      "action": "sled_push",
+      "source_filename": "推雪橇-标准-侧方-3.mp4",
+      "annotation_id": "angle_dba8a86196fa11ac",
+      "frame_index": 176,
+      "timestamp_ms": 5866.667,
+      "joint": "torso",
+      "joint_label": "躯干与竖直方向",
+      "camera_view": "side",
+      "manual_points": {
+        "shoulder_center": [
+          342.898,
+          474.754
+        ],
+        "hip_center": [
+          390.487,
+          520.718
+        ],
+        "vertical_reference": [
+          390.487,
+          390.82
+        ]
+      },
+      "point_order": [
+        "shoulder_center",
+        "hip_center",
+        "vertical_reference"
+      ],
+      "manual_angle_deg": 45.995,
+      "event": "full_extension",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T14:55:17.913728+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T14:55:17.913728+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_b2490c4698079a0c",
+      "frame_index": 34,
+      "timestamp_ms": 1133.333,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          361.593,
+          715.472
+        ],
+        "left_elbow": [
+          352.246,
+          801.405
+        ],
+        "left_wrist": [
+          332.7,
+          751.444
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 27.574,
+      "event": "lowest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:07:35.829007+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:07:35.829007+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_3719b7664de892e8",
+      "frame_index": 34,
+      "timestamp_ms": 1133.333,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          362.443,
+          723.466
+        ],
+        "left_hip": [
+          399.835,
+          805.402
+        ],
+        "left_knee": [
+          352.246,
+          855.363
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 111.863,
+      "event": "lowest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:07:49.337400+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:07:49.337400+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_570413b93c0336c0",
+      "frame_index": 34,
+      "timestamp_ms": 1133.333,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          402.384,
+          803.872
+        ],
+        "left_knee": [
+          352.246,
+          861.827
+        ],
+        "left_ankle": [
+          379.439,
+          979.735
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 126.149,
+      "event": "lowest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:08:03.010621+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:08:03.010621+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_36ed0e0a12c070de",
+      "frame_index": 34,
+      "timestamp_ms": 1133.333,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          350.546,
+          803.872
+        ],
+        "left_shoulder": [
+          361.593,
+          719.938
+        ],
+        "left_hip": [
+          398.985,
+          807.869
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 30.535,
+      "event": "lowest_point",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:08:19.769617+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:08:19.769617+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_d99ab775698c9be4",
+      "frame_index": 44,
+      "timestamp_ms": 1466.667,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          366.692,
+          616.019
+        ],
+        "left_elbow": [
+          336.099,
+          667.978
+        ],
+        "left_wrist": [
+          331.0,
+          592.037
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 34.331,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:08:52.797399+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:08:52.797399+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_7bc50dd0a3e54cf5",
+      "frame_index": 44,
+      "timestamp_ms": 1466.667,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          365.842,
+          616.019
+        ],
+        "left_hip": [
+          397.285,
+          735.925
+        ],
+        "left_knee": [
+          362.443,
+          855.831
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 149.103,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:09:03.129521+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:09:03.129521+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_69cc4989b58cf1f4",
+      "frame_index": 44,
+      "timestamp_ms": 1466.667,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          397.285,
+          731.928
+        ],
+        "left_knee": [
+          363.293,
+          857.83
+        ],
+        "left_ankle": [
+          387.937,
+          979.735
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 153.462,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:09:20.015483+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:09:20.015483+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_025aa28d14918411",
+      "frame_index": 44,
+      "timestamp_ms": 1466.667,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          337.799,
+          663.981
+        ],
+        "left_shoulder": [
+          369.242,
+          618.017
+        ],
+        "left_hip": [
+          397.285,
+          737.923
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 47.539,
+      "event": "ascent",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:09:34.998376+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:09:34.998376+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_fb8b7ef75f4dd34f",
+      "frame_index": 48,
+      "timestamp_ms": 1600.0,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          370.092,
+          528.087
+        ],
+        "left_elbow": [
+          332.7,
+          522.092
+        ],
+        "left_wrist": [
+          331.0,
+          444.153
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 100.358,
+      "event": "full_extension",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:10:13.077805+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:10:13.077805+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_fc0f308352cc07fc",
+      "frame_index": 48,
+      "timestamp_ms": 1600.0,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          370.941,
+          528.087
+        ],
+        "left_hip": [
+          389.637,
+          677.97
+        ],
+        "left_knee": [
+          374.341,
+          825.855
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 166.985,
+      "event": "full_extension",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:10:27.734417+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:10:27.734417+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_f7cc226f19564aea",
+      "frame_index": 48,
+      "timestamp_ms": 1600.0,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          387.937,
+          677.97
+        ],
+        "left_knee": [
+          376.04,
+          825.855
+        ],
+        "left_ankle": [
+          387.937,
+          977.736
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 170.922,
+      "event": "full_extension",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:10:43.533861+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:10:43.533861+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_f8e02b01e4cd8c24",
+      "frame_index": 48,
+      "timestamp_ms": 1600.0,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          335.249,
+          518.095
+        ],
+        "left_shoulder": [
+          373.491,
+          524.091
+        ],
+        "left_hip": [
+          388.787,
+          675.972
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 104.662,
+      "event": "full_extension",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:10:55.520856+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:10:55.520856+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_dcf4f174512a011a",
+      "frame_index": 58,
+      "timestamp_ms": 1933.333,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          393.036,
+          542.077
+        ],
+        "left_elbow": [
+          363.293,
+          496.112
+        ],
+        "left_wrist": [
+          360.744,
+          416.175
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 148.92,
+      "event": "release",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:11:19.031636+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:11:19.031636+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_42f687e16f49db62",
+      "frame_index": 58,
+      "timestamp_ms": 1933.333,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          390.487,
+          530.086
+        ],
+        "left_hip": [
+          387.088,
+          683.966
+        ],
+        "left_knee": [
+          393.036,
+          823.856
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 176.3,
+      "event": "release",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:11:34.512508+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:11:34.512508+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_e55f2a277f55fe84",
+      "frame_index": 58,
+      "timestamp_ms": 1933.333,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          390.487,
+          681.967
+        ],
+        "left_knee": [
+          394.736,
+          825.855
+        ],
+        "left_ankle": [
+          413.432,
+          975.738
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 174.581,
+      "event": "release",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:11:42.073217+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:11:42.073217+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_001",
+      "action": "wall_ball",
+      "source_filename": "墙球-下蹲不足-侧方-1.mp4",
+      "annotation_id": "angle_cc996efa1f78414b",
+      "frame_index": 58,
+      "timestamp_ms": 1933.333,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          365.842,
+          490.117
+        ],
+        "left_shoulder": [
+          393.036,
+          532.084
+        ],
+        "left_hip": [
+          391.337,
+          681.967
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 146.408,
+      "event": "release",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:11:55.339548+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:11:55.339548+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_003",
+      "action": "wall_ball",
+      "source_filename": "墙球-踮脚-侧方-1.mp4",
+      "annotation_id": "angle_6c859011ca70fc1a",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_elbow",
+      "joint_label": "左肘",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          381.989,
+          591.538
+        ],
+        "left_elbow": [
+          363.293,
+          675.472
+        ],
+        "left_wrist": [
+          345.447,
+          609.524
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_elbow",
+        "left_wrist"
+      ],
+      "manual_angle_deg": 27.699,
+      "event": "catch",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:05:44.573447+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:05:44.573447+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_003",
+      "action": "wall_ball",
+      "source_filename": "墙球-踮脚-侧方-1.mp4",
+      "annotation_id": "angle_ae9a38f729c4d80d",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_hip",
+      "joint_label": "左髋",
+      "camera_view": "side",
+      "manual_points": {
+        "left_shoulder": [
+          382.839,
+          591.538
+        ],
+        "left_hip": [
+          415.981,
+          707.447
+        ],
+        "left_knee": [
+          373.491,
+          817.361
+        ]
+      },
+      "point_order": [
+        "left_shoulder",
+        "left_hip",
+        "left_knee"
+      ],
+      "manual_angle_deg": 142.908,
+      "event": "catch",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:05:59.730286+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:05:59.730286+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_003",
+      "action": "wall_ball",
+      "source_filename": "墙球-踮脚-侧方-1.mp4",
+      "annotation_id": "angle_2aa4248246f35fcd",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_knee",
+      "joint_label": "左膝",
+      "camera_view": "side",
+      "manual_points": {
+        "left_hip": [
+          415.131,
+          705.948
+        ],
+        "left_knee": [
+          371.791,
+          817.861
+        ],
+        "left_ankle": [
+          403.234,
+          951.756
+        ]
+      },
+      "point_order": [
+        "left_hip",
+        "left_knee",
+        "left_ankle"
+      ],
+      "manual_angle_deg": 145.615,
+      "event": "catch",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:06:14.734960+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:06:14.734960+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    },
+    {
+      "record_id": "phone_wall_ball_003",
+      "action": "wall_ball",
+      "source_filename": "墙球-踮脚-侧方-1.mp4",
+      "annotation_id": "angle_1e678a5c6bafa171",
+      "frame_index": 0,
+      "timestamp_ms": 0.0,
+      "joint": "left_shoulder",
+      "joint_label": "左肩",
+      "camera_view": "side",
+      "manual_points": {
+        "left_elbow": [
+          364.143,
+          673.973
+        ],
+        "left_shoulder": [
+          384.538,
+          588.041
+        ],
+        "left_hip": [
+          413.432,
+          707.947
+        ]
+      },
+      "point_order": [
+        "left_elbow",
+        "left_shoulder",
+        "left_hip"
+      ],
+      "manual_angle_deg": 26.9,
+      "event": "catch",
+      "visibility": "high",
+      "notes": "",
+      "native_frame_size": {
+        "width": 720,
+        "height": 1280
+      },
+      "created_at": "2026-08-01T15:06:28.182643+00:00",
+      "reviewer_id": "quick_reviewer",
+      "updated_at": "2026-08-01T15:06:28.182643+00:00",
+      "model_angle_deg": null,
+      "angle_error_deg": null,
+      "comparison_status": "manual_truth_pending_model_match"
+    }
+  ],
+  "model_comparison_note": "模型角度未在标注时臆造；model_angle_deg 与 angle_error_deg 保持 null，回传后再按 record_id、frame_index、joint 匹配模型轨迹。",
+  "codex_feedback_prompt": "请读取此 angle_validation_report_v1.json。把 annotations 中的人工角度作为参考真值，按 record_id + frame_index + joint 匹配模型角度，统计绝对误差及按关节、视角、事件、可见性的分组误差；优先检查高可见性样本，并列出疑似左右侧、顶点顺序或帧对齐错误。"
+}

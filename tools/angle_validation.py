@@ -18,7 +18,19 @@ from hyrox.geometry import calculate_angle_2d
 from src.biomechanics.kinematics_3d import ANGLE_DEFINITIONS_3D
 
 
-ANGLE_VALIDATION_SCHEMA_VERSION = 1
+ANGLE_VALIDATION_SCHEMA_VERSION = 2
+REQUIRED_ROUND12_ACTIONS = (
+    "lunge",
+    "wall_ball",
+    "burpee_broad_jump",
+    "rowing",
+)
+REQUIRED_ROUND12_VIEWS = (
+    "side",
+    "oblique_30",
+    "oblique_45",
+    "front",
+)
 MANUAL_ANGLE_DEFINITIONS = {
     **{
         key.removesuffix("_angle"): value
@@ -35,6 +47,7 @@ ANGLE_FIELDS = (
     "angle_2d_smoothed_deg",
     "angle_3d_raw_deg",
     "angle_3d_smoothed_deg",
+    "angle_canonical_3d_deg",
     "rule_angle_deg",
 )
 MODEL_FIELD_BY_OBSERVATION = {
@@ -42,6 +55,7 @@ MODEL_FIELD_BY_OBSERVATION = {
     "model_2d_smoothed_deg": "angle_2d_smoothed_deg",
     "model_3d_raw_deg": "angle_3d_raw_deg",
     "model_3d_smoothed_deg": "angle_3d_smoothed_deg",
+    "model_canonical_3d_deg": "angle_canonical_3d_deg",
     "model_rule_angle_deg": "rule_angle_deg",
 }
 ERROR_FIELD_BY_MODEL = {
@@ -49,6 +63,7 @@ ERROR_FIELD_BY_MODEL = {
     "model_2d_smoothed_deg": "error_2d_smoothed_deg",
     "model_3d_raw_deg": "error_3d_raw_deg",
     "model_3d_smoothed_deg": "error_3d_smoothed_deg",
+    "model_canonical_3d_deg": "error_canonical_3d_deg",
     "model_rule_angle_deg": "error_rule_deg",
 }
 
@@ -87,6 +102,11 @@ def iter_angle_observations(
             item = dict(observation)
             item.setdefault("frame_index", frame.get("frame_index"))
             item.setdefault("timestamp_ms", frame.get("timestamp_ms"))
+            item.setdefault("action", frame.get("action", report.get("action", "")))
+            item.setdefault(
+                "camera_view",
+                frame.get("camera_view", report.get("camera_view", "")),
+            )
             try:
                 item["joint"] = observation_joint_name(item)
             except ValueError:
@@ -322,6 +342,7 @@ def compare_manual_annotations(
     annotations: Sequence[Mapping[str, Any]],
     *,
     report: Mapping[str, Any] | None = None,
+    baseline_report: Mapping[str, Any] | None = None,
     max_lag_frames: int = 15,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     rows: list[dict[str, Any]] = []
@@ -340,6 +361,9 @@ def compare_manual_annotations(
                 f"manual_angle_deg is missing for frame {frame_index}"
             )
         row["joint"] = joint
+        if observation is not None:
+            row.setdefault("action", observation.get("action", ""))
+            row.setdefault("camera_view", observation.get("camera_view", ""))
         if observation is not None:
             row.setdefault(
                 "landmark_visibility",
@@ -370,6 +394,8 @@ def compare_manual_annotations(
         )
         for joint in sorted({str(row["joint"]) for row in rows})
     }
+    by_action = _grouped_statistics(rows, "action")
+    by_camera_view = _grouped_statistics(rows, "camera_view")
     high_visibility_side = [
         row
         for row in rows
@@ -387,9 +413,12 @@ def compare_manual_annotations(
         "annotation_count": len(rows),
         "overall": overall,
         "by_joint": by_joint,
+        "by_action": by_action,
+        "by_camera_view": by_camera_view,
         "side_high_visibility": _error_statistics(high_visibility_side),
         "curve_latency": curve_latency,
         "event_offsets": event_offsets,
+        "round12_coverage": _round12_coverage(rows),
         "targets": {
             "manual_side_high_visibility_median_error_deg": 5.0,
             "manual_side_high_visibility_p90_error_deg": 10.0,
@@ -400,6 +429,26 @@ def compare_manual_annotations(
             "be interpreted as true 3D joint angles."
         ),
     }
+    if baseline_report is not None:
+        baseline_annotations = [
+            {
+                key: value
+                for key, value in annotation.items()
+                if key not in MODEL_FIELD_BY_OBSERVATION
+                and key not in ERROR_FIELD_BY_MODEL.values()
+            }
+            for annotation in annotations
+        ]
+        baseline_summary, baseline_rows = compare_manual_annotations(
+            baseline_annotations,
+            report=baseline_report,
+            max_lag_frames=max_lag_frames,
+        )
+        _attach_baseline_rows(rows, baseline_rows)
+        summary["version_comparison"] = _compare_versions(
+            baseline_summary,
+            summary,
+        )
     return summary, rows
 
 
@@ -503,10 +552,14 @@ def write_comparison_artifacts(
         "joint",
         "camera_view",
         "event",
+        "action",
         "landmark_visibility",
         "manual_angle_deg",
         *MODEL_FIELD_BY_OBSERVATION,
         *ERROR_FIELD_BY_MODEL.values(),
+        *(f"baseline_{field}" for field in MODEL_FIELD_BY_OBSERVATION),
+        *(f"baseline_{field}" for field in ERROR_FIELD_BY_MODEL.values()),
+        *(f"change_{field}" for field in ERROR_FIELD_BY_MODEL.values()),
     )
     with rows_path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
@@ -528,6 +581,231 @@ def _error_statistics(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
             _distribution(values)
         )
     return output
+
+
+def _grouped_statistics(
+    rows: Sequence[Mapping[str, Any]],
+    field: str,
+) -> dict[str, Any]:
+    values = sorted(
+        {
+            str(row.get(field, "")).strip()
+            for row in rows
+            if str(row.get(field, "")).strip()
+        }
+    )
+    return {
+        value: _error_statistics(
+            [row for row in rows if str(row.get(field, "")).strip() == value]
+        )
+        for value in values
+    }
+
+
+def _round12_coverage(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    actions = {
+        str(row.get("action", "")).strip().lower()
+        for row in rows
+        if str(row.get("action", "")).strip()
+    }
+    views = {
+        _normalize_camera_view(str(row.get("camera_view", "")))
+        for row in rows
+        if str(row.get("camera_view", "")).strip()
+    }
+    pairs = {
+        (
+            str(row.get("action", "")).strip().lower(),
+            _normalize_camera_view(str(row.get("camera_view", ""))),
+        )
+        for row in rows
+    }
+    missing_actions = [item for item in REQUIRED_ROUND12_ACTIONS if item not in actions]
+    missing_views = [item for item in REQUIRED_ROUND12_VIEWS if item not in views]
+    missing_pairs = [
+        {"action": action, "camera_view": view}
+        for action in REQUIRED_ROUND12_ACTIONS
+        for view in REQUIRED_ROUND12_VIEWS
+        if (action, view) not in pairs
+    ]
+    return {
+        "required_actions": list(REQUIRED_ROUND12_ACTIONS),
+        "required_camera_views": list(REQUIRED_ROUND12_VIEWS),
+        "observed_actions": sorted(actions),
+        "observed_camera_views": sorted(views),
+        "missing_actions": missing_actions,
+        "missing_camera_views": missing_views,
+        "missing_action_view_pairs": missing_pairs,
+        "action_coverage_complete": not missing_actions,
+        "camera_view_coverage_complete": not missing_views,
+        "action_view_matrix_complete": not missing_pairs,
+    }
+
+
+def _normalize_camera_view(value: str) -> str:
+    normalized = value.strip().lower().replace("°", "").replace("deg", "")
+    aliases = {
+        "side_view": "side",
+        "30": "oblique_30",
+        "30_oblique": "oblique_30",
+        "oblique30": "oblique_30",
+        "45": "oblique_45",
+        "45_oblique": "oblique_45",
+        "oblique45": "oblique_45",
+        "front_view": "front",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _attach_baseline_rows(
+    rows: Sequence[dict[str, Any]],
+    baseline_rows: Sequence[Mapping[str, Any]],
+) -> None:
+    baseline_by_key = {
+        (
+            str(row.get("video_id", "")),
+            int(row.get("frame_index", -1)),
+            str(row.get("joint", "")),
+        ): row
+        for row in baseline_rows
+    }
+    for row in rows:
+        baseline = baseline_by_key.get(
+            (
+                str(row.get("video_id", "")),
+                int(row.get("frame_index", -1)),
+                str(row.get("joint", "")),
+            )
+        )
+        if baseline is None:
+            continue
+        for field in MODEL_FIELD_BY_OBSERVATION:
+            row[f"baseline_{field}"] = baseline.get(field)
+        for field in ERROR_FIELD_BY_MODEL.values():
+            baseline_error = _finite(baseline.get(field))
+            candidate_error = _finite(row.get(field))
+            row[f"baseline_{field}"] = baseline_error
+            row[f"change_{field}"] = (
+                candidate_error - baseline_error
+                if candidate_error is not None and baseline_error is not None
+                else None
+            )
+
+
+def _compare_versions(
+    baseline: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+) -> dict[str, Any]:
+    angle_metrics: dict[str, Any] = {}
+    comparable_checks: list[bool] = []
+    baseline_overall = baseline.get("overall", {})
+    candidate_overall = candidate.get("overall", {})
+    for name in (
+        "2d_raw",
+        "2d_smoothed",
+        "3d_raw",
+        "3d_smoothed",
+        "canonical_3d",
+        "rule",
+    ):
+        old = baseline_overall.get(name, {}) if isinstance(baseline_overall, Mapping) else {}
+        new = candidate_overall.get(name, {}) if isinstance(candidate_overall, Mapping) else {}
+        fields: dict[str, Any] = {}
+        field_checks: list[bool] = []
+        for field in (
+            "mae_deg",
+            "median_absolute_error_deg",
+            "p90_absolute_error_deg",
+            "p95_absolute_error_deg",
+        ):
+            old_value = _finite(old.get(field)) if isinstance(old, Mapping) else None
+            new_value = _finite(new.get(field)) if isinstance(new, Mapping) else None
+            passed = (
+                new_value <= old_value
+                if old_value is not None and new_value is not None
+                else None
+            )
+            fields[field] = {
+                "baseline": old_value,
+                "candidate": new_value,
+                "delta": (
+                    round(new_value - old_value, 4)
+                    if old_value is not None and new_value is not None
+                    else None
+                ),
+                "non_regression": passed,
+            }
+            if passed is not None:
+                field_checks.append(passed)
+                comparable_checks.append(passed)
+        fields["non_regression"] = all(field_checks) if field_checks else None
+        angle_metrics[name] = fields
+
+    event_timing: dict[str, Any] = {}
+    for event in ("all", "lowest_point", "full_extension"):
+        old_values = _event_absolute_offsets(baseline, event)
+        new_values = _event_absolute_offsets(candidate, event)
+        old_stats = _frame_distribution(old_values)
+        new_stats = _frame_distribution(new_values)
+        old_mae = _finite(old_stats.get("mean_absolute_error_frames"))
+        new_mae = _finite(new_stats.get("mean_absolute_error_frames"))
+        passed = (
+            new_mae <= old_mae
+            if old_mae is not None and new_mae is not None
+            else None
+        )
+        if passed is not None:
+            comparable_checks.append(passed)
+        event_timing[event] = {
+            "baseline": old_stats,
+            "candidate": new_stats,
+            "non_regression": passed,
+        }
+    return {
+        "baseline_label": "old_version",
+        "candidate_label": "new_version",
+        "angle_error": angle_metrics,
+        "event_timing_error": event_timing,
+        "comparable_check_count": len(comparable_checks),
+        "non_regression_pass": (
+            all(comparable_checks) if comparable_checks else None
+        ),
+    }
+
+
+def _event_absolute_offsets(
+    summary: Mapping[str, Any],
+    event: str,
+) -> list[float]:
+    output: list[float] = []
+    for item in summary.get("event_offsets", ()):
+        if not isinstance(item, Mapping):
+            continue
+        if event != "all" and str(item.get("event", "")) != event:
+            continue
+        value = _finite(item.get("offset_frames"))
+        if value is not None:
+            output.append(abs(value))
+    return output
+
+
+def _frame_distribution(values: Sequence[float]) -> dict[str, Any]:
+    if not values:
+        return {
+            "count": 0,
+            "mean_absolute_error_frames": None,
+            "median_absolute_error_frames": None,
+            "p90_absolute_error_frames": None,
+            "p95_absolute_error_frames": None,
+        }
+    array = np.asarray(values, dtype=float)
+    return {
+        "count": len(values),
+        "mean_absolute_error_frames": round(float(np.mean(array)), 4),
+        "median_absolute_error_frames": round(float(np.median(array)), 4),
+        "p90_absolute_error_frames": round(float(np.percentile(array, 90)), 4),
+        "p95_absolute_error_frames": round(float(np.percentile(array, 95)), 4),
+    }
 
 
 def _distribution(values: Sequence[float]) -> dict[str, Any]:

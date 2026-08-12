@@ -4,11 +4,18 @@ product_pose:
   realtime_model: auto
   analysis_model: full
 
+pose:
+  inference_width: 640
+  adaptive_resolution: true
+
 realtime_latency:
   latest_frame_only: true
   camera_buffer_size: 1
+  queue_size: 1
+  target_pose_fps: 15
+  max_pose_fps: 20
   warning_pose_age_ms: 80
-  max_pose_age_ms: 150
+  max_pose_age_ms: 120
   max_frame_gap: 5
   hide_pose_after_ms: 300
 
@@ -36,7 +43,7 @@ analysis_smoothing:
 display_smoothing:
   mode: adaptive_one_euro
   profile: ultra_responsive
-  prediction_enabled: true
+  prediction_enabled: false
   max_gap_ms_before_reset: 250
   min_cutoff: 2.2
   beta: 0.12
@@ -52,7 +59,7 @@ display_smoothing:
   world_speed_scale: 1.25
 
 display_prediction:
-  enabled: true
+  enabled: false
   mode: constant_velocity
   max_horizon_ms: 45
   maximum_body_scale_displacement: 0.06
@@ -103,6 +110,18 @@ three_d_quality:
   max_z_change_body_scale: 0.35
   identity_swap_cost_ratio: 0.75
   max_gap_ms_before_reset: 250
+  bone_length_history_size: 31
+  max_left_right_bone_ratio: 0.25
+  max_landmark_speed_m_s: 5.0
+  isolated_velocity_ratio: 3.0
+  foot_stationary_speed_m_s: 0.35
+  foot_vertical_spread_body_ratio: 0.18
+  foot_contact_stable_frames: 3
+  ground_history_size: 31
+  ground_minimum_samples: 3
+  ground_minimum_contact_confidence: 0.55
+  ground_maximum_image_deviation: 0.025
+  ground_maximum_world_vertical_deviation_m: 0.08
 
 web_realtime:
   max_requests_in_flight: 1

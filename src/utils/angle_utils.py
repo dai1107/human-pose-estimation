@@ -6,6 +6,7 @@ from typing import Mapping, Sequence
 import numpy as np
 
 from src.backends.base import Keypoint, PoseResult
+from src.biomechanics.joint_metrics import calculate_angle_3d
 
 
 def keypoint_map(source: PoseResult | Sequence[Keypoint] | Mapping[str, Keypoint]) -> dict[str, Keypoint]:
@@ -30,14 +31,7 @@ def angle(a: Keypoint | None, b: Keypoint | None, c: Keypoint | None, min_confid
     pc = usable_point(c, min_confidence)
     if pa is None or pb is None or pc is None:
         return None
-    ab = pa - pb
-    cb = pc - pb
-    norm = float(np.linalg.norm(ab) * np.linalg.norm(cb))
-    if norm <= 1e-12:
-        return None
-    cosine = float(np.clip(np.dot(ab, cb) / norm, -1.0, 1.0))
-    value = degrees(float(acos(cosine)))
-    return value if isfinite(value) else None
+    return calculate_angle_3d(pa, pb, pc)
 
 
 def joint_angle(

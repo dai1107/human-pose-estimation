@@ -81,7 +81,7 @@ def test_web_home_and_options_are_available() -> None:
     assert options.json["realtime"]["max_requests_in_flight"] == 1
     assert options.json["realtime"]["inference_long_edge"] == 640
     assert options.json["realtime"]["jpeg_quality"] == 0.65
-    assert options.json["realtime"]["max_pose_age_ms"] == 150
+    assert options.json["realtime"]["max_pose_age_ms"] == 120
     assert options.json["realtime"]["hide_pose_after_ms"] == 300
     assert options.json["realtime"]["rendering"] == {
         "angle_text_fps": 12.0,
@@ -128,9 +128,9 @@ def test_web_home_and_options_are_available() -> None:
     assert display["min_cutoff"] == pytest.approx(2.2)
     assert display["beta"] == pytest.approx(0.12)
     assert display["max_raw_weight"] == pytest.approx(0.45)
-    assert display["prediction_enabled"] is True
+    assert display["prediction_enabled"] is False
     prediction = options.json["realtime"]["browser_pose"]["display_prediction"]
-    assert prediction["enabled"] is True
+    assert prediction["enabled"] is False
     assert prediction["mode"] == "constant_velocity"
     assert prediction["max_horizon_ms"] == pytest.approx(45)
     assert prediction["maximum_body_scale_displacement"] == pytest.approx(0.06)
@@ -916,7 +916,12 @@ def test_browser_realtime_client_uses_video_frame_callback_and_single_in_flight_
     assert 'ui.realtimeConfig.jpeg_quality ?? 0.65' in source
     assert "new TextEncoder().encode(JSON.stringify" in source
     assert "now - ui.lastResultAt" in source
-    assert "hideAfter * 0.8" in source
+    assert "receiptAge + reportedPoseAge" in source
+    assert "pose_result_age_ms: localPoseAgeMs" in source
+    assert "displayAge > maxAge" in source
+    assert "Math.min(warningAge, maxAge)" in source
+    assert "hideAfter * 0.8" not in source
+    assert "poseAge > Number(ui.realtimeConfig.max_pose_age_ms || 120)" in source
     assert "now - captureMs" not in source
     assert 'mode === "camera" ? "未连接" : "本机处理"' in source
     assert 'ui.sourceMode === "camera" && ui.running && !ui.manualStop' in source

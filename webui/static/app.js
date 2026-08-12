@@ -619,6 +619,8 @@ function handleLocalPoseResult(message) {
   const connections = poseConnectionNames;
   const analysis = ui.latestAnalysisResult || {};
   const receivedAt = performance.now();
+  const localCaptureMs = finiteNumber(frameMeta.captureTime, frameMeta.presentationTime);
+  const localPoseAgeMs = Math.max(0, receivedAt - localCaptureMs);
   ui.latestResult = {
     ...analysis,
     type: "result",
@@ -647,6 +649,7 @@ function handleLocalPoseResult(message) {
       ...(analysis.metrics || {}),
       backend: `browser-mediapipe-${ui.poseWorkerActiveModel}`,
       inference_ms: message.poseInferenceMs,
+      pose_age_ms: localPoseAgeMs,
       queue_dropped: ui.poseWorkerDroppedFrames,
       display_raw_blend_weight: finiteNumber(message.displayFilter?.meanRawWeight, 0),
       display_blended_point_count: Number(message.displayFilter?.blendedPointCount || 0),
@@ -678,6 +681,7 @@ function handleLocalPoseResult(message) {
       image_landmarks: serializeLocalLandmarks(message.rawImageLandmarks),
       world_landmarks: serializeLocalLandmarks(message.rawWorldLandmarks),
       pose_inference_ms: finiteNumber(message.poseInferenceMs, 0),
+      pose_result_age_ms: localPoseAgeMs,
       pose_model: ui.poseWorkerActiveModel,
       pose_model_benchmark: benchmarkReport,
       display_filter: message.displayFilter || {},
@@ -1480,7 +1484,7 @@ function handleRealtimeResult(result) {
   }
   const captureMs = Number(result.client_capture_ms ?? pending?.captureMs);
   const poseAge = Number.isFinite(captureMs) ? Math.max(0, receivedAt - captureMs) : Number(result.pose_age_ms || 0);
-  if (poseAge > Number(ui.realtimeConfig.hide_pose_after_ms || 300)) {
+  if (poseAge > Number(ui.realtimeConfig.max_pose_age_ms || 120)) {
     ui.staleResultCount += 1;
     return;
   }
@@ -1617,10 +1621,15 @@ function renderPoseForVideoFrameCore(currentVideoFrame, now = performance.now())
     && result.action === actionSelect.value
     && result.request_backend === backendSelect.value
   );
-  const displayAge = ui.lastResultAt > 0 ? Math.max(0, now - ui.lastResultAt) : Infinity;
-  const maxAge = Number(ui.realtimeConfig.max_pose_age_ms || 150);
-  const hideAfter = Math.max(maxAge, Number(ui.realtimeConfig.hide_pose_after_ms || 300));
-  if (!contextIsCurrent || displayAge > hideAfter) {
+  const receiptAge = ui.lastResultAt > 0 ? Math.max(0, now - ui.lastResultAt) : Infinity;
+  const reportedPoseAge = Math.max(
+    0,
+    finiteNumber(result?.metrics?.pose_age_ms, finiteNumber(result?.pose_age_ms, 0)),
+  );
+  const displayAge = receiptAge + reportedPoseAge;
+  const warningAge = Number(ui.realtimeConfig.warning_pose_age_ms || 80);
+  const maxAge = Number(ui.realtimeConfig.max_pose_age_ms || 120);
+  if (!contextIsCurrent || displayAge > maxAge) {
     if (ui.floorCalibrationActive || ui.manualFloorPoints.length) {
       drawSkeleton({ keypoints: [], connections: [], assessment: {}, floor_reference: {} }, 1);
     } else {
@@ -1630,10 +1639,10 @@ function renderPoseForVideoFrameCore(currentVideoFrame, now = performance.now())
     }
     return;
   }
-  const fadeAfter = Math.max(maxAge, hideAfter * 0.8);
+  const fadeAfter = Math.min(warningAge, maxAge);
   const opacity = displayAge <= fadeAfter
     ? 1
-    : Math.max(0, 1 - (displayAge - fadeAfter) / Math.max(1, hideAfter - fadeAfter));
+    : Math.max(0, 1 - (displayAge - fadeAfter) / Math.max(1, maxAge - fadeAfter));
   drawingCache.predictionContext.action = result.action;
   drawingCache.predictionContext.phase = result.assessment?.phase || result.phase || "";
   drawingCache.predictionContext.supportFootNames = result.assessment?.support_foot_names || [];

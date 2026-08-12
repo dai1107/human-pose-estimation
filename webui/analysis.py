@@ -424,6 +424,16 @@ ANGLE_SPECS: dict[str, tuple[tuple[str, str, str], ...]] = {
     ),
 }
 
+ANGLE_2D_DISPLAY_MIN_CONFIDENCE = 0.70
+ANGLE_2D_FATAL_QUALITY_REASONS = frozenset(
+    {
+        "image_joint_missing",
+        "invalid_image_geometry",
+        "low_visibility",
+        "low_presence",
+    }
+)
+
 
 RECOVERY_PHASES = {"recover", "recovery", "reset", "return", "reach", "walking"}
 EFFORT_ONLY_CODES = {
@@ -555,14 +565,10 @@ def assess_action(
             if isinstance(three_d_measurements, Mapping)
             else None
         )
-        value = (
-            _number(measurement.get("angle_3d"))
-            if isinstance(measurement, Mapping)
-            and measurement.get("three_d_reliable") is True
-            else None
-        )
-        if value is None:
+        selected = _validated_display_angle(measurement)
+        if selected is None:
             continue
+        value, display_source, source, angle_confidence, quality_reasons = selected
         related = [item for item in active if _angle_matches_metric(key, item["metric"])]
         clear_failure = any(
             (item["min"] is not None and value < item["min"] - item["tolerance"])
@@ -588,10 +594,12 @@ def assess_action(
                     else None
                 ),
                 "status": angle_status,
-                "source": "3d",
-                "display_angle_source": "world_landmarks_smoothed",
+                "source": source,
+                "display_angle_source": display_source,
                 "rule_angle_source": "image_landmarks_analysis_smoothed",
                 "drawn_landmarks_source": "image_landmarks_analysis_smoothed",
+                "angle_confidence": round(angle_confidence, 3),
+                "quality_reasons": list(quality_reasons),
             }
         )
     return {
@@ -988,6 +996,59 @@ def _number(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if number == number else None
+
+
+def _validated_display_angle(
+    measurement: object,
+) -> tuple[float, str, str, float, tuple[str, ...]] | None:
+    """Choose an already-computed display angle without changing rule inputs.
+
+    Reliable world geometry remains preferred.  When world geometry is absent
+    or rejected, the aspect-ratio-corrected image angle is a safe display-only
+    fallback if its three landmarks pass the existing confidence gates.
+    """
+
+    if not isinstance(measurement, Mapping):
+        return None
+    confidence = _number(measurement.get("confidence"))
+    resolved_confidence = max(0.0, min(1.0, confidence or 0.0))
+    raw_reasons = measurement.get("quality_reasons")
+    quality_reasons = tuple(
+        sorted(
+            {
+                str(reason)
+                for reason in (
+                    raw_reasons
+                    if isinstance(raw_reasons, (list, tuple, set, frozenset))
+                    else ()
+                )
+                if str(reason)
+            }
+        )
+    )
+    angle_3d = _number(measurement.get("angle_3d"))
+    if measurement.get("three_d_reliable") is True and angle_3d is not None:
+        return (
+            angle_3d,
+            "world_landmarks_smoothed_validated",
+            "3d",
+            resolved_confidence,
+            quality_reasons,
+        )
+    angle_2d = _number(measurement.get("angle_2d"))
+    if (
+        angle_2d is None
+        or resolved_confidence < ANGLE_2D_DISPLAY_MIN_CONFIDENCE
+        or ANGLE_2D_FATAL_QUALITY_REASONS.intersection(quality_reasons)
+    ):
+        return None
+    return (
+        angle_2d,
+        "image_landmarks_smoothed_aspect_corrected_fallback",
+        "2d",
+        resolved_confidence,
+        quality_reasons,
+    )
 
 
 def _metric_value(metric: str, values: Mapping[str, Any]) -> float | None:

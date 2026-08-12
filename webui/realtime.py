@@ -12,7 +12,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -716,7 +716,7 @@ class RealtimePoseSession:
         realtime_smoothing_config: RealtimeSmoothingConfig | None = None,
         three_d_kinematics_config: ThreeDKinematicsConfig | None = None,
         three_d_quality_config: ThreeDQualityConfig | None = None,
-        max_pose_age_ms: float = 150.0,
+        max_pose_age_ms: float = 120.0,
     ) -> None:
         self.session_id = session_id
         self._allow_experimental_backends = bool(allow_experimental_backends)
@@ -992,14 +992,22 @@ class RealtimePoseSession:
         image_points = _browser_landmarks(values.get("image_landmarks"), world=False)
         world_points = _browser_landmarks(values.get("world_landmarks"), world=True)
         inference_ms = values.get("pose_inference_ms", 0.0)
+        pose_result_age_ms = values.get("pose_result_age_ms", inference_ms)
         capture_ms = values.get("capture_timestamp_ms")
         try:
             inference_ms = float(inference_ms)
+            pose_result_age_ms = float(pose_result_age_ms)
             capture_ms = float(capture_ms)
         except (TypeError, ValueError, OverflowError) as exc:
             raise RealtimeProtocolError("invalid_pose_frame", "浏览器姿态时间戳无效") from exc
         if not math.isfinite(inference_ms) or inference_ms < 0 or inference_ms > 60_000:
             raise RealtimeProtocolError("invalid_pose_frame", "浏览器推理耗时无效")
+        if (
+            not math.isfinite(pose_result_age_ms)
+            or pose_result_age_ms < 0
+            or pose_result_age_ms > 60_000
+        ):
+            raise RealtimeProtocolError("invalid_pose_frame", "浏览器姿态年龄无效")
         if not math.isfinite(capture_ms) or capture_ms < 0:
             raise RealtimeProtocolError("invalid_pose_frame", "浏览器采集时间无效")
         frame_meta_value = values.get("frame_meta")
@@ -1044,6 +1052,7 @@ class RealtimePoseSession:
             inference_time_ms=inference_ms,
             bbox=_keypoint_bbox(image_points),
             timestamp_ms=int(round(capture_ms)),
+            frame_id=frame_id,
             extra={
                 "world_keypoints": world_points,
                 "world_landmarks_available": bool(world_points),
@@ -1051,6 +1060,7 @@ class RealtimePoseSession:
                 "pose_model": pose_model,
                 "pose_model_benchmark": model_benchmark,
                 "display_filter": display_filter,
+                "pose_result_age_ms": max(pose_result_age_ms, inference_ms),
             },
         )
         now = time.monotonic()
@@ -1640,6 +1650,19 @@ class RealtimePoseSession:
         else:
             width, height = packet.frame_width, packet.frame_height
 
+        source_pose_age_at_receive_ms = 0.0
+        if packet.pose_result is not None:
+            source_pose_age_at_receive_ms = max(
+                float(packet.pose_result.inference_time_ms),
+                float(packet.pose_result.extra.get("pose_result_age_ms", 0.0)),
+            )
+
+        def current_pose_age_ms() -> float:
+            return source_pose_age_at_receive_ms + max(
+                0.0,
+                (time.monotonic() - packet.received_at) * 1000.0,
+            )
+
         if packet.client_capture_ms is not None:
             with self._lock:
                 clock_offset_ms = self._client_clock_offsets_ms.get(
@@ -1662,19 +1685,41 @@ class RealtimePoseSession:
                 detected = backend.detect(frame, timestamp_ms=inference_timestamp_ms)
             else:
                 raise RuntimeError("server pose backend is unavailable")
-            inference_end_ms = time.monotonic() * 1000.0
-            result = smoother.smooth_result(
+            detected = replace(
                 detected,
-                capture_timestamp_ns=capture_timestamp_ns,
+                frame_id=packet.sequence,
+                timestamp_ms=(
+                    detected.timestamp_ms
+                    if detected.timestamp_ms is not None
+                    else inference_timestamp_ms
+                ),
+            )
+            inference_end_ms = time.monotonic() * 1000.0
+            pose_age_after_inference_ms = current_pose_age_ms()
+            result = (
+                smoother.smooth_result(
+                    detected,
+                    capture_timestamp_ns=capture_timestamp_ns,
+                )
+                if pose_age_after_inference_ms <= self._max_pose_age_ms
+                else detected
             )
             result, three_d_result = three_d_tracker.attach(
                 result,
                 capture_timestamp_ns=capture_timestamp_ns,
-                pose_age_ms=max(0.0, (time.perf_counter() - packet.received_at) * 1000.0),
+                pose_age_ms=pose_age_after_inference_ms,
+                image_width=width,
+                image_height=height,
+                raw_result=detected,
+                camera_view=str(settings["camera_view"]),
             )
-            show_hand_overlay = frame is not None and hand_overlay_visible(
-                str(settings["landmark_profile"]),
-                bool(settings["show_fingers"]),
+            show_hand_overlay = (
+                pose_age_after_inference_ms <= self._max_pose_age_ms
+                and frame is not None
+                and hand_overlay_visible(
+                    str(settings["landmark_profile"]),
+                    bool(settings["show_fingers"]),
+                )
             )
             hand_detections = (
                 rtmw_hand_detections(result.extra)
@@ -1702,7 +1747,7 @@ class RealtimePoseSession:
             connection_generation=packet.connection_generation,
         ):
             raise StaleFrameContext
-        pose_age_before_analysis_ms = (time.monotonic() - packet.received_at) * 1000.0
+        pose_age_before_analysis_ms = current_pose_age_ms()
         stale_pose = pose_age_before_analysis_ms > self._max_pose_age_ms
         has_pose = bool(result.success and result.keypoints and not stale_pose)
         next_analyzer_key = (str(settings["action"]), str(settings["sensitivity"]), str(settings["camera_view"]))
@@ -1888,7 +1933,7 @@ class RealtimePoseSession:
                 timestamp_ms=int(time.time() * 1000),
             )
         server_ms = (time.perf_counter() - started) * 1000.0
-        pose_age_ms = (time.monotonic() - packet.received_at) * 1000.0
+        pose_age_ms = current_pose_age_ms()
         latency_contract = {
             "capture_timestamp": packet.client_capture_ms,
             "pose_input_timestamp": inference_start_ms,
@@ -2021,7 +2066,7 @@ class SessionManager:
         realtime_smoothing_config: RealtimeSmoothingConfig | None = None,
         three_d_kinematics_config: ThreeDKinematicsConfig | None = None,
         three_d_quality_config: ThreeDQualityConfig | None = None,
-        max_pose_age_ms: float = 150.0,
+        max_pose_age_ms: float = 120.0,
     ) -> None:
         import secrets
 

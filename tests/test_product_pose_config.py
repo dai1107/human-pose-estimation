@@ -23,8 +23,8 @@ def test_product_pose_config_defaults_to_mediapipe_and_disables_experiments() ->
     assert config.display_smoothing.beta == pytest.approx(0.12)
     assert config.display_smoothing.raw_blend_enabled is True
     assert config.display_smoothing.max_raw_weight == pytest.approx(0.45)
-    assert config.display_smoothing.prediction_enabled is True
-    assert config.display_prediction.enabled is True
+    assert config.display_smoothing.prediction_enabled is False
+    assert config.display_prediction.enabled is False
     assert config.display_prediction.max_horizon_ms == pytest.approx(45)
     assert config.display_prediction.maximum_body_scale_displacement == pytest.approx(0.06)
     assert config.display_prediction.disable_after_gap_ms == pytest.approx(100)
@@ -34,7 +34,10 @@ def test_product_pose_config_defaults_to_mediapipe_and_disables_experiments() ->
     assert config.rendering.timing_sample_capacity == 240
     assert config.realtime_latency.latest_frame_only is True
     assert config.realtime_latency.camera_buffer_size == 1
-    assert config.realtime_latency.max_pose_age_ms == 150
+    assert config.realtime_latency.queue_size == 1
+    assert config.realtime_latency.target_pose_fps == pytest.approx(15)
+    assert config.realtime_latency.max_pose_fps == pytest.approx(20)
+    assert config.realtime_latency.max_pose_age_ms == 120
     assert config.realtime_latency.max_frame_gap == 5
     assert config.web_realtime.max_requests_in_flight == 1
     assert config.web_realtime.inference_long_edge == 640

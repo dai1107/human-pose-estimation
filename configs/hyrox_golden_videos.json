@@ -40,8 +40,8 @@
         "pose_detected_rate": [0.98, 1.0],
         "candidate_count": [3, 3],
         "pose_valid_rep_count": [0, 0],
-        "no_rep_count": [0, 0],
-        "unsure_count": [3, 3],
+        "no_rep_count": [1, 1],
+        "unsure_count": [2, 2],
         "rep_count": [0, 0]
       }
     },
@@ -53,9 +53,9 @@
       "expectations": {
         "total_frames": [247, 247],
         "pose_detected_rate": [0.98, 1.0],
-        "candidate_count": [5, 5],
-        "cycle_count": [5, 5],
-        "rep_count": [5, 5]
+        "candidate_count": [7, 7],
+        "cycle_count": [7, 7],
+        "rep_count": [7, 7]
       }
     },
     {
@@ -66,9 +66,9 @@
       "expectations": {
         "total_frames": [332, 332],
         "pose_detected_rate": [0.98, 1.0],
-        "candidate_count": [4, 4],
-        "cycle_count": [4, 4],
-        "rep_count": [4, 4]
+        "candidate_count": [5, 5],
+        "cycle_count": [5, 5],
+        "rep_count": [5, 5]
       }
     },
     {

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from math import isfinite
@@ -10,25 +10,24 @@ from typing import Any
 
 import numpy as np
 
-from hyrox.geometry import calculate_angle_2d, calculate_angle_3d
 from src.backends.base import Keypoint, PoseResult
 from src.product_pose import ThreeDKinematicsConfig, ThreeDQualityConfig
+from src.biomechanics.body_coordinates import build_body_coordinate_system
+from src.biomechanics.ground_estimation import GroundEstimator, GroundEstimatorConfig
+from src.biomechanics.joint_metrics import (
+    ANGLE_DEFINITIONS,
+    JointMetric,
+    calculate_angle_2d,
+    calculate_angle_3d,
+    select_joint_metric,
+)
 from src.biomechanics.shadow_evidence_3d import (
     BodyRelative3DTracker,
     ShadowEvidence3DConfig,
 )
 
 
-ANGLE_DEFINITIONS_3D: Mapping[str, tuple[str, str, str]] = {
-    "left_knee_angle": ("left_hip", "left_knee", "left_ankle"),
-    "right_knee_angle": ("right_hip", "right_knee", "right_ankle"),
-    "left_hip_angle": ("left_shoulder", "left_hip", "left_knee"),
-    "right_hip_angle": ("right_shoulder", "right_hip", "right_knee"),
-    "left_elbow_angle": ("left_shoulder", "left_elbow", "left_wrist"),
-    "right_elbow_angle": ("right_shoulder", "right_elbow", "right_wrist"),
-    "left_shoulder_angle": ("left_hip", "left_shoulder", "left_elbow"),
-    "right_shoulder_angle": ("right_hip", "right_shoulder", "right_elbow"),
-}
+ANGLE_DEFINITIONS_3D = ANGLE_DEFINITIONS
 
 IDENTITY_PAIRS: tuple[tuple[str, str], ...] = (
     ("left_shoulder", "right_shoulder"),
@@ -38,16 +37,7 @@ IDENTITY_PAIRS: tuple[tuple[str, str], ...] = (
 )
 
 
-@dataclass(frozen=True, slots=True)
-class AngleMeasurement:
-    angle_2d: float | None
-    angle_3d: float | None
-    selected_angle: float | None
-    selected_source: str
-    confidence: float
-    three_d_reliable: bool
-    difference_deg: float | None = None
-    quality_reasons: tuple[str, ...] = ()
+AngleMeasurement = JointMetric
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,9 +52,13 @@ class ThreeDKinematicsResult:
     three_d_reliable: bool
     three_d_reliable_ratio: float
     three_d_conflict_ratio: float
-    measurements: Mapping[str, AngleMeasurement]
+    measurements: Mapping[str, JointMetric]
     quality_reasons: tuple[str, ...]
     body_relative: Mapping[str, Any]
+    body_coordinate_system: Mapping[str, Any]
+    reliability: Mapping[str, Any]
+    foot_contact_evidence: Mapping[str, Any]
+    ground_estimation: Mapping[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
         angles_2d: dict[str, float | None] = {}
@@ -73,6 +67,9 @@ class ThreeDKinematicsResult:
         reliability: dict[str, bool] = {}
         measurements: dict[str, dict[str, Any]] = {}
         flattened: dict[str, Any] = {}
+        canonical_angles = self.body_coordinate_system.get("canonical_3d_angles", {})
+        if not isinstance(canonical_angles, Mapping):
+            canonical_angles = {}
         for name, measurement in self.measurements.items():
             angle_2d_name = f"{name}_2d"
             angle_3d_name = f"{name}_3d"
@@ -83,6 +80,15 @@ class ThreeDKinematicsResult:
             differences[difference_name] = measurement.difference_deg
             reliability[reliable_name] = measurement.three_d_reliable
             measurements[name] = {
+                "raw_2d": measurement.raw_2d,
+                "smooth_2d": measurement.smooth_2d,
+                "raw_3d": measurement.raw_3d,
+                "smooth_3d": measurement.smooth_3d,
+                "selected_value": measurement.selected_value,
+                "source": measurement.source,
+                "observable": measurement.observable,
+                "legacy_angle": measurement.selected_angle,
+                "canonical_3d_angle": canonical_angles.get(name),
                 "angle_2d": measurement.angle_2d,
                 "angle_3d": measurement.angle_3d,
                 "selected_angle": measurement.selected_angle,
@@ -96,6 +102,8 @@ class ThreeDKinematicsResult:
                 {
                     angle_2d_name: measurement.angle_2d,
                     angle_3d_name: measurement.angle_3d,
+                    f"{name}_legacy_angle": measurement.selected_angle,
+                    f"{name}_canonical_3d_angle": canonical_angles.get(name),
                     difference_name: measurement.difference_deg,
                     reliable_name: measurement.three_d_reliable,
                 }
@@ -117,13 +125,26 @@ class ThreeDKinematicsResult:
             "angle_reliability": reliability,
             "measurements": measurements,
             "body_relative": dict(self.body_relative),
+            "body_coordinate_system": dict(self.body_coordinate_system),
+            "canonical_3d_angles": dict(canonical_angles),
+            "reliability": dict(self.reliability),
+            "foot_contact_evidence": dict(self.foot_contact_evidence),
+            "ground_estimation": dict(self.ground_estimation),
+            "ground_confidence": self.ground_estimation.get(
+                "ground_confidence", 0.0
+            ),
+            "contact_evidence": dict(
+                self.ground_estimation.get("contact_evidence", {})
+            ) if isinstance(
+                self.ground_estimation.get("contact_evidence"), Mapping
+            ) else {},
             "quality_reasons": list(self.quality_reasons),
             **flattened,
         }
 
 
 class ThreeDKinematicsTracker:
-    """Evaluate world landmarks while keeping every selected angle strictly 2D."""
+    """Build unified joint metrics and lightweight temporal 3D reliability."""
 
     def __init__(
         self,
@@ -139,14 +160,36 @@ class ThreeDKinematicsTracker:
         self._previous_timestamp_ns: int | None = None
         self._previous_world: dict[str, np.ndarray] = {}
         self._previous_bone_lengths: dict[tuple[str, str], float] = {}
+        self._bone_length_history: dict[tuple[str, str], deque[float]] = {}
         self._previous_angles: dict[str, float] = {}
+        self._foot_centers: dict[str, np.ndarray] = {}
+        self._foot_stable_frames = {"left": 0, "right": 0}
+        self._ground_estimator = GroundEstimator(
+            GroundEstimatorConfig(
+                history_size=self.quality_config.ground_history_size,
+                minimum_samples=self.quality_config.ground_minimum_samples,
+                minimum_contact_confidence=(
+                    self.quality_config.ground_minimum_contact_confidence
+                ),
+                maximum_image_deviation=(
+                    self.quality_config.ground_maximum_image_deviation
+                ),
+                maximum_world_vertical_deviation_m=(
+                    self.quality_config.ground_maximum_world_vertical_deviation_m
+                ),
+            )
+        )
         self._body_relative = BodyRelative3DTracker(shadow_evidence_config)
 
     def reset(self) -> None:
         self._previous_timestamp_ns = None
         self._previous_world.clear()
         self._previous_bone_lengths.clear()
+        self._bone_length_history.clear()
         self._previous_angles.clear()
+        self._foot_centers.clear()
+        self._foot_stable_frames = {"left": 0, "right": 0}
+        self._ground_estimator.reset()
         self._body_relative.reset()
 
     def update(
@@ -155,23 +198,48 @@ class ThreeDKinematicsTracker:
         *,
         capture_timestamp_ns: int | None = None,
         pose_age_ms: float = 0.0,
+        image_width: int | float | None = None,
+        image_height: int | float | None = None,
+        raw_result: PoseResult | None = None,
+        camera_view: str | None = None,
     ) -> ThreeDKinematicsResult:
         image_points = _point_map(result.keypoints)
         raw_world = result.extra.get("world_keypoints")
         world_points = _point_map(raw_world if isinstance(raw_world, (list, tuple)) else ())
+        source_raw_result = raw_result or result
+        raw_image_points = _point_map(source_raw_result.keypoints)
+        source_raw_world = source_raw_result.extra.get("world_keypoints")
+        raw_world_points = _point_map(
+            source_raw_world if isinstance(source_raw_world, (list, tuple)) else ()
+        )
         timestamp_ns = _resolve_timestamp_ns(result.timestamp_ms, capture_timestamp_ns)
         world_arrays = {
             name: array
             for name, point in world_points.items()
             if (array := _xyz(point)) is not None
         }
+        raw_world_arrays = {
+            name: array
+            for name, point in raw_world_points.items()
+            if (array := _xyz(point)) is not None
+        }
         world_available = bool(world_arrays)
+        resolved_camera_view = str(
+            camera_view
+            if camera_view is not None
+            else result.extra.get("camera_view", "unknown")
+        )
         body_relative = self._body_relative.update(
             result.keypoints,
             raw_world if isinstance(raw_world, (list, tuple)) else (),
             timestamp_ms=result.timestamp_ms,
-            camera_view=str(result.extra.get("camera_view", "unknown")),
+            camera_view=resolved_camera_view,
         )
+        body_coordinate_system = build_body_coordinate_system(
+            raw_world if isinstance(raw_world, (list, tuple)) else (),
+            quality_points=result.keypoints,
+            minimum_quality=self.quality_config.min_visibility,
+        ).as_dict()
 
         gap_exceeded = False
         dt_seconds: float | None = None
@@ -185,9 +253,37 @@ class ThreeDKinematicsTracker:
             self.reset()
 
         pose_too_old = pose_age_ms > self.max_pose_age_ms
-        identity_swapped = self._identity_swapped(world_arrays)
-        bone_lengths = _bone_lengths(world_arrays)
+        reliability_world = raw_world_arrays or world_arrays
+        identity_swapped = self._identity_swapped(reliability_world)
+        bone_lengths = _bone_lengths(reliability_world)
         body_scale = _body_scale(bone_lengths, self._previous_bone_lengths)
+        historical_bone_lengths = {
+            segment: float(np.median(tuple(values)))
+            for segment, values in self._bone_length_history.items()
+            if values
+        }
+        bilateral_mismatches = _bilateral_bone_mismatches(
+            bone_lengths,
+            self.quality_config.max_left_right_bone_ratio,
+        )
+        landmark_speeds, isolated_velocity_joints = _landmark_velocity_outliers(
+            reliability_world,
+            self._previous_world,
+            dt_seconds=dt_seconds,
+            max_speed_m_s=self.quality_config.max_landmark_speed_m_s,
+            isolated_ratio=self.quality_config.isolated_velocity_ratio,
+        )
+        foot_contact_evidence = self._foot_contact_evidence(
+            image_points=image_points,
+            world=reliability_world,
+            dt_seconds=dt_seconds,
+            body_scale=body_scale,
+        )
+        ground_estimation = self._ground_estimator.update(
+            result.keypoints,
+            raw_world if isinstance(raw_world, (list, tuple)) else (),
+            foot_contact_evidence,
+        )
         global_reasons: set[str] = set()
         if not self.kinematics_config.enabled:
             global_reasons.add("three_d_disabled")
@@ -200,21 +296,37 @@ class ThreeDKinematicsTracker:
         if identity_swapped:
             global_reasons.add("left_right_identity_swap")
 
-        measurements: dict[str, AngleMeasurement] = {}
+        measurements: dict[str, JointMetric] = {}
         severe_temporal_failure = False
         for name, definition in ANGLE_DEFINITIONS_3D.items():
             reasons = set(global_reasons)
             image_triplet = tuple(image_points.get(point_name) for point_name in definition)
             world_triplet = tuple(world_arrays.get(point_name) for point_name in definition)
-            angle_2d = _angle_2d_from_points(image_triplet)
-            angle_3d = _angle_3d_from_arrays(world_triplet)
+            raw_image_triplet = tuple(
+                raw_image_points.get(point_name) for point_name in definition
+            )
+            raw_world_triplet = tuple(
+                raw_world_arrays.get(point_name) for point_name in definition
+            )
+            smooth_2d = _angle_2d_from_points(
+                image_triplet,
+                image_width=image_width,
+                image_height=image_height,
+            )
+            raw_2d = _angle_2d_from_points(
+                raw_image_triplet,
+                image_width=image_width,
+                image_height=image_height,
+            )
+            smooth_3d = _angle_3d_from_arrays(world_triplet)
+            raw_3d = _angle_3d_from_arrays(raw_world_triplet)
             confidence = _triplet_confidence(image_triplet)
 
             if any(point is None for point in image_triplet):
                 reasons.add("image_joint_missing")
             if any(point is None for point in world_triplet):
                 reasons.add("world_joint_missing")
-            if angle_3d is None:
+            if smooth_3d is None:
                 reasons.add("invalid_world_geometry")
             visibility, presence = _triplet_quality(image_triplet)
             if visibility < self.quality_config.min_visibility:
@@ -223,15 +335,22 @@ class ThreeDKinematicsTracker:
                 reasons.add("low_presence")
 
             for segment in ((definition[0], definition[1]), (definition[1], definition[2])):
-                current_length = bone_lengths.get(segment)
-                previous_length = self._previous_bone_lengths.get(segment)
+                segment_key = _segment_key(*segment)
+                current_length = bone_lengths.get(segment_key)
+                historical_length = historical_bone_lengths.get(segment_key)
                 if current_length is None or current_length <= 1e-8:
                     reasons.add("invalid_bone_length")
-                elif previous_length is not None and previous_length > 1e-8:
-                    change_ratio = abs(current_length - previous_length) / previous_length
+                elif historical_length is not None and historical_length > 1e-8:
+                    change_ratio = abs(current_length - historical_length) / historical_length
                     if change_ratio > self.quality_config.max_bone_length_change_ratio:
                         reasons.add("bone_length_jump")
                         severe_temporal_failure = True
+                if segment_key in bilateral_mismatches:
+                    reasons.add("left_right_bone_mismatch")
+
+            if any(point_name in isolated_velocity_joints for point_name in definition):
+                reasons.add("isolated_landmark_velocity")
+                severe_temporal_failure = True
 
             if body_scale is not None and self._previous_world:
                 for point_name in definition:
@@ -244,8 +363,8 @@ class ThreeDKinematicsTracker:
                             severe_temporal_failure = True
 
             previous_angle = self._previous_angles.get(name)
-            if angle_3d is not None and previous_angle is not None:
-                angle_delta = abs(angle_3d - previous_angle)
+            if smooth_3d is not None and previous_angle is not None:
+                angle_delta = abs(smooth_3d - previous_angle)
                 if angle_delta > self.quality_config.max_angle_delta_deg:
                     reasons.add("angle_jump")
                 if (
@@ -256,8 +375,8 @@ class ThreeDKinematicsTracker:
                     reasons.add("angular_velocity_exceeded")
 
             difference = (
-                abs(angle_2d - angle_3d)
-                if angle_2d is not None and angle_3d is not None
+                abs(smooth_2d - smooth_3d)
+                if smooth_2d is not None and smooth_3d is not None
                 else None
             )
             if (
@@ -267,20 +386,17 @@ class ThreeDKinematicsTracker:
                 reasons.add("two_d_three_d_conflict")
 
             reliable = not reasons
-            selected_source = (
-                "2d_assist"
-                if self.kinematics_config.decision_mode == "assist"
-                else "2d_shadow"
-            )
-            measurements[name] = AngleMeasurement(
-                angle_2d=angle_2d,
-                angle_3d=angle_3d,
-                selected_angle=angle_2d,
-                selected_source=selected_source if angle_2d is not None else "none",
-                confidence=confidence,
+            measurements[name] = select_joint_metric(
+                name=name,
+                raw_2d=raw_2d,
+                smooth_2d=smooth_2d,
+                raw_3d=raw_3d,
+                smooth_3d=smooth_3d,
                 three_d_reliable=reliable,
-                difference_deg=difference,
-                quality_reasons=tuple(sorted(reasons)),
+                confidence=confidence,
+                camera_view=resolved_camera_view,
+                decision_mode=self.kinematics_config.decision_mode,
+                quality_reasons=reasons,
             )
 
         reliable_count = sum(
@@ -314,8 +430,20 @@ class ThreeDKinematicsTracker:
             and not severe_temporal_failure
         ):
             self._previous_timestamp_ns = timestamp_ns
-            self._previous_world = world_arrays
-            self._previous_bone_lengths = bone_lengths
+            self._previous_world = dict(reliability_world)
+            self._previous_bone_lengths = {
+                segment: length
+                for segment, length in bone_lengths.items()
+                if segment not in bilateral_mismatches
+            }
+            for segment, length in bone_lengths.items():
+                if segment in bilateral_mismatches:
+                    continue
+                history = self._bone_length_history.setdefault(
+                    segment,
+                    deque(maxlen=self.quality_config.bone_length_history_size),
+                )
+                history.append(length)
             self._previous_angles = {
                 name: measurement.angle_3d
                 for name, measurement in measurements.items()
@@ -338,6 +466,27 @@ class ThreeDKinematicsTracker:
             measurements=measurements,
             quality_reasons=tuple(sorted(all_reasons)),
             body_relative=body_relative,
+            body_coordinate_system=body_coordinate_system,
+            reliability={
+                "schema_version": 1,
+                "bone_length_history_samples": {
+                    _segment_label(segment): len(values)
+                    for segment, values in sorted(self._bone_length_history.items())
+                },
+                "bone_length_historical_median_m": {
+                    _segment_label(segment): value
+                    for segment, value in sorted(historical_bone_lengths.items())
+                },
+                "left_right_mismatch_segments": [
+                    _segment_label(segment) for segment in sorted(bilateral_mismatches)
+                ],
+                "landmark_speed_m_s": dict(sorted(landmark_speeds.items())),
+                "isolated_velocity_joints": sorted(isolated_velocity_joints),
+                "confidence_only": True,
+                "position_correction_applied": False,
+            },
+            foot_contact_evidence=foot_contact_evidence,
+            ground_estimation=ground_estimation,
         )
 
     def attach(
@@ -346,11 +495,19 @@ class ThreeDKinematicsTracker:
         *,
         capture_timestamp_ns: int | None = None,
         pose_age_ms: float = 0.0,
+        image_width: int | float | None = None,
+        image_height: int | float | None = None,
+        raw_result: PoseResult | None = None,
+        camera_view: str | None = None,
     ) -> tuple[PoseResult, ThreeDKinematicsResult]:
         kinematics = self.update(
             result,
             capture_timestamp_ns=capture_timestamp_ns,
             pose_age_ms=pose_age_ms,
+            image_width=image_width,
+            image_height=image_height,
+            raw_result=raw_result,
+            camera_view=camera_view,
         )
         extra = dict(result.extra)
         extra["three_d_kinematics"] = kinematics.as_dict()
@@ -380,6 +537,107 @@ class ThreeDKinematicsTracker:
             and swapped_cost + 1e-8
             < same_cost * self.quality_config.identity_swap_cost_ratio
         )
+
+    def _foot_contact_evidence(
+        self,
+        *,
+        image_points: Mapping[str, object],
+        world: Mapping[str, np.ndarray],
+        dt_seconds: float | None,
+        body_scale: float | None,
+    ) -> dict[str, Any]:
+        """Estimate confidence-only foot contact evidence.
+
+        This is deliberately not a ground-plane or rule decision.  It combines
+        ankle/heel/toe vertical coherence, velocity and stable-frame dwell.
+        """
+
+        evidence: dict[str, Any] = {
+            "schema_version": 1,
+            "evidence_only": True,
+            "formal_rule_replacement_allowed": False,
+        }
+        scale = body_scale if body_scale is not None and body_scale > 1e-8 else None
+        for side in ("left", "right"):
+            names = (f"{side}_ankle", f"{side}_heel", f"{side}_foot_index")
+            points = [world.get(name) for name in names]
+            valid = [point for point in points if point is not None]
+            center = np.mean(valid, axis=0) if len(valid) == len(names) else None
+            previous = self._foot_centers.get(side)
+            speed_m_s = (
+                None
+                if center is None or previous is None or dt_seconds is None
+                else float(np.linalg.norm(center - previous) / dt_seconds)
+            )
+            support_points = [world.get(name) for name in names[1:]]
+            vertical_spread = (
+                None
+                if center is None
+                or scale is None
+                or any(point is None for point in support_points)
+                else float(
+                    abs(support_points[0][1] - support_points[1][1]) / scale
+                )
+            )
+            quality = min(
+                (_quality_value(image_points.get(name), "visibility") for name in names),
+                default=0.0,
+            )
+            stable = (
+                speed_m_s is not None
+                and speed_m_s <= self.quality_config.foot_stationary_speed_m_s
+                and vertical_spread is not None
+                and vertical_spread
+                <= self.quality_config.foot_vertical_spread_body_ratio
+                and quality >= self.quality_config.min_visibility
+            )
+            self._foot_stable_frames[side] = (
+                self._foot_stable_frames[side] + 1 if stable else 0
+            )
+            dwell_score = min(
+                1.0,
+                self._foot_stable_frames[side]
+                / max(1, self.quality_config.foot_contact_stable_frames),
+            )
+            speed_score = (
+                0.0
+                if speed_m_s is None
+                else max(
+                    0.0,
+                    1.0
+                    - speed_m_s
+                    / max(self.quality_config.foot_stationary_speed_m_s, 1e-8),
+                )
+            )
+            spread_score = (
+                0.0
+                if vertical_spread is None
+                else max(
+                    0.0,
+                    1.0
+                    - vertical_spread
+                    / max(
+                        self.quality_config.foot_vertical_spread_body_ratio,
+                        1e-8,
+                    ),
+                )
+            )
+            confidence = max(
+                0.0,
+                min(1.0, quality * dwell_score * speed_score * spread_score),
+            )
+            evidence[side] = {
+                "observable": center is not None and scale is not None,
+                "foot_contact_confidence": confidence,
+                "stable_frames": self._foot_stable_frames[side],
+                "vertical_spread_body_ratio": vertical_spread,
+                "velocity_m_s": speed_m_s,
+                "minimum_visibility": quality,
+                "likely_contact": confidence >= 0.60,
+            }
+            if center is not None:
+                self._foot_centers[side] = center
+        return evidence
 
 
 def summarize_three_d_records(records: Iterable[object]) -> dict[str, Any]:
@@ -423,6 +681,11 @@ def _summarize_shadow_items(items: Sequence[Mapping[str, Any]]) -> dict[str, Any
     decision_mode_counts: Counter[str] = Counter()
     assist_status_counts: Counter[str] = Counter()
     conflict_ratios: list[float] = []
+    body_coordinate_available = 0
+    body_coordinate_reliable = 0
+    ground_ready = 0
+    ground_confidences: list[float] = []
+    ground_contact_statuses: Counter[str] = Counter()
     for item in items:
         decision_mode_counts.update((str(item.get("decision_mode", "unknown")),))
         assist_status_counts.update((str(item.get("assist_status", "unknown")),))
@@ -437,6 +700,23 @@ def _summarize_shadow_items(items: Sequence[Mapping[str, Any]]) -> dict[str, Any
         reasons = item.get("quality_reasons")
         if isinstance(reasons, (list, tuple)):
             reason_counts.update(str(reason) for reason in reasons)
+        body_coordinates = item.get("body_coordinate_system")
+        if isinstance(body_coordinates, Mapping):
+            body_coordinate_available += int(bool(body_coordinates.get("available")))
+            body_coordinate_reliable += int(bool(body_coordinates.get("reliable")))
+        ground = item.get("ground_estimation")
+        if isinstance(ground, Mapping):
+            ground_ready += int(str(ground.get("status")) == "READY")
+            confidence = ground.get("ground_confidence")
+            if isinstance(confidence, (int, float)) and isfinite(float(confidence)):
+                ground_confidences.append(float(confidence))
+            contacts = ground.get("contact_evidence")
+            if isinstance(contacts, Mapping):
+                for side, evidence in contacts.items():
+                    if isinstance(evidence, Mapping):
+                        ground_contact_statuses.update(
+                            (f"{side}:{evidence.get('status', 'UNSURE')}",)
+                        )
     return {
         "frame_count": len(items),
         "world_landmarks_availability_ratio": available / len(items) if items else 0.0,
@@ -449,6 +729,19 @@ def _summarize_shadow_items(items: Sequence[Mapping[str, Any]]) -> dict[str, Any
         ),
         "decision_modes": dict(sorted(decision_mode_counts.items())),
         "assist_statuses": dict(sorted(assist_status_counts.items())),
+        "body_canonical_available_ratio": (
+            body_coordinate_available / len(items) if items else 0.0
+        ),
+        "body_canonical_reliable_ratio": (
+            body_coordinate_reliable / len(items) if items else 0.0
+        ),
+        "ground_ready_ratio": ground_ready / len(items) if items else 0.0,
+        "mean_ground_confidence": (
+            float(np.mean(ground_confidences)) if ground_confidences else 0.0
+        ),
+        "ground_contact_evidence_statuses": dict(
+            sorted(ground_contact_statuses.items())
+        ),
         "angle_difference_deg": {
             name: {
                 "count": len(values),
@@ -492,11 +785,22 @@ def _xy(point: object | None) -> np.ndarray | None:
     return array if np.all(np.isfinite(array)) else None
 
 
-def _angle_2d_from_points(points: Sequence[object | None]) -> float | None:
+def _angle_2d_from_points(
+    points: Sequence[object | None],
+    *,
+    image_width: int | float | None = None,
+    image_height: int | float | None = None,
+) -> float | None:
     arrays = tuple(_xy(point) for point in points)
     if any(array is None for array in arrays):
         return None
-    return calculate_angle_2d(arrays[0], arrays[1], arrays[2])
+    return calculate_angle_2d(
+        arrays[0],
+        arrays[1],
+        arrays[2],
+        image_width,
+        image_height,
+    )
 
 
 def _angle_3d_from_arrays(points: Sequence[np.ndarray | None]) -> float | None:
@@ -537,8 +841,94 @@ def _bone_lengths(world: Mapping[str, np.ndarray]) -> dict[tuple[str, str], floa
             point_a = world.get(segment[0])
             point_b = world.get(segment[1])
             if point_a is not None and point_b is not None:
-                lengths[segment] = float(np.linalg.norm(point_a - point_b))
+                lengths[_segment_key(*segment)] = float(np.linalg.norm(point_a - point_b))
     return lengths
+
+
+def _segment_key(first: str, second: str) -> tuple[str, str]:
+    return tuple(sorted((str(first), str(second))))  # type: ignore[return-value]
+
+
+def _segment_label(segment: tuple[str, str]) -> str:
+    return f"{segment[0]}__{segment[1]}"
+
+
+def _bilateral_bone_mismatches(
+    lengths: Mapping[tuple[str, str], float],
+    maximum_ratio: float,
+) -> set[tuple[str, str]]:
+    grouped: dict[tuple[str, str], dict[str, tuple[tuple[str, str], float]]] = {}
+    for segment, length in lengths.items():
+        sides = {
+            name.split("_", 1)[0]
+            for name in segment
+            if name.startswith(("left_", "right_"))
+        }
+        if len(sides) != 1:
+            continue
+        side = next(iter(sides))
+        signature = tuple(sorted(name.split("_", 1)[1] for name in segment))
+        grouped.setdefault(signature, {})[side] = (segment, length)
+    mismatches: set[tuple[str, str]] = set()
+    for values in grouped.values():
+        left = values.get("left")
+        right = values.get("right")
+        if left is None or right is None:
+            continue
+        denominator = max((left[1] + right[1]) / 2.0, 1e-8)
+        if abs(left[1] - right[1]) / denominator > maximum_ratio:
+            mismatches.update((left[0], right[0]))
+    return mismatches
+
+
+_LANDMARK_NEIGHBORS: Mapping[str, tuple[str, ...]] = {
+    "left_shoulder": ("left_elbow", "left_hip", "right_shoulder"),
+    "right_shoulder": ("right_elbow", "right_hip", "left_shoulder"),
+    "left_elbow": ("left_shoulder", "left_wrist"),
+    "right_elbow": ("right_shoulder", "right_wrist"),
+    "left_wrist": ("left_elbow",),
+    "right_wrist": ("right_elbow",),
+    "left_hip": ("left_shoulder", "left_knee", "right_hip"),
+    "right_hip": ("right_shoulder", "right_knee", "left_hip"),
+    "left_knee": ("left_hip", "left_ankle"),
+    "right_knee": ("right_hip", "right_ankle"),
+    "left_ankle": ("left_knee", "left_heel", "left_foot_index"),
+    "right_ankle": ("right_knee", "right_heel", "right_foot_index"),
+    "left_heel": ("left_ankle", "left_foot_index"),
+    "right_heel": ("right_ankle", "right_foot_index"),
+    "left_foot_index": ("left_ankle", "left_heel"),
+    "right_foot_index": ("right_ankle", "right_heel"),
+}
+
+
+def _landmark_velocity_outliers(
+    current: Mapping[str, np.ndarray],
+    previous: Mapping[str, np.ndarray],
+    *,
+    dt_seconds: float | None,
+    max_speed_m_s: float,
+    isolated_ratio: float,
+) -> tuple[dict[str, float], set[str]]:
+    if dt_seconds is None or dt_seconds <= 0.0:
+        return {}, set()
+    speeds = {
+        name: float(np.linalg.norm(point - previous[name]) / dt_seconds)
+        for name, point in current.items()
+        if name in previous
+    }
+    outliers: set[str] = set()
+    for name, speed in speeds.items():
+        if speed <= max_speed_m_s:
+            continue
+        neighbor_speeds = [
+            speeds[neighbor]
+            for neighbor in _LANDMARK_NEIGHBORS.get(name, ())
+            if neighbor in speeds
+        ]
+        neighbor_reference = float(np.median(neighbor_speeds)) if neighbor_speeds else 0.0
+        if speed > max(max_speed_m_s, neighbor_reference * isolated_ratio):
+            outliers.add(name)
+    return speeds, outliers
 
 
 def _body_scale(

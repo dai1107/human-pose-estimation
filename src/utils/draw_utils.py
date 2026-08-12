@@ -124,6 +124,33 @@ def draw_pose_result_filtered(
         cv2.circle(frame, to_pixel(point.x, point.y, width, height), radius, color, -1, cv2.LINE_AA)
 
 
+def draw_landmark_lag_debug(
+    frame: np.ndarray,
+    raw_result: PoseResult,
+    display_result: PoseResult,
+    *,
+    visible_names: set[str] | None = None,
+    highlight_names: set[str] | None = None,
+) -> None:
+    """Overlay raw and display-filtered skeletons for visual lag diagnosis."""
+
+    draw_pose_result_filtered(
+        frame,
+        raw_result,
+        visible_names=visible_names,
+        line_color=(255, 70, 220),
+        point_color=(255, 130, 245),
+    )
+    draw_pose_result_filtered(
+        frame,
+        display_result,
+        visible_names=visible_names,
+        highlight_names=highlight_names,
+    )
+    put_text(frame, "RAW", (14, max(24, frame.shape[0] - 50)), (255, 130, 245))
+    put_text(frame, "DISPLAY FILTER", (14, max(48, frame.shape[0] - 24)), (80, 220, 120))
+
+
 def draw_hand_landmarks(
     frame: np.ndarray,
     hands: Mapping[str, Sequence[LandmarkPoint]],

@@ -121,6 +121,27 @@ class UploadVideoProfiler:
             self.phase_totals[field] += value
         self.pose_inference_count += int(bool(pose_inference_ran))
         row["pose_inference_count"] = self.pose_inference_count
+        row.update(
+            {
+                "source_fps": round(self.source_fps, 6),
+                "display_fps": round(self.output_fps, 6),
+                "inference_fps": 0.0,
+                "capture_ms": row["decode_ms"],
+                "preprocess_ms": round(row["resize_ms"] + row["color_convert_ms"], 3),
+                "inference_ms": row["pose_inference_ms"],
+                "postprocess_ms": round(row["smoothing_ms"] + row["feature_ms"], 3),
+                "render_ms": row["draw_ms"],
+                "frame_timestamp_ms": row["timestamp_ms"],
+                "pose_timestamp_ms": row["timestamp_ms"],
+                "pose_result_age_ms": 0.0,
+                "frames_read": len(self.rows) + 1,
+                "frames_inferred": self.pose_inference_count,
+                "frames_skipped": max(0, len(self.rows) + 1 - self.pose_inference_count),
+                "frames_rendered": self.output_frame_count,
+                "queue_depth": 0,
+                "playback_speed_ratio": 1.0,
+            }
+        )
         self.rows.append(row)
 
     def record_output_frame(self, output_fps: float) -> None:
@@ -163,6 +184,11 @@ class UploadVideoProfiler:
         )
         processed_fps = processed / (total_ms / 1000.0) if total_ms > 0.0 else 0.0
         real_time_factor = total_ms / source_duration_ms if source_duration_ms > 0.0 else 0.0
+        analysis_speed_ratio = (
+            processed_fps / self.source_fps
+            if self.source_fps > 0.0
+            else 0.0
+        )
         timings_by_field = {
             field: [_finite_nonnegative(row[field]) for row in self.rows]
             for field in FRAME_TIMING_FIELDS
@@ -184,6 +210,15 @@ class UploadVideoProfiler:
             )
             duration_difference_ms = round(difference * 1000.0, 3)
             duration_tolerance_ms = round(tolerance * 1000.0, 3)
+        playback_speed_ratio = (
+            (self.output_frame_count / self.output_fps)
+            / (processed / self.source_fps)
+            if annotated_generated
+            and processed > 0
+            and self.source_fps > 0.0
+            and self.output_fps > 0.0
+            else 1.0
+        )
 
         summary: dict[str, Any] = {
             "source_fps": round(self.source_fps, 6),
@@ -200,6 +235,97 @@ class UploadVideoProfiler:
             "total_analysis_time_ms": round(total_ms, 3),
             "processed_fps": round(processed_fps, 3),
             "real_time_factor": round(real_time_factor, 6),
+            "analysis_speed_ratio": round(analysis_speed_ratio, 6),
+            "normal_speed_analysis_passed": (
+                analysis_speed_ratio >= 1.0
+                if processed > 0 and self.source_fps > 0.0
+                else None
+            ),
+            "display_fps": round(self.output_fps, 6),
+            "inference_fps": round(
+                self.pose_inference_count / (total_ms / 1000.0)
+                if total_ms > 0.0
+                else 0.0,
+                3,
+            ),
+            "capture_ms": round(
+                statistics.mean(timings_by_field["decode_ms"])
+                if timings_by_field["decode_ms"]
+                else 0.0,
+                3,
+            ),
+            "preprocess_ms": round(
+                statistics.mean(
+                    [
+                        resize + color
+                        for resize, color in zip(
+                            timings_by_field["resize_ms"],
+                            timings_by_field["color_convert_ms"],
+                        )
+                    ]
+                )
+                if processed
+                else 0.0,
+                3,
+            ),
+            "inference_ms": round(
+                statistics.mean(timings_by_field["pose_inference_ms"])
+                if timings_by_field["pose_inference_ms"]
+                else 0.0,
+                3,
+            ),
+            "postprocess_ms": round(
+                statistics.mean(
+                    [
+                        smoothing + feature
+                        for smoothing, feature in zip(
+                            timings_by_field["smoothing_ms"],
+                            timings_by_field["feature_ms"],
+                        )
+                    ]
+                )
+                if processed
+                else 0.0,
+                3,
+            ),
+            "rule_ms": round(
+                statistics.mean(timings_by_field["rule_ms"])
+                if timings_by_field["rule_ms"]
+                else 0.0,
+                3,
+            ),
+            "render_ms": round(
+                statistics.mean(timings_by_field["draw_ms"])
+                if timings_by_field["draw_ms"]
+                else 0.0,
+                3,
+            ),
+            "frame_timestamp_ms": round(
+                _finite_nonnegative(self.rows[-1]["timestamp_ms"]) if self.rows else 0.0,
+                3,
+            ),
+            "pose_timestamp_ms": round(
+                _finite_nonnegative(self.rows[-1]["timestamp_ms"]) if self.rows else 0.0,
+                3,
+            ),
+            "pose_result_age_ms": 0.0,
+            "frames_read": processed,
+            "frames_inferred": self.pose_inference_count,
+            "frames_skipped": max(0, processed - self.pose_inference_count),
+            "frames_rendered": self.output_frame_count,
+            "queue_depth": 0,
+            "playback_speed_ratio": round(playback_speed_ratio, 6),
+            "p50_inference_latency_ms": round(
+                statistics.median(timings_by_field["pose_inference_ms"])
+                if timings_by_field["pose_inference_ms"]
+                else 0.0,
+                3,
+            ),
+            "p95_inference_latency_ms": round(
+                _percentile(timings_by_field["pose_inference_ms"], 0.95), 3
+            ),
+            "p50_pose_result_age_ms": 0.0,
+            "p95_pose_result_age_ms": 0.0,
             "primary_bottleneck": bottleneck,
             "phase_total_ms": {
                 field: round(value, 3)
@@ -220,6 +346,23 @@ class UploadVideoProfiler:
             "timestamp_ms",
             *FRAME_TIMING_FIELDS,
             "pose_inference_count",
+            "source_fps",
+            "display_fps",
+            "inference_fps",
+            "capture_ms",
+            "preprocess_ms",
+            "inference_ms",
+            "postprocess_ms",
+            "render_ms",
+            "frame_timestamp_ms",
+            "pose_timestamp_ms",
+            "pose_result_age_ms",
+            "frames_read",
+            "frames_inferred",
+            "frames_skipped",
+            "frames_rendered",
+            "queue_depth",
+            "playback_speed_ratio",
         ]
         with profile_path.open("w", encoding="utf-8-sig", newline="") as handle:
             writer = csv.DictWriter(handle, fieldnames=fieldnames)

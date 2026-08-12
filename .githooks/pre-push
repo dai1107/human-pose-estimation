@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+export PYTHONUTF8=1
+
+remote_name="${1:-origin}"
+exec python tools/ci_preflight.py --stage all --remote "$remote_name"

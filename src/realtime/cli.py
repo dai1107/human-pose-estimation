@@ -74,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--save-dir", default="outputs", help="Directory for sessions, screenshots, and recordings. Default: outputs.")
     parser.add_argument("--headless", action="store_true", help="Do not open an OpenCV window; useful for input-video batch evaluation.")
     parser.add_argument("--normalized-pose-debug", action="store_true", help="Print the unified NormalizedPose summary every 30 frames. Default: off.")
+    parser.add_argument("--landmark-lag-debug", action="store_true", help="Overlay raw and display-filtered pose skeletons. Default: off.")
     parser.add_argument("--hyrox-debug", action="store_true", help="Show HYROX debug pose features overlay. Default: off.")
     parser.add_argument("--hyrox-action", default="none", choices=("none", *HYROX_ACTION_NAMES), help="Enable HYROX action analysis. Default: none.")
     parser.add_argument("--hyrox-sensitivity", default="medium", choices=("low", "medium", "high"), help="HYROX action sensitivity. Default: medium.")

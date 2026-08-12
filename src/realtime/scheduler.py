@@ -44,6 +44,8 @@ class LatestOnlyMediaPipeScheduler:
         *,
         result_callback: Callable[[TimedPoseResult], None] | None = None,
         clock_ns: Callable[[], int] = time.perf_counter_ns,
+        target_pose_fps: float = 0.0,
+        max_pose_fps: float = 0.0,
     ) -> None:
         self._backend = backend
         self._result_callback = result_callback
@@ -56,14 +58,42 @@ class LatestOnlyMediaPipeScheduler:
         self._submissions: dict[int, _Submission] = {}
         self._last_timestamp_ms = -1
         self._last_accepted_frame_id = -1
+        requested_fps = max(0.0, float(target_pose_fps))
+        maximum_fps = max(0.0, float(max_pose_fps))
+        if maximum_fps > 0.0:
+            requested_fps = min(requested_fps or maximum_fps, maximum_fps)
+        self.target_pose_fps = requested_fps
+        self.max_pose_fps = maximum_fps
+        self._minimum_submission_interval_ns = (
+            int(round(1_000_000_000.0 / requested_fps))
+            if requested_fps > 0.0
+            else 0
+        )
+        self._last_submission_capture_ns = -1
         self._latest_result: TimedPoseResult | None = None
         self.submitted_count = 0
         self.result_count = 0
         self.busy_drop_count = 0
+        self.rate_limit_drop_count = 0
         self.stale_drop_count = 0
         self.unknown_callback_count = 0
         self.late_callback_count = 0
         self._backend.set_result_callback(self._handle_backend_result)
+
+    def set_target_pose_fps(self, target_pose_fps: float) -> float:
+        """Change only the inference admission rate; capture/render are untouched."""
+
+        requested = max(0.0, float(target_pose_fps))
+        with self._lock:
+            if self.max_pose_fps > 0.0:
+                requested = min(requested or self.max_pose_fps, self.max_pose_fps)
+            self.target_pose_fps = requested
+            self._minimum_submission_interval_ns = (
+                int(round(1_000_000_000.0 / requested))
+                if requested > 0.0
+                else 0
+            )
+        return requested
 
     @property
     def is_busy(self) -> bool:
@@ -92,6 +122,14 @@ class LatestOnlyMediaPipeScheduler:
                     self.busy_drop_count += 1
                 self._pending = frame
                 return False
+            if not self._submission_due_locked(frame):
+                if self._pending is not None:
+                    self.rate_limit_drop_count += 1
+                self._pending = frame
+                return False
+            if self._pending is not None:
+                self.rate_limit_drop_count += 1
+            self._pending = None
             dispatch = self._reserve_locked(frame)
         self._dispatch(*dispatch)
         return True
@@ -121,6 +159,7 @@ class LatestOnlyMediaPipeScheduler:
             self._last_timestamp_ms + 1,
         )
         self._last_timestamp_ms = timestamp_ms
+        self._last_submission_capture_ns = self._rate_timestamp_ns(frame)
         self._in_flight_timestamp_ms = timestamp_ms
         self._submissions[timestamp_ms] = _Submission(
             frame=frame,
@@ -130,6 +169,24 @@ class LatestOnlyMediaPipeScheduler:
         )
         self.submitted_count += 1
         return frame, timestamp_ms
+
+    def _submission_due_locked(self, frame: CapturedFrame) -> bool:
+        if self._minimum_submission_interval_ns <= 0 or self._last_submission_capture_ns < 0:
+            return True
+        # Source timestamps are commonly quantized to whole milliseconds
+        # (30 FPS alternates between 33 and 34 ms).  A one-millisecond allowance
+        # prevents that quantization from turning a 15 FPS target into 10 FPS.
+        tolerance_ns = min(1_000_000, self._minimum_submission_interval_ns // 20)
+        return (
+            self._rate_timestamp_ns(frame) - self._last_submission_capture_ns
+            >= self._minimum_submission_interval_ns - tolerance_ns
+        )
+
+    @staticmethod
+    def _rate_timestamp_ns(frame: CapturedFrame) -> int:
+        if frame.source_timestamp_ms is not None:
+            return int(frame.source_timestamp_ms) * 1_000_000
+        return int(frame.capture_timestamp_ns)
 
     def _dispatch(self, frame: CapturedFrame, timestamp_ms: int) -> None:
         try:
@@ -176,11 +233,23 @@ class LatestOnlyMediaPipeScheduler:
             inference_ms = max(0, inference_end_ns - submission.inference_start_ns) / 1_000_000.0
             pose_extra = dict(pose.extra)
             pose_extra["mediapipe_timestamp_ms"] = int(timestamp_ms)
+            performance = dict(pose_extra.get("performance", {}))
+            performance["resize_ms"] = float(submission.frame.resize_ms)
+            pose_extra["performance"] = performance
+            pose_extra["inference_resolution"] = {
+                "width": int(submission.frame.inference_width or submission.frame.width),
+                "height": int(submission.frame.inference_height or submission.frame.height),
+            }
             pose = replace(
                 pose,
                 inference_time_ms=inference_ms,
-                timestamp_ms=int(submission.frame.capture_timestamp_ns // 1_000_000),
+                timestamp_ms=(
+                    submission.frame.source_timestamp_ms
+                    if submission.frame.source_timestamp_ms is not None
+                    else int(submission.frame.capture_timestamp_ns // 1_000_000)
+                ),
                 extra=pose_extra,
+                frame_id=submission.frame.frame_id,
             )
             candidate = TimedPoseResult(
                 frame_id=submission.frame.frame_id,
@@ -200,7 +269,7 @@ class LatestOnlyMediaPipeScheduler:
                 self.result_count += 1
                 accepted = candidate
 
-            if self._pending is not None:
+            if self._pending is not None and self._submission_due_locked(self._pending):
                 pending = self._pending
                 self._pending = None
                 next_dispatch = self._reserve_locked(pending)
@@ -216,7 +285,7 @@ class LatestOnlyMediaPipeScheduler:
 class PoseAgeGate:
     """Admit each observation once, only while it is relevant to the display frame."""
 
-    def __init__(self, *, max_pose_age_ms: float = 150.0, max_frame_gap: int = 5) -> None:
+    def __init__(self, *, max_pose_age_ms: float = 120.0, max_frame_gap: int = 5) -> None:
         self.max_pose_age_ms = max(0.0, float(max_pose_age_ms))
         self.max_frame_gap = max(0, int(max_frame_gap))
         self.last_analyzed_frame_id = -1
@@ -229,16 +298,70 @@ class PoseAgeGate:
         *,
         current_frame_id: int,
         now_ns: int | None = None,
+        current_frame_timestamp_ms: int | float | None = None,
     ) -> bool:
-        if result is None or result.pose is None:
-            return False
-        now_ns = time.perf_counter_ns() if now_ns is None else int(now_ns)
-        frame_gap = int(current_frame_id) - result.frame_id
-        return (
-            frame_gap >= 0
-            and frame_gap <= self.max_frame_gap
-            and result.age_ms(now_ns) <= self.max_pose_age_ms
+        return bool(
+            self.synchronization(
+                result,
+                current_frame_id=current_frame_id,
+                now_ns=now_ns,
+                current_frame_timestamp_ms=current_frame_timestamp_ms,
+            )["fresh"]
         )
+
+    def synchronization(
+        self,
+        result: TimedPoseResult | None,
+        *,
+        current_frame_id: int,
+        now_ns: int | None = None,
+        current_frame_timestamp_ms: int | float | None = None,
+    ) -> dict[str, object]:
+        """Describe exact frame/timestamp alignment for rendering diagnostics."""
+
+        now_ns = time.perf_counter_ns() if now_ns is None else int(now_ns)
+        if result is None or result.pose is None:
+            return {
+                "fresh": False,
+                "reason": "pose_missing",
+                "current_frame_id": int(current_frame_id),
+                "pose_frame_id": None,
+                "frame_gap": None,
+                "current_frame_timestamp_ms": current_frame_timestamp_ms,
+                "pose_timestamp_ms": None,
+                "pose_result_age_ms": None,
+                "wall_age_ms": None,
+            }
+        frame_gap = int(current_frame_id) - result.frame_id
+        wall_age_ms = result.age_ms(now_ns)
+        source_age_ms = (
+            None
+            if current_frame_timestamp_ms is None
+            else result.source_age_ms(current_frame_timestamp_ms)
+        )
+        if frame_gap < 0:
+            reason = "pose_from_future_frame"
+        elif frame_gap > self.max_frame_gap:
+            reason = "frame_gap_exceeded"
+        elif wall_age_ms > self.max_pose_age_ms:
+            reason = "wall_age_exceeded"
+        elif source_age_ms is not None and source_age_ms < 0.0:
+            reason = "pose_from_future_timestamp"
+        elif source_age_ms is not None and source_age_ms > self.max_pose_age_ms:
+            reason = "source_age_exceeded"
+        else:
+            reason = "fresh"
+        return {
+            "fresh": reason == "fresh",
+            "reason": reason,
+            "current_frame_id": int(current_frame_id),
+            "pose_frame_id": result.frame_id,
+            "frame_gap": frame_gap,
+            "current_frame_timestamp_ms": current_frame_timestamp_ms,
+            "pose_timestamp_ms": result.pose_timestamp_ms,
+            "pose_result_age_ms": source_age_ms,
+            "wall_age_ms": wall_age_ms,
+        }
 
     def accept_for_analysis(
         self,
@@ -246,10 +369,16 @@ class PoseAgeGate:
         *,
         current_frame_id: int,
         now_ns: int | None = None,
+        current_frame_timestamp_ms: int | float | None = None,
     ) -> bool:
         if result is None or result.frame_id <= self.last_analyzed_frame_id:
             return False
-        if not self.is_fresh(result, current_frame_id=current_frame_id, now_ns=now_ns):
+        if not self.is_fresh(
+            result,
+            current_frame_id=current_frame_id,
+            now_ns=now_ns,
+            current_frame_timestamp_ms=current_frame_timestamp_ms,
+        ):
             if result.frame_id not in self._counted_stale_frame_ids:
                 self._counted_stale_frame_ids.add(result.frame_id)
                 self.stale_drop_count += 1

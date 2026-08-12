@@ -11,3 +11,6 @@ recursive-include webui/templates *.html
 recursive-include webui/static *.js *.mjs *.css *.wasm
 prune outputs
 prune .cache
+prune datasets
+prune tools/oni_bridge/vendor
+global-exclude *.oni

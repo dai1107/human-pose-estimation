@@ -53,6 +53,26 @@ class RealtimeMetricsSnapshot:
     three_d_assist_support_frame_ratio: float = 0.0
     three_d_assist_conflict_frame_ratio: float = 0.0
     mean_2d_3d_angle_difference_deg: float = 0.0
+    source_fps: float = 0.0
+    display_fps: float = 0.0
+    inference_fps: float = 0.0
+    capture_ms: float = 0.0
+    preprocess_ms: float = 0.0
+    inference_ms: float = 0.0
+    postprocess_ms: float = 0.0
+    rule_ms: float = 0.0
+    render_ms: float = 0.0
+    frame_timestamp_ms: float = 0.0
+    pose_timestamp_ms: float = 0.0
+    pose_result_age_ms: float = 0.0
+    frames_read: int = 0
+    frames_inferred: int = 0
+    frames_skipped: int = 0
+    frames_rendered: int = 0
+    queue_depth: int = 0
+    playback_speed_ratio: float = 0.0
+    p50_pose_result_age_ms: float = 0.0
+    p95_pose_result_age_ms: float = 0.0
 
 
 class RealtimeMetrics:
@@ -111,6 +131,26 @@ class RealtimeMetrics:
         self._keypoint_jitters: list[float] = []
         self._previous_angles: dict[str, float] = {}
         self._angle_jitters: list[float] = []
+        self.source_fps = 0.0
+        self.frames_read = 0
+        self.frames_inferred = 0
+        self.frames_rendered = 0
+        self.queue_depth = 0
+        self._capture_times: list[float] = []
+        self._preprocess_times: list[float] = []
+        self._postprocess_times: list[float] = []
+        self._rule_times: list[float] = []
+        self._render_times: list[float] = []
+        self._pose_ages: list[float] = []
+        self._display_intervals: list[float] = []
+        self._inference_intervals: list[float] = []
+        self._last_render_time: float | None = None
+        self._last_inference_time: float | None = None
+        self._first_source_timestamp_ms: float | None = None
+        self._last_frame_timestamp_ms = 0.0
+        self._last_pose_timestamp_ms = 0.0
+        self._playback_started_at: float | None = None
+        self._last_periodic_log_at = self.started
 
     def set_backend(self, backend: str, backend_device: str = "") -> None:
         device = backend_device or "auto"
@@ -126,10 +166,73 @@ class RealtimeMetrics:
         busy: int,
         stale: int,
         camera_overwrite: int = 0,
+        queue_depth: int | None = None,
+        frames_inferred: int | None = None,
     ) -> None:
         self.pose_busy_drop_count = max(0, int(busy))
         self.pose_stale_drop_count = max(0, int(stale))
         self.camera_overwrite_drop_count = max(0, int(camera_overwrite))
+        if queue_depth is not None:
+            self.queue_depth = max(0, int(queue_depth))
+        if frames_inferred is not None:
+            self.frames_inferred = max(self.frames_inferred, int(frames_inferred))
+
+    def record_frame_read(
+        self,
+        *,
+        source_fps: float,
+        frame_timestamp_ms: float,
+        capture_ms: float,
+        wall_time: float | None = None,
+    ) -> None:
+        """Record source-clock progress independently of pose inference."""
+
+        now = time.perf_counter() if wall_time is None else float(wall_time)
+        self.source_fps = max(0.0, float(source_fps))
+        self.frames_read += 1
+        self._last_frame_timestamp_ms = max(0.0, float(frame_timestamp_ms))
+        self._capture_times.append(max(0.0, float(capture_ms)))
+        if self._first_source_timestamp_ms is None:
+            self._first_source_timestamp_ms = self._last_frame_timestamp_ms
+            self._playback_started_at = now
+
+    def record_pose_timing(
+        self,
+        *,
+        preprocess_ms: float = 0.0,
+        postprocess_ms: float = 0.0,
+        rule_ms: float = 0.0,
+        pose_timestamp_ms: float = 0.0,
+        pose_result_age_ms: float = 0.0,
+        queue_depth: int = 0,
+        wall_time: float | None = None,
+    ) -> None:
+        now = time.perf_counter() if wall_time is None else float(wall_time)
+        self._preprocess_times.append(max(0.0, float(preprocess_ms)))
+        self._postprocess_times.append(max(0.0, float(postprocess_ms)))
+        self._rule_times.append(max(0.0, float(rule_ms)))
+        self._last_pose_timestamp_ms = max(0.0, float(pose_timestamp_ms))
+        self._pose_ages.append(max(0.0, float(pose_result_age_ms)))
+        self.queue_depth = max(0, int(queue_depth))
+        self.frames_inferred += 1
+        if self._last_inference_time is not None and now > self._last_inference_time:
+            self._inference_intervals.append(now - self._last_inference_time)
+        self._last_inference_time = now
+
+    def record_render(self, *, render_ms: float, wall_time: float | None = None) -> None:
+        now = time.perf_counter() if wall_time is None else float(wall_time)
+        self._render_times.append(max(0.0, float(render_ms)))
+        self.frames_rendered += 1
+        if self._last_render_time is not None and now > self._last_render_time:
+            self._display_intervals.append(now - self._last_render_time)
+        self._last_render_time = now
+
+    def periodic_snapshot_due(self, wall_time: float | None = None, interval_s: float = 1.0) -> bool:
+        now = time.perf_counter() if wall_time is None else float(wall_time)
+        if now - self._last_periodic_log_at < max(0.1, float(interval_s)):
+            return False
+        self._last_periodic_log_at = now
+        return True
 
     def update(
         self,
@@ -185,6 +288,26 @@ class RealtimeMetrics:
         return self.snapshot()
 
     def snapshot(self) -> RealtimeMetricsSnapshot:
+        display_fps = self._rate_from_intervals(self._display_intervals)
+        inference_fps = self._rate_from_intervals(self._inference_intervals)
+        elapsed = (
+            self._last_render_time - self._playback_started_at
+            if self._playback_started_at is not None and self._last_render_time is not None
+            else 0.0
+        )
+        source_progress_ms = (
+            self._last_frame_timestamp_ms - self._first_source_timestamp_ms
+            if self._first_source_timestamp_ms is not None
+            else 0.0
+        )
+        playback_speed_ratio = source_progress_ms / (elapsed * 1000.0) if elapsed > 0.0 else 0.0
+        inferred = max(self.frames_inferred, self.frame_count)
+        frames_skipped = max(
+            0,
+            self.frames_read - inferred - self.queue_depth,
+            self.pose_busy_drop_count,
+            self.camera_overwrite_drop_count,
+        )
         return RealtimeMetricsSnapshot(
             realtime_fps=self._fps_values[-1] if self._fps_values else 0.0,
             avg_fps=mean(self._fps_values) if self._fps_values else 0.0,
@@ -248,11 +371,32 @@ class RealtimeMetrics:
                 if self._two_d_three_d_differences
                 else 0.0
             ),
+            source_fps=self.source_fps,
+            display_fps=display_fps,
+            inference_fps=inference_fps,
+            capture_ms=mean(self._capture_times) if self._capture_times else 0.0,
+            preprocess_ms=mean(self._preprocess_times) if self._preprocess_times else 0.0,
+            inference_ms=self._inference_times[-1] if self._inference_times else 0.0,
+            postprocess_ms=mean(self._postprocess_times) if self._postprocess_times else 0.0,
+            rule_ms=mean(self._rule_times) if self._rule_times else 0.0,
+            render_ms=mean(self._render_times) if self._render_times else 0.0,
+            frame_timestamp_ms=self._last_frame_timestamp_ms,
+            pose_timestamp_ms=self._last_pose_timestamp_ms,
+            pose_result_age_ms=self._pose_ages[-1] if self._pose_ages else 0.0,
+            frames_read=self.frames_read,
+            frames_inferred=inferred,
+            frames_skipped=frames_skipped,
+            frames_rendered=self.frames_rendered,
+            queue_depth=self.queue_depth,
+            playback_speed_ratio=playback_speed_ratio,
+            p50_pose_result_age_ms=self._percentile(self._pose_ages, 50),
+            p95_pose_result_age_ms=self._percentile(self._pose_ages, 95),
         )
 
     def write_csv(self, path: str | Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
+        snapshot = self.snapshot()
         row = versioned_csv_row({
             "input": self.input_name,
             "backend": self.backend,
@@ -270,6 +414,8 @@ class RealtimeMetrics:
             "avg_inference_time_ms": self.snapshot().avg_inference_time_ms,
             "p50_inference_time_ms": self.snapshot().p50_inference_time_ms,
             "p95_inference_time_ms": self.snapshot().p95_inference_time_ms,
+            "p50_inference_latency_ms": self.snapshot().p50_inference_time_ms,
+            "p95_inference_latency_ms": self.snapshot().p95_inference_time_ms,
             "avg_end_to_end_latency_ms": self.snapshot().avg_end_to_end_latency_ms,
             "p50_end_to_end_latency_ms": self.snapshot().p50_end_to_end_latency_ms,
             "p95_end_to_end_latency_ms": self.snapshot().p95_end_to_end_latency_ms,
@@ -300,11 +446,46 @@ class RealtimeMetrics:
             "three_d_assist_support_frame_ratio": self.snapshot().three_d_assist_support_frame_ratio,
             "three_d_assist_conflict_frame_ratio": self.snapshot().three_d_assist_conflict_frame_ratio,
             "mean_2d_3d_angle_difference_deg": self.snapshot().mean_2d_3d_angle_difference_deg,
+            "source_fps": snapshot.source_fps,
+            "display_fps": snapshot.display_fps,
+            "inference_fps": snapshot.inference_fps,
+            "capture_ms": snapshot.capture_ms,
+            "preprocess_ms": snapshot.preprocess_ms,
+            "inference_ms": snapshot.inference_ms,
+            "postprocess_ms": snapshot.postprocess_ms,
+            "rule_ms": snapshot.rule_ms,
+            "render_ms": snapshot.render_ms,
+            "frame_timestamp_ms": snapshot.frame_timestamp_ms,
+            "pose_timestamp_ms": snapshot.pose_timestamp_ms,
+            "pose_result_age_ms": snapshot.pose_result_age_ms,
+            "frames_read": snapshot.frames_read,
+            "frames_inferred": snapshot.frames_inferred,
+            "frames_skipped": snapshot.frames_skipped,
+            "frames_rendered": snapshot.frames_rendered,
+            "queue_depth": snapshot.queue_depth,
+            "playback_speed_ratio": snapshot.playback_speed_ratio,
+            "p50_pose_result_age_ms": snapshot.p50_pose_result_age_ms,
+            "p95_pose_result_age_ms": snapshot.p95_pose_result_age_ms,
         })
         exists = path.exists()
+        fieldnames = list(row)
+        if exists and path.stat().st_size > 0:
+            with path.open("r", newline="", encoding="utf-8") as file:
+                reader = csv.DictReader(file)
+                existing_fieldnames = list(reader.fieldnames or ())
+                existing_rows = list(reader)
+            if existing_fieldnames != fieldnames:
+                merged_fieldnames = list(dict.fromkeys((*existing_fieldnames, *fieldnames)))
+                temporary = path.with_name(f".{path.name}.tmp")
+                with temporary.open("w", newline="", encoding="utf-8") as file:
+                    writer = csv.DictWriter(file, fieldnames=merged_fieldnames)
+                    writer.writeheader()
+                    writer.writerows(existing_rows)
+                temporary.replace(path)
+                fieldnames = merged_fieldnames
         with path.open("a", newline="", encoding="utf-8") as file:
-            writer = csv.DictWriter(file, fieldnames=list(row))
-            if not exists:
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            if not exists or path.stat().st_size == 0:
                 writer.writeheader()
             writer.writerow(row)
 
@@ -343,6 +524,17 @@ class RealtimeMetrics:
             f"person_lost_count={snapshot.person_lost_count}",
             f"keypoint_jitter={snapshot.keypoint_jitter:.5f}",
             f"angle_jitter={snapshot.angle_jitter:.3f}",
+            f"source_fps={snapshot.source_fps:.1f}",
+            f"display_fps={snapshot.display_fps:.1f}",
+            f"inference_fps={snapshot.inference_fps:.1f}",
+            f"playback_speed_ratio={snapshot.playback_speed_ratio:.3f}",
+            f"pose_age_p50_ms={snapshot.p50_pose_result_age_ms:.1f}",
+            f"pose_age_p95_ms={snapshot.p95_pose_result_age_ms:.1f}",
+            f"frames_read={snapshot.frames_read}",
+            f"frames_inferred={snapshot.frames_inferred}",
+            f"frames_skipped={snapshot.frames_skipped}",
+            f"frames_rendered={snapshot.frames_rendered}",
+            f"queue_depth={snapshot.queue_depth}",
         ]
 
     @staticmethod
@@ -350,6 +542,11 @@ class RealtimeMetrics:
         if not values:
             return 0.0
         return float(np.percentile(values, percentile))
+
+    @staticmethod
+    def _rate_from_intervals(intervals: list[float]) -> float:
+        recent = intervals[-120:]
+        return 1.0 / mean(recent) if recent and mean(recent) > 0.0 else 0.0
 
     def _record_source_models(self, result: PoseResult, distribution: dict[str, int] | None) -> None:
         if distribution:

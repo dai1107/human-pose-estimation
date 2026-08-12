@@ -40,6 +40,7 @@ rtmw-gpu = [
 dev = [
   "pytest>=7.4,<9",
   "build>=1.3,<2",
+  "packaging>=24,<26",
   "tomli>=2.2,<3; python_version < '3.11'",
 ]
 

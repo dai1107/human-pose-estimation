@@ -1,25 +1,13 @@
 from __future__ import annotations
 
-from math import degrees, isfinite, nan
+from math import degrees, nan
 from typing import Sequence
 
 import numpy as np
 
+from .joint_metrics import ANGLE_DEFINITIONS, calculate_angle_3d
 from .landmarks import coerce_landmarks, midpoint, point_array, usable_landmark
 from .types import LandmarkPoint
-
-
-ANGLE_DEFINITIONS: dict[str, tuple[str, str, str]] = {
-    "left_elbow_angle": ("left_shoulder", "left_elbow", "left_wrist"),
-    "right_elbow_angle": ("right_shoulder", "right_elbow", "right_wrist"),
-    "left_knee_angle": ("left_hip", "left_knee", "left_ankle"),
-    "right_knee_angle": ("right_hip", "right_knee", "right_ankle"),
-    "left_hip_angle": ("left_shoulder", "left_hip", "left_knee"),
-    "right_hip_angle": ("right_shoulder", "right_hip", "right_knee"),
-    "left_shoulder_angle": ("left_hip", "left_shoulder", "left_elbow"),
-    "right_shoulder_angle": ("right_hip", "right_shoulder", "right_elbow"),
-}
-
 
 def calculate_joint_angle(
     point_a: LandmarkPoint | object | None,
@@ -39,16 +27,8 @@ def calculate_joint_angle(
 
     if a is None or b is None or c is None:
         return nan
-    vector_ab = a - b
-    vector_cb = c - b
-    norm_ab = float(np.linalg.norm(vector_ab))
-    norm_cb = float(np.linalg.norm(vector_cb))
-    if norm_ab <= 1e-12 or norm_cb <= 1e-12:
-        return nan
-    cosine = float(np.dot(vector_ab, vector_cb) / (norm_ab * norm_cb))
-    cosine = float(np.clip(cosine, -1.0, 1.0))
-    angle = degrees(float(np.arccos(cosine)))
-    return angle if isfinite(angle) else nan
+    angle = calculate_angle_3d(a, b, c)
+    return nan if angle is None else angle
 
 
 def compute_body_centers(landmarks: Sequence[object] | None) -> dict[str, LandmarkPoint | None]:
@@ -86,4 +66,3 @@ def compute_joint_angles(landmarks: Sequence[object] | None) -> dict[str, float]
         angles[angle_name] = calculate_joint_angle(point_a, point_b, point_c)
     angles["trunk_tilt_proxy"] = compute_trunk_tilt_proxy(points)
     return angles
-

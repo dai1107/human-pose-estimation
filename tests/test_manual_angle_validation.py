@@ -44,6 +44,7 @@ def _report() -> dict[str, object]:
                             if smooth_value is None
                             else smooth_value + 2.0
                         ),
+                        "angle_canonical_3d_deg": raw_value + 1.0,
                         "rule_angle_deg": smooth_value,
                         "display_angle_deg": smooth_value,
                         "drawn_landmarks_angle_deg": smooth_value,
@@ -106,6 +107,7 @@ def test_noninteractive_manual_annotation_uses_shared_angle_math_and_report(
     assert annotation["model_2d_raw_deg"] == 80.0
     assert annotation["model_2d_smoothed_deg"] == 140.0
     assert annotation["model_3d_raw_deg"] == 83.0
+    assert annotation["model_canonical_3d_deg"] == 81.0
     assert annotation["event"] == "lowest_point"
 
     output = tmp_path / "manual_angles.json"
@@ -190,7 +192,78 @@ def test_curve_export_contains_raw_smoothed_3d_and_rule_angles(
     assert "angle_2d_smoothed_deg" in text
     assert "angle_3d_raw_deg" in text
     assert "angle_3d_smoothed_deg" in text
+    assert "angle_canonical_3d_deg" in text
     assert "rule_angle_deg" in text
+
+
+def test_round12_reports_coverage_and_explicit_old_vs_new_non_regression() -> None:
+    annotations = [
+        {
+            "video_id": "phone_lunge_001",
+            "frame_index": 3,
+            "joint": "left_knee",
+            "action": "lunge",
+            "camera_view": "side",
+            "manual_angle_deg": 102.0,
+            "event": "full_extension",
+        },
+        {
+            "video_id": "phone_wall_ball_001",
+            "frame_index": 4,
+            "joint": "left_knee",
+            "action": "wall_ball",
+            "camera_view": "oblique_30",
+            "manual_angle_deg": 82.0,
+            "event": "lowest_point",
+        },
+        {
+            "video_id": "phone_burpee_001",
+            "frame_index": 4,
+            "joint": "left_knee",
+            "action": "burpee_broad_jump",
+            "camera_view": "oblique_45",
+            "manual_angle_deg": 82.0,
+            "event": "lowest_point",
+        },
+        {
+            "video_id": "phone_rowing_001",
+            "frame_index": 3,
+            "joint": "left_knee",
+            "action": "rowing",
+            "camera_view": "front",
+            "manual_angle_deg": 102.0,
+            "event": "full_extension",
+        },
+    ]
+    baseline = _report()
+    for frame in baseline["frames"]:
+        for observation in frame["angle_observations"]:
+            for field in (
+                "angle_2d_raw_deg",
+                "angle_2d_smoothed_deg",
+                "angle_3d_raw_deg",
+                "angle_3d_smoothed_deg",
+                "angle_canonical_3d_deg",
+                "rule_angle_deg",
+            ):
+                if observation[field] is not None:
+                    observation[field] += 10.0
+
+    summary, rows = compare_manual_annotations(
+        annotations,
+        report=_report(),
+        baseline_report=baseline,
+        max_lag_frames=4,
+    )
+
+    coverage = summary["round12_coverage"]
+    assert coverage["action_coverage_complete"] is True
+    assert coverage["camera_view_coverage_complete"] is True
+    assert summary["overall"]["canonical_3d"]["count"] == 4
+    assert summary["version_comparison"]["comparable_check_count"] > 0
+    assert "non_regression_pass" in summary["version_comparison"]
+    assert rows[0]["baseline_model_2d_raw_deg"] is not None
+    assert rows[0]["change_error_2d_raw_deg"] is not None
 
 
 def test_lag_estimator_rejects_mismatched_curve_lengths() -> None:

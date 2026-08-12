@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from math import isfinite
@@ -387,6 +388,8 @@ class SessionWriter:
             for field in (
                 f"{angle_name}_2d",
                 f"{angle_name}_3d",
+                f"{angle_name}_legacy_angle",
+                f"{angle_name}_canonical_3d_angle",
                 f"{angle_name}_2d_3d_difference_deg",
                 f"{angle_name}_3d_reliable",
             )
@@ -404,6 +407,17 @@ class SessionWriter:
                 "three_d_reliable",
                 "three_d_reliable_ratio",
                 "three_d_conflict_ratio",
+                "body_canonical_available",
+                "body_canonical_reliable",
+                "body_canonical_confidence",
+                "ground_status",
+                "ground_confidence",
+                "ground_y_image_normalized",
+                "ground_sample_count",
+                "left_ground_contact_evidence_status",
+                "left_ground_contact_evidence_confidence",
+                "right_ground_contact_evidence_status",
+                "right_ground_contact_evidence_confidence",
                 "quality_reasons",
                 *angle_columns,
             ]
@@ -413,6 +427,21 @@ class SessionWriter:
             writer.writeheader()
             for frame in self.pose_frames:
                 kinematics = frame.three_d_kinematics
+                body_coordinates = kinematics.get("body_coordinate_system")
+                if not isinstance(body_coordinates, Mapping):
+                    body_coordinates = {}
+                ground = kinematics.get("ground_estimation")
+                if not isinstance(ground, Mapping):
+                    ground = {}
+                ground_contacts = ground.get("contact_evidence")
+                if not isinstance(ground_contacts, Mapping):
+                    ground_contacts = {}
+                left_ground = ground_contacts.get("left")
+                if not isinstance(left_ground, Mapping):
+                    left_ground = {}
+                right_ground = ground_contacts.get("right")
+                if not isinstance(right_ground, Mapping):
+                    right_ground = {}
                 row: dict[str, object] = {
                     "frame_index": frame.frame_index,
                     "timestamp_ms": frame.timestamp_ms,
@@ -432,6 +461,33 @@ class SessionWriter:
                     ),
                     "three_d_conflict_ratio": _number(
                         kinematics.get("three_d_conflict_ratio")
+                    ),
+                    "body_canonical_available": int(
+                        bool(body_coordinates.get("available"))
+                    ),
+                    "body_canonical_reliable": int(
+                        bool(body_coordinates.get("reliable"))
+                    ),
+                    "body_canonical_confidence": _number(
+                        body_coordinates.get("confidence")
+                    ),
+                    "ground_status": ground.get("status", "UNSURE"),
+                    "ground_confidence": _number(ground.get("ground_confidence")),
+                    "ground_y_image_normalized": _number(
+                        ground.get("ground_y_image_normalized")
+                    ),
+                    "ground_sample_count": ground.get("sample_count", 0),
+                    "left_ground_contact_evidence_status": left_ground.get(
+                        "status", "UNSURE"
+                    ),
+                    "left_ground_contact_evidence_confidence": _number(
+                        left_ground.get("confidence")
+                    ),
+                    "right_ground_contact_evidence_status": right_ground.get(
+                        "status", "UNSURE"
+                    ),
+                    "right_ground_contact_evidence_confidence": _number(
+                        right_ground.get("confidence")
                     ),
                     "quality_reasons": ";".join(
                         str(reason) for reason in kinematics.get("quality_reasons", [])

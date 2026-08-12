@@ -1,9 +1,10 @@
-"""Measure the pre-optimization synchronous pose pipeline latency baseline.
+"""Measure the pre-optimization synchronous pose/playback latency baseline.
 
 This round-one tool intentionally mirrors the current sequential scheduling:
-read one frame, run one backend inference, smooth it, and compute the basic
-angles/feedback before reading the next frame.  It does not implement the
-latest-frame scheduler planned for later rounds.
+read one frame, run one backend inference, smooth it, compute the basic
+angles/feedback, then wait one source-frame interval before reading the next
+frame.  It does not implement the latest-frame scheduler planned for later
+rounds, so inference time is intentionally added to the playback clock.
 """
 
 from __future__ import annotations
@@ -70,10 +71,15 @@ def run_baseline(
     inference_ms: list[float] = []
     pose_pipeline_ms: list[float] = []
     read_ms: list[float] = []
+    preprocess_ms: list[float] = []
+    postprocess_ms: list[float] = []
+    rule_ms: list[float] = []
+    pose_result_age_ms: list[float] = []
     successful_poses = 0
     raw_world_frames = 0
     forwarded_world_frames = 0
     decoded_frames = 0
+    benchmark_started = time.perf_counter()
 
     try:
         while decoded_frames < max(1, int(max_frames)):
@@ -85,9 +91,12 @@ def run_baseline(
             decoded_frames += 1
             timestamp_ms = int(round(decoded_frames * 1000.0 / source_fps))
             pipeline_started = time.perf_counter()
+            inference_started = time.perf_counter()
             result = backend.detect(frame, timestamp_ms=timestamp_ms)
+            inference_finished = time.perf_counter()
             result = smoother.smooth_result(result)
             angles = body_angles(result)
+            postprocess_finished = time.perf_counter()
             feedback.update(result, angles)
             pipeline_finished = time.perf_counter()
 
@@ -102,11 +111,22 @@ def run_baseline(
                 read_ms.append((read_finished - read_started) * 1000.0)
                 inference_ms.append(float(result.inference_time_ms))
                 pose_pipeline_ms.append((pipeline_finished - pipeline_started) * 1000.0)
+                preprocess_ms.append(max(0.0, (inference_started - read_finished) * 1000.0))
+                postprocess_ms.append((postprocess_finished - inference_finished) * 1000.0)
+                rule_ms.append((pipeline_finished - postprocess_finished) * 1000.0)
+                pose_result_age_ms.append((pipeline_finished - read_finished) * 1000.0)
+            time.sleep(1.0 / source_fps)
     finally:
         capture.release()
         backend.close()
 
     measured_frames = len(pose_pipeline_ms)
+    benchmark_elapsed = max(0.0, time.perf_counter() - benchmark_started)
+    measured_duration = decoded_frames / source_fps if source_fps > 0.0 else 0.0
+    throughput_fps = decoded_frames / benchmark_elapsed if benchmark_elapsed > 0.0 else 0.0
+    playback_speed_ratio = measured_duration / benchmark_elapsed if benchmark_elapsed > 0.0 else 0.0
+    inference_summary = summarize_samples(inference_ms)
+    pose_age_summary = summarize_samples(pose_result_age_ms)
     return {
         "schema_version": 1,
         "baseline_type": "round1_synchronous_sequential",
@@ -135,6 +155,34 @@ def run_baseline(
             raw_world_frames > 0 and forwarded_world_frames == 0
         ),
         "scheduling": "read -> infer -> smooth -> angles/feedback -> next read",
+        "unified_performance": {
+            "source_fps": source_fps,
+            "display_fps": throughput_fps,
+            "inference_fps": throughput_fps,
+            "capture_ms": summarize_samples(read_ms)["mean"],
+            "preprocess_ms": summarize_samples(preprocess_ms)["mean"],
+            "inference_ms": inference_summary["mean"],
+            "postprocess_ms": summarize_samples(postprocess_ms)["mean"],
+            "rule_ms": summarize_samples(rule_ms)["mean"],
+            "render_ms": 0.0,
+            "frame_timestamp_ms": (
+                decoded_frames * 1000.0 / source_fps if source_fps > 0.0 else 0.0
+            ),
+            "pose_timestamp_ms": (
+                decoded_frames * 1000.0 / source_fps if source_fps > 0.0 else 0.0
+            ),
+            "pose_result_age_ms": pose_result_age_ms[-1] if pose_result_age_ms else 0.0,
+            "frames_read": decoded_frames,
+            "frames_inferred": decoded_frames,
+            "frames_skipped": 0,
+            "frames_rendered": decoded_frames,
+            "queue_depth": 0,
+            "playback_speed_ratio": playback_speed_ratio,
+            "p50_inference_latency_ms": inference_summary["p50"],
+            "p95_inference_latency_ms": inference_summary["p95"],
+            "p50_pose_result_age_ms": pose_age_summary["p50"],
+            "p95_pose_result_age_ms": pose_age_summary["p95"],
+        },
     }
 
 

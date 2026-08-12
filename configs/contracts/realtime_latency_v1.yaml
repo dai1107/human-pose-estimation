@@ -2,7 +2,7 @@ schema_version: 1
 contract_version: realtime_latency_v1
 latest_frame_only: true
 queue_capacity: 1
-max_pose_age_ms: 150
+max_pose_age_ms: 120
 maximum_frame_gap: 5
 body_prediction_horizon_ms: 15
 endpoint_prediction_horizon_ms: 30
@@ -20,4 +20,3 @@ required_quality_metrics:
   - jitter
   - overshoot
   - missed_events
-

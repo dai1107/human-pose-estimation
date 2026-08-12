@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+
 import pytest
 
 from src.backends.base import Keypoint, PoseResult
@@ -152,6 +154,61 @@ def test_metrics_can_write_csv(tmp_path) -> None:
     assert snapshot.p95_end_to_end_latency_ms == pytest.approx(10.0)
 
 
+def test_metrics_exposes_round1_pipeline_and_playback_fields(tmp_path) -> None:
+    metrics = RealtimeMetrics(backend="mediapipe", smoothing="one-euro")
+    pose = _pose([Keypoint("left_knee", 0.0, 0.0, confidence=1.0)], timestamp_ms=1000)
+    metrics.record_frame_read(source_fps=30, frame_timestamp_ms=0, capture_ms=2, wall_time=10)
+    metrics.record_render(render_ms=4, wall_time=10)
+    metrics.record_frame_read(source_fps=30, frame_timestamp_ms=1000, capture_ms=3, wall_time=11)
+    metrics.update(pose, {}, frame_started=10.9, frame_finished=10.95)
+    metrics.record_pose_timing(
+        preprocess_ms=1,
+        postprocess_ms=5,
+        rule_ms=2,
+        pose_timestamp_ms=1000,
+        pose_result_age_ms=55,
+        queue_depth=0,
+        wall_time=10.95,
+    )
+    metrics.record_render(render_ms=6, wall_time=11)
+
+    snapshot = metrics.snapshot()
+    assert snapshot.source_fps == pytest.approx(30)
+    assert snapshot.playback_speed_ratio == pytest.approx(1.0)
+    assert snapshot.frames_read == 2
+    assert snapshot.frames_inferred == 1
+    assert snapshot.frames_rendered == 2
+    assert snapshot.capture_ms == pytest.approx(2.5)
+    assert snapshot.p50_pose_result_age_ms == pytest.approx(55)
+
+    path = tmp_path / "metrics.csv"
+    metrics.write_csv(path)
+    header = path.read_text(encoding="utf-8").splitlines()[0]
+    for field in (
+        "source_fps",
+        "display_fps",
+        "inference_fps",
+        "playback_speed_ratio",
+        "pose_result_age_ms",
+        "frames_skipped",
+        "queue_depth",
+    ):
+        assert field in header
+
+
+def test_metrics_extends_an_existing_csv_without_losing_rows(tmp_path) -> None:
+    path = tmp_path / "metrics.csv"
+    path.write_text("input,backend\nold.mp4,mediapipe\n", encoding="utf-8")
+    metrics = RealtimeMetrics(backend="mediapipe", smoothing="one-euro")
+
+    metrics.write_csv(path)
+
+    rows = list(csv.DictReader(path.open(encoding="utf-8", newline="")))
+    assert len(rows) == 2
+    assert rows[0]["input"] == "old.mp4"
+    assert "playback_speed_ratio" in rows[0]
+
+
 def test_metrics_records_runtime_backend_switch_history() -> None:
     metrics = RealtimeMetrics(backend="mediapipe", smoothing="one-euro", backend_device="cpu")
 
@@ -188,9 +245,10 @@ def test_metrics_counts_stability_guards() -> None:
 def test_metrics_exposes_realtime_drop_counts() -> None:
     metrics = RealtimeMetrics(backend="mediapipe", smoothing="one-euro")
 
-    metrics.set_realtime_drop_counts(busy=4, stale=2, camera_overwrite=7)
+    metrics.set_realtime_drop_counts(busy=4, stale=2, camera_overwrite=7, queue_depth=1)
     snapshot = metrics.snapshot()
 
     assert snapshot.pose_busy_drop_count == 4
     assert snapshot.pose_stale_drop_count == 2
     assert snapshot.camera_overwrite_drop_count == 7
+    assert snapshot.queue_depth == 1

@@ -4,6 +4,7 @@ normalization_version: body_canonical_v1
 coordinate_spaces:
   - image_normalized_2d
   - mediapipe_world_relative_3d
+  - body_canonical_3d
   - estimated_camera_ray_3d
   - metric_depth_3d
 default_analysis_space: image_normalized_2d
@@ -17,4 +18,3 @@ require_left_right_gate: true
 require_z_stability_gate: true
 require_2d_3d_consistency_gate: true
 require_target_identity_gate: true
-

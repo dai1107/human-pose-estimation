@@ -25,6 +25,7 @@ class AngleObservation:
     angle_2d_smoothed_deg: float | None
     angle_3d_raw_deg: float | None
     angle_3d_smoothed_deg: float | None
+    angle_canonical_3d_deg: float | None
     display_angle_deg: float | None
     rule_angle_deg: float | None
     drawn_landmarks_angle_deg: float | None
@@ -79,6 +80,7 @@ def trace_angle_sources(
         )
         raw_3d = _world_angle(raw_world, names)
         smooth_3d = _world_angle(smooth_world, names)
+        canonical_3d = _canonical_angle(smoothed_result, key)
         display_item = display_by_key.get(key)
         display_angle = _finite_number(
             display_item.get("value") if display_item is not None else None
@@ -102,6 +104,7 @@ def trace_angle_sources(
             angle_2d_smoothed_deg=smooth_2d,
             angle_3d_raw_deg=raw_3d,
             angle_3d_smoothed_deg=smooth_3d,
+            angle_canonical_3d_deg=canonical_3d,
             display_angle_deg=display_angle,
             rule_angle_deg=rule_angle,
             drawn_landmarks_angle_deg=smooth_2d,
@@ -141,6 +144,7 @@ def trace_angle_sources(
         angle_2d_smoothed_deg=torso_smooth_2d,
         angle_3d_raw_deg=torso_raw_3d,
         angle_3d_smoothed_deg=torso_smooth_3d,
+        angle_canonical_3d_deg=None,
         display_angle_deg=None,
         rule_angle_deg=torso_rule,
         drawn_landmarks_angle_deg=torso_smooth_2d,
@@ -196,6 +200,24 @@ def _point_map(points: Sequence[Keypoint]) -> dict[str, Keypoint]:
 def _world_point_map(result: PoseResult) -> dict[str, Keypoint]:
     value = result.extra.get("world_keypoints")
     return _point_map(value if isinstance(value, (list, tuple)) else ())
+
+
+def _canonical_angle(result: PoseResult, key: str) -> float | None:
+    kinematics = result.extra.get("three_d_kinematics")
+    if not isinstance(kinematics, Mapping):
+        return None
+    canonical = kinematics.get("canonical_3d_angles")
+    if isinstance(canonical, Mapping):
+        value = _finite_number(canonical.get(key))
+        if value is not None:
+            return value
+    measurements = kinematics.get("measurements")
+    measurement = measurements.get(key) if isinstance(measurements, Mapping) else None
+    return (
+        _finite_number(measurement.get("canonical_3d_angle"))
+        if isinstance(measurement, Mapping)
+        else None
+    )
 
 
 def _image_angle(

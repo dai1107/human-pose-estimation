@@ -4,7 +4,9 @@ from tools.evaluate_reviewed_rgb_guidance import (
     _candidate_alignment_frame,
     _match_statuses,
     _terminal_event_metrics,
+    _three_d_payload_from_cache,
 )
+from src.biomechanics.shadow_evidence_3d import ShadowEvidence3DConfig
 
 
 def test_candidate_alignment_prefers_burpee_landing_event() -> None:
@@ -75,3 +77,34 @@ def test_terminal_event_metrics_report_frames_and_time_tolerance() -> None:
     assert metrics["mean_absolute_error_frames"] == 6
     assert metrics["within_5_frames_rate"] == 0.5
     assert metrics["within_200ms_rate"] == 0.5
+
+
+def test_cached_shadow_evidence_uses_source_frame_dimensions() -> None:
+    class _Payload:
+        @staticmethod
+        def as_dict() -> dict[str, object]:
+            return {}
+
+    class _RecordingTracker:
+        kwargs: dict[str, object] = {}
+
+        def update(self, _pose: object, **kwargs: object) -> _Payload:
+            self.kwargs = kwargs
+            return _Payload()
+
+    tracker = _RecordingTracker()
+
+    _three_d_payload_from_cache(
+        tracker,  # type: ignore[arg-type]
+        {
+            "source_timestamp_ms": 100.0,
+            "image_normalized_2d": [],
+            "mp_world_body_3d": [],
+        },
+        camera_view="side",
+        config=ShadowEvidence3DConfig(),
+        image_width=720,
+        image_height=1280,
+    )
+
+    assert tracker.kwargs == {"image_width": 720, "image_height": 1280}

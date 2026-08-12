@@ -28,6 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("annotations", type=Path)
     parser.add_argument("--report", type=Path)
     parser.add_argument(
+        "--baseline-report",
+        type=Path,
+        help="Old-version frame report used for explicit non-regression comparison.",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=Path("outputs/angle_validation"),
@@ -40,9 +45,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     annotations = load_annotations(args.annotations)
     report = load_report(args.report) if args.report else None
+    baseline_report = (
+        load_report(args.baseline_report) if args.baseline_report else None
+    )
     summary, rows = compare_manual_annotations(
         annotations,
         report=report,
+        baseline_report=baseline_report,
         max_lag_frames=args.max_lag_frames,
     )
     summary_path, rows_path = write_comparison_artifacts(

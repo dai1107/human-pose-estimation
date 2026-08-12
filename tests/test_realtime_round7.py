@@ -125,6 +125,29 @@ def test_shadow_mode_calculates_3d_but_always_selects_2d() -> None:
     assert attached.extra["three_d_kinematics"]["decision_mode"] == "shadow"
 
 
+def test_shadow_2d_angle_uses_frame_aspect_ratio() -> None:
+    result = _knee_result(
+        hip=(0.5, 0.359375, 0.0),
+        knee=(0.5, 0.5, 0.0),
+        ankle=(0.7165064, 0.4296875, 0.0),
+    )
+
+    uncorrected = ThreeDKinematicsTracker().update(result)
+    corrected = ThreeDKinematicsTracker().update(
+        result,
+        image_width=720,
+        image_height=1280,
+    )
+
+    assert corrected.measurements["left_knee_angle"].angle_2d == pytest.approx(
+        60.0,
+        abs=0.1,
+    )
+    assert abs(
+        float(uncorrected.measurements["left_knee_angle"].angle_2d) - 60.0
+    ) > 5.0
+
+
 def test_missing_world_landmarks_fall_back_to_2d_without_error() -> None:
     _, shadow = ThreeDKinematicsTracker().attach(
         _knee_result(include_world=False),
@@ -389,3 +412,159 @@ def test_round7_shadow_remains_supported_after_assist_promotion(tmp_path: Path) 
     )
     with pytest.raises(ConfigValidationError, match="rule-specific"):
         load_product_pose_config(invalid)
+
+
+def test_joint_metric_exposes_raw_smooth_and_reliable_3d_selection() -> None:
+    tracker = ThreeDKinematicsTracker(
+        kinematics_config=load_product_pose_config(
+            Path("configs/product_pose.yaml")
+        ).three_d_kinematics
+    )
+    raw = _knee_result(
+        hip=(0.0, 1.0, 0.0),
+        knee=(0.0, 0.0, 0.0),
+        ankle=(0.5, -0.8660254, 0.0),
+    )
+    smooth = _knee_result()
+
+    metric = tracker.update(
+        smooth,
+        raw_result=raw,
+        capture_timestamp_ns=1_000_000,
+        camera_view="side",
+    ).measurements["left_knee_angle"]
+
+    assert metric.raw_2d == pytest.approx(150.0, abs=0.1)
+    assert metric.smooth_2d == pytest.approx(90.0)
+    assert metric.raw_3d == pytest.approx(150.0, abs=0.1)
+    assert metric.smooth_3d == pytest.approx(90.0)
+    assert metric.selected_value == pytest.approx(90.0)
+    assert metric.source == "3D"
+    assert metric.observable
+    # Formal HYROX thresholds remain on their established 2D stream.
+    assert metric.selected_angle == metric.smooth_2d
+    assert metric.selected_source == "2d_assist"
+
+
+def test_front_view_without_reliable_world_angle_is_unobservable() -> None:
+    tracker = ThreeDKinematicsTracker(
+        kinematics_config=load_product_pose_config(
+            Path("configs/product_pose.yaml")
+        ).three_d_kinematics
+    )
+
+    metric = tracker.update(
+        _knee_result(include_world=False),
+        camera_view="front",
+    ).measurements["left_knee_angle"]
+
+    assert metric.smooth_2d == pytest.approx(90.0)
+    assert metric.selected_value is None
+    assert metric.source == "UNAVAILABLE"
+    assert not metric.observable
+    assert "camera_view_limited" in metric.quality_reasons
+
+
+def test_bone_length_uses_historical_median_and_does_not_accept_spike() -> None:
+    tracker = ThreeDKinematicsTracker(
+        quality_config=ThreeDQualityConfig(
+            max_2d_3d_difference_deg=180.0,
+            max_landmark_speed_m_s=100.0,
+        )
+    )
+    for timestamp_ms in (0, 100, 200):
+        tracker.update(
+            _knee_result(timestamp_ms=timestamp_ms),
+            capture_timestamp_ns=timestamp_ms * 1_000_000,
+        )
+
+    changed = tracker.update(
+        _knee_result(timestamp_ms=300, ankle=(2.0, 0.0, 0.0)),
+        capture_timestamp_ns=300_000_000,
+    )
+    metric = changed.measurements["left_knee_angle"]
+
+    assert "bone_length_jump" in metric.quality_reasons
+    medians = changed.reliability["bone_length_historical_median_m"]
+    assert medians["left_ankle__left_knee"] == pytest.approx(1.0)
+    assert changed.reliability["position_correction_applied"] is False
+
+
+def _bilateral_leg_result(timestamp_ms: int = 0) -> PoseResult:
+    coordinates = {
+        "left_hip": (-0.2, 1.0, 0.0),
+        "left_knee": (-0.2, 0.5, 0.0),
+        "left_ankle": (-0.2, 0.0, 0.0),
+        "left_heel": (-0.25, 0.02, 0.0),
+        "left_foot_index": (-0.1, 0.0, 0.0),
+        "right_hip": (0.2, 1.0, 0.0),
+        "right_knee": (0.2, 0.5, 0.0),
+        "right_ankle": (0.2, -0.5, 0.0),
+        "right_heel": (0.15, -0.48, 0.0),
+        "right_foot_index": (0.3, -0.5, 0.0),
+    }
+    return PoseResult(
+        keypoints=[_point(name, xyz) for name, xyz in coordinates.items()],
+        connections=(),
+        model_name="mediapipe",
+        num_keypoints=len(coordinates),
+        success=True,
+        inference_time_ms=1.0,
+        timestamp_ms=timestamp_ms,
+        extra={
+            "world_keypoints": [
+                _point(name, xyz, world=True) for name, xyz in coordinates.items()
+            ]
+        },
+    )
+
+
+def test_left_right_bone_mismatch_reduces_3d_reliability() -> None:
+    result = ThreeDKinematicsTracker().update(_bilateral_leg_result())
+
+    left = result.measurements["left_knee_angle"]
+    right = result.measurements["right_knee_angle"]
+    assert "left_right_bone_mismatch" in left.quality_reasons
+    assert "left_right_bone_mismatch" in right.quality_reasons
+    assert result.reliability["left_right_mismatch_segments"]
+
+
+def test_isolated_landmark_velocity_is_rejected() -> None:
+    tracker = ThreeDKinematicsTracker(
+        quality_config=ThreeDQualityConfig(
+            max_2d_3d_difference_deg=180.0,
+            max_bone_length_change_ratio=10.0,
+            max_z_change_body_scale=10.0,
+        )
+    )
+    tracker.update(_knee_result(timestamp_ms=0), capture_timestamp_ns=0)
+    changed = tracker.update(
+        _knee_result(timestamp_ms=100, ankle=(1.0, 0.0, 1.0)),
+        capture_timestamp_ns=100_000_000,
+    )
+
+    assert "left_ankle" in changed.reliability["isolated_velocity_joints"]
+    assert (
+        "isolated_landmark_velocity"
+        in changed.measurements["left_knee_angle"].quality_reasons
+    )
+
+
+def test_stable_foot_builds_contact_confidence_without_promoting_rules() -> None:
+    tracker = ThreeDKinematicsTracker()
+    result = None
+    for timestamp_ms in (0, 100, 200, 300):
+        result = tracker.update(
+            _bilateral_leg_result(timestamp_ms),
+            capture_timestamp_ns=timestamp_ms * 1_000_000,
+        )
+    assert result is not None
+
+    left = result.foot_contact_evidence["left"]
+    assert left["stable_frames"] >= 3
+    assert left["foot_contact_confidence"] >= 0.60
+    assert left["likely_contact"] is True
+    assert result.foot_contact_evidence["evidence_only"] is True
+    assert (
+        result.foot_contact_evidence["formal_rule_replacement_allowed"] is False
+    )

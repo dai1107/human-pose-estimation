@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Literal, Mapping
 from src.backends.base import Keypoint, PoseResult
 
 if TYPE_CHECKING:
-    from src.product_pose import RealtimeSmoothingConfig
+    from src.product_pose import DisplaySmoothingConfig, RealtimeSmoothingConfig
 
 
 SmoothingMode = Literal["none", "ema", "one-euro"]
-SmoothingProfile = Literal["stable", "balanced", "responsive"]
+SmoothingProfile = Literal["stable", "balanced", "responsive", "ultra_responsive"]
 LandmarkSpace = Literal["image", "world"]
 
 
@@ -49,6 +49,21 @@ STABLE_JOINT_NAMES: frozenset[str] = frozenset(
         "right_shoulder",
         "left_hip",
         "right_hip",
+    }
+)
+FACE_JOINT_NAMES: frozenset[str] = frozenset(
+    {
+        "nose",
+        "left_eye_inner",
+        "left_eye",
+        "left_eye_outer",
+        "right_eye_inner",
+        "right_eye",
+        "right_eye_outer",
+        "left_ear",
+        "right_ear",
+        "mouth_left",
+        "mouth_right",
     }
 )
 
@@ -191,6 +206,10 @@ def smoothing_alpha(cutoff: float, dt: float) -> float:
     return 1.0 / (1.0 + tau / max(dt, 1e-6))
 
 
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
 class KeypointSmoother:
     def __init__(
         self,
@@ -214,6 +233,15 @@ class KeypointSmoother:
         occlusion_radius: float = 0.06,
         occlusion_jump_threshold: float = 0.045,
         max_occlusion_hold_frames: int = 8,
+        raw_blend_enabled: bool = False,
+        max_raw_weight: float = 0.0,
+        minimum_visibility: float = 0.70,
+        slow_speed: float = 0.15,
+        fast_speed: float = 1.20,
+        extremity_raw_weight_scale: float = 1.0,
+        core_raw_weight_scale: float = 0.35,
+        face_raw_weight_scale: float = 0.0,
+        world_speed_scale: float = 1.25,
     ) -> None:
         if mode not in {"none", "ema", "one-euro"}:
             raise ValueError(f"unknown smoothing mode: {mode}")
@@ -242,8 +270,18 @@ class KeypointSmoother:
         self.occlusion_radius = max(0.0, float(occlusion_radius))
         self.occlusion_jump_threshold = max(0.0, float(occlusion_jump_threshold))
         self.max_occlusion_hold_frames = max(0, int(max_occlusion_hold_frames))
+        self.raw_blend_enabled = bool(raw_blend_enabled)
+        self.max_raw_weight = max(0.0, min(0.45, float(max_raw_weight)))
+        self.minimum_visibility = max(0.0, min(1.0, float(minimum_visibility)))
+        self.slow_speed = max(0.0, float(slow_speed))
+        self.fast_speed = max(self.slow_speed + 1e-6, float(fast_speed))
+        self.extremity_raw_weight_scale = max(0.0, min(1.0, float(extremity_raw_weight_scale)))
+        self.core_raw_weight_scale = max(0.0, min(1.0, float(core_raw_weight_scale)))
+        self.face_raw_weight_scale = max(0.0, min(1.0, float(face_raw_weight_scale)))
+        self.world_speed_scale = max(1e-6, float(world_speed_scale))
         self._ema_state: dict[tuple[LandmarkSpace, str], Keypoint] = {}
         self._one_euro_state: dict[tuple[LandmarkSpace, str, str], OneEuroValueFilter] = {}
+        self._raw_history: dict[tuple[LandmarkSpace, str], tuple[Keypoint, int]] = {}
         self._last_points: dict[str, Keypoint] = {}
         self._guard_hold_counts: dict[str, int] = {}
         self._last_observation_timestamp_ns: dict[LandmarkSpace, int] = {}
@@ -288,6 +326,34 @@ class KeypointSmoother:
             **kwargs,
         )
 
+    @classmethod
+    def from_display_config(cls, config: DisplaySmoothingConfig) -> KeypointSmoother:
+        """Build the independent, low-latency display stream smoother."""
+
+        profile = OneEuroParameters(
+            min_cutoff=config.min_cutoff,
+            beta=config.beta,
+            d_cutoff=config.d_cutoff,
+        )
+        return cls(
+            mode="one-euro" if config.mode == "adaptive_one_euro" else "none",
+            profile="ultra_responsive",
+            one_euro_profiles={"ultra_responsive": profile},
+            max_gap_ms_before_reset=config.max_gap_ms_before_reset,
+            min_confidence=0.0,
+            max_missing_frames=0,
+            occlusion_guard=False,
+            raw_blend_enabled=config.raw_blend_enabled,
+            max_raw_weight=config.max_raw_weight,
+            minimum_visibility=config.minimum_visibility,
+            slow_speed=config.slow_speed,
+            fast_speed=config.fast_speed,
+            extremity_raw_weight_scale=config.extremity_raw_weight_scale,
+            core_raw_weight_scale=config.core_raw_weight_scale,
+            face_raw_weight_scale=config.face_raw_weight_scale,
+            world_speed_scale=config.world_speed_scale,
+        )
+
     def smooth_result(
         self,
         result: PoseResult,
@@ -311,12 +377,14 @@ class KeypointSmoother:
             gap_reset_spaces.append("image")
         occlusion_points = self._occlusion_points(result.keypoints)
         guarded_names: list[str] = []
+        raw_weights: list[float] = []
         smoothed = [
             self._smooth_keypoint(
                 point,
                 timestamp_ns,
                 occlusion_points,
                 guarded_names,
+                raw_weights,
                 space="image",
             )
             for point in result.keypoints
@@ -332,6 +400,7 @@ class KeypointSmoother:
                     timestamp_ns,
                     [],
                     [],
+                    raw_weights,
                     space="world",
                 )
                 for point in world_keypoints
@@ -340,6 +409,13 @@ class KeypointSmoother:
             extra["world_landmarks_smoothed"] = True
         extra["smoothing_profile"] = self.profile
         extra["smoothing_capture_timestamp_ns"] = timestamp_ns
+        if self.raw_blend_enabled:
+            blended = [weight for weight in raw_weights if weight > 0.0]
+            extra["display_raw_blend"] = {
+                "blended_point_count": len(blended),
+                "mean_raw_weight": sum(blended) / len(blended) if blended else 0.0,
+                "max_raw_weight": max(raw_weights, default=0.0),
+            }
         if gap_reset_spaces:
             extra["smoothing_gap_reset_spaces"] = tuple(gap_reset_spaces)
         if guarded_names:
@@ -353,6 +429,7 @@ class KeypointSmoother:
         for value_filter in self._one_euro_state.values():
             value_filter.reset()
         self._one_euro_state.clear()
+        self._raw_history.clear()
         self._last_points.clear()
         self._guard_hold_counts.clear()
         self._last_observation_timestamp_ns.clear()
@@ -365,6 +442,7 @@ class KeypointSmoother:
         timestamp_ns: int | None,
         occlusion_points: list[Keypoint],
         guarded_names: list[str],
+        raw_weights: list[float],
         *,
         space: LandmarkSpace,
     ) -> Keypoint:
@@ -382,7 +460,12 @@ class KeypointSmoother:
         if self.mode == "ema":
             smoothed = self._smooth_ema(point, space=space)
         else:
-            smoothed = self._smooth_one_euro(point, timestamp_ns, space=space)
+            smoothed = self._smooth_one_euro(
+                point,
+                timestamp_ns,
+                raw_weights=raw_weights,
+                space=space,
+            )
         if space == "image":
             self._last_points[key] = smoothed
         return smoothed
@@ -409,6 +492,7 @@ class KeypointSmoother:
         point: Keypoint,
         timestamp_ns: int | None,
         *,
+        raw_weights: list[float],
         space: LandmarkSpace,
     ) -> Keypoint:
         values: dict[str, float] = {}
@@ -425,7 +509,70 @@ class KeypointSmoother:
                 ),
             )
             values[axis] = value_filter.apply(value, timestamp_ns=timestamp_ns)
-        return replace(point, **values)
+        raw_weight = self._raw_weight(point, timestamp_ns, space=space)
+        raw_weights.append(raw_weight)
+        if raw_weight <= 0.0:
+            return replace(point, **values)
+        keep = 1.0 - raw_weight
+        return replace(
+            point,
+            x=values["x"] * keep + point.x * raw_weight,
+            y=values["y"] * keep + point.y * raw_weight,
+            z=values["z"] * keep + point.z * raw_weight,
+        )
+
+    def _raw_weight(
+        self,
+        point: Keypoint,
+        timestamp_ns: int | None,
+        *,
+        space: LandmarkSpace,
+    ) -> float:
+        if not self.raw_blend_enabled or timestamp_ns is None:
+            return 0.0
+        key = (space, self._state_key(point))
+        previous = self._raw_history.get(key)
+        self._raw_history[key] = (point, timestamp_ns)
+        if previous is None:
+            return 0.0
+        previous_point, previous_timestamp_ns = previous
+        elapsed_ns = timestamp_ns - previous_timestamp_ns
+        if elapsed_ns <= 0 or elapsed_ns > int(self.max_gap_ms_before_reset * 1_000_000.0):
+            return 0.0
+        inverse_seconds = 1_000_000_000.0 / elapsed_ns
+        dx = point.x - previous_point.x
+        dy = point.y - previous_point.y
+        dz = point.z - previous_point.z if space == "world" else 0.0
+        speed = sqrt(dx * dx + dy * dy + dz * dz) * inverse_seconds
+        visibility = min(
+            point.visibility if point.visibility is not None else point.confidence,
+            point.presence if point.presence is not None else point.confidence,
+        )
+        visibility_weight = _clamp01(
+            (visibility - self.minimum_visibility)
+            / max(1e-6, 1.0 - self.minimum_visibility)
+        )
+        speed_scale = self.world_speed_scale if space == "world" else 1.0
+        speed_weight = _clamp01(
+            (speed - self.slow_speed * speed_scale)
+            / max(1e-6, (self.fast_speed - self.slow_speed) * speed_scale)
+        )
+        return min(
+            self.max_raw_weight,
+            speed_weight
+            * visibility_weight
+            * self.max_raw_weight
+            * self._raw_weight_scale(point.name),
+        )
+
+    def _raw_weight_scale(self, point_name: str) -> float:
+        if point_name in FACE_JOINT_NAMES:
+            return self.face_raw_weight_scale
+        if point_name in STABLE_JOINT_NAMES:
+            return self.core_raw_weight_scale
+        if point_name in FAST_JOINT_NAMES or point_name in HAND_OCCLUSION_POINT_NAMES:
+            return self.extremity_raw_weight_scale
+        return 0.65
 
     def _parameters_for(self, point_name: str, *, space: LandmarkSpace) -> OneEuroParameters:
         min_cutoff_scale = 1.0
@@ -478,6 +625,9 @@ class KeypointSmoother:
         if space == "image":
             self._last_points.clear()
             self._guard_hold_counts.clear()
+        self._raw_history = {
+            key: value for key, value in self._raw_history.items() if key[0] != space
+        }
 
     def _state_key(self, point: Keypoint) -> str:
         return f"{point.source_model or 'unknown'}:{point.name}"

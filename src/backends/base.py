@@ -27,6 +27,7 @@ class PoseResult:
     bbox: tuple[float, float, float, float] | None = None
     timestamp_ms: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    frame_id: int | None = None
 
 
 class PoseBackend(Protocol):

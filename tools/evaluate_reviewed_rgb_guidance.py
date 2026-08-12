@@ -260,6 +260,8 @@ def _three_d_payload_from_cache(
     *,
     camera_view: str,
     config: ShadowEvidence3DConfig,
+    image_width: int,
+    image_height: int,
 ) -> dict[str, Any]:
     image = _cache_keypoints(frame.get("image_normalized_2d"))
     world = _cache_keypoints(frame.get("mp_world_body_3d"))
@@ -277,7 +279,11 @@ def _three_d_payload_from_cache(
             "camera_view": camera_view,
         },
     )
-    payload = tracker.update(pose).as_dict()
+    payload = tracker.update(
+        pose,
+        image_width=image_width,
+        image_height=image_height,
+    ).as_dict()
     payload["experimental_fusion_enabled"] = True
     payload["experimental_angle_fusion_enabled"] = (
         config.angle_assist_enabled
@@ -610,6 +616,8 @@ def _evaluate_record(
                             manifest_record.get("camera_view", "unknown")
                         ),
                         config=shadow_evidence_config,
+                        image_width=int(video.get("width", 1) or 1),
+                        image_height=int(video.get("height", 1) or 1),
                     )
                     features["three_d_kinematics"] = three_d_payload
                     three_d_available_frames += int(

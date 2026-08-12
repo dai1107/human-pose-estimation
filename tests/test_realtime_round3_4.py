@@ -14,7 +14,7 @@ import src.realtime.capture as capture_module
 from src.backends.base import PoseResult
 from src.backends.mediapipe_backend import MediaPipeLiveStreamBackend
 from src.realtime.capture import open_capture
-from src.realtime.latest_frame import LatestFrameCamera
+from src.realtime.latest_frame import LatestFrameBuffer, LatestFrameCamera, LatestFrameVideo
 from src.realtime.scheduler import LatestOnlyMediaPipeScheduler, PoseAgeGate
 from src.realtime.types import CapturedFrame, TimedPoseResult
 
@@ -101,6 +101,20 @@ def test_captured_frame_preserves_identity_dimensions_and_timestamp() -> None:
     assert (frame.width, frame.height) == (3, 2)
 
 
+def test_latest_frame_buffer_has_bounded_depth_and_returns_newest() -> None:
+    buffer = LatestFrameBuffer(capacity=1)
+
+    buffer.put(_frame(1, 1_000_000))
+    buffer.put(_frame(2, 2_000_000))
+
+    assert buffer.queue_depth == 1
+    assert buffer.overwritten_frame_count == 1
+    latest = buffer.get_latest(after_frame_id=0, timeout=0.0)
+    assert latest is not None
+    assert latest.frame_id == 2
+    assert buffer.queue_depth == 0
+
+
 def test_latest_frame_camera_has_one_slot_and_overwrites_old_frames() -> None:
     capture = FiniteCapture(
         [np.zeros((2, 3, 3), dtype=np.uint8) + value for value in (1, 2, 3)]
@@ -161,6 +175,27 @@ def test_latest_frame_camera_enforces_strictly_increasing_capture_timestamps() -
     assert latest.capture_timestamp_ns == 12
 
 
+def test_latest_frame_video_advances_on_source_clock_and_overwrites_backlog() -> None:
+    capture = FiniteCapture(
+        [np.zeros((2, 3, 3), dtype=np.uint8) + value for value in (1, 2, 3)]
+    )
+    started = time.perf_counter()
+    video = LatestFrameVideo(capture, source_fps=50.0).start()
+    deadline = time.monotonic() + 1.0
+    while video.captured_frame_count < 3 and time.monotonic() < deadline:
+        time.sleep(0.001)
+    latest = video.get_latest(after_frame_id=0, timeout=0.1)
+    elapsed = time.perf_counter() - started
+    video.stop()
+
+    assert latest is not None
+    assert latest.frame_id == 3
+    assert latest.source_timestamp_ms == 40
+    assert video.overwritten_frame_count == 2
+    assert elapsed >= 0.025
+    assert capture.released
+
+
 def test_scheduler_has_one_in_flight_and_retains_only_latest_pending_frame() -> None:
     backend = FakeAsyncBackend()
     scheduler = LatestOnlyMediaPipeScheduler(backend)
@@ -194,6 +229,40 @@ def test_scheduler_mediapipe_timestamps_are_strictly_increasing_within_one_ms() 
     assert [timestamp for _, timestamp in backend.submissions] == [1, 2]
 
 
+def test_scheduler_limits_pose_rate_and_keeps_latest_due_frame() -> None:
+    backend = FakeAsyncBackend()
+    scheduler = LatestOnlyMediaPipeScheduler(
+        backend,
+        target_pose_fps=15.0,
+        max_pose_fps=20.0,
+    )
+
+    assert scheduler.submit(_frame(1, 0))
+    backend.complete()
+    assert not scheduler.submit(_frame(2, 33_000_000))
+    assert scheduler.pending_frame_id == 2
+    assert scheduler.submit(_frame(3, 67_000_000))
+
+    assert len(backend.submissions) == 2
+    assert int(backend.submissions[-1][0][0, 0, 0]) == 3
+    assert scheduler.rate_limit_drop_count == 1
+
+
+def test_scheduler_keeps_source_video_timestamp_separate_from_live_sdk_timestamp() -> None:
+    backend = FakeAsyncBackend()
+    scheduler = LatestOnlyMediaPipeScheduler(backend)
+    frame = _frame(7, 9_000_000)
+    frame.source_timestamp_ms = 123
+
+    scheduler.submit(frame)
+    backend.complete()
+
+    assert scheduler.latest_result is not None
+    assert scheduler.latest_result.pose is not None
+    assert scheduler.latest_result.pose.timestamp_ms == 123
+    assert backend.submissions[0][1] == 9
+
+
 def test_scheduler_restores_exact_frame_metadata_from_callback_timestamp() -> None:
     clock_values = iter((5_000_000, 9_000_000))
     backend = FakeAsyncBackend()
@@ -210,6 +279,7 @@ def test_scheduler_restores_exact_frame_metadata_from_callback_timestamp() -> No
     assert result.inference_start_ns == 5_000_000
     assert result.inference_end_ns == 9_000_000
     assert result.pose is not None
+    assert result.pose.frame_id == 42
     assert result.pose.timestamp_ms == 3
     assert result.pose.extra["mediapipe_timestamp_ms"] == 3
 
@@ -294,6 +364,93 @@ def test_pose_age_gate_requires_monotonic_analysis_frame_ids() -> None:
     assert gate.accept_for_analysis(timed(11), current_frame_id=11, now_ns=11_000_000)
     assert not gate.accept_for_analysis(timed(10), current_frame_id=11, now_ns=11_000_000)
     assert gate.last_analyzed_frame_id == 11
+
+
+def test_pose_age_gate_rejects_pose_old_on_source_timeline() -> None:
+    timed = TimedPoseResult(
+        frame_id=10,
+        capture_timestamp_ns=100_000_000,
+        inference_start_ns=101_000_000,
+        inference_end_ns=105_000_000,
+        result_ready_ns=106_000_000,
+        pose=_pose(100),
+        backend_name="mediapipe",
+    )
+    gate = PoseAgeGate(max_pose_age_ms=120, max_frame_gap=5)
+
+    synchronization = gate.synchronization(
+        timed,
+        current_frame_id=12,
+        now_ns=110_000_000,
+        current_frame_timestamp_ms=221,
+    )
+
+    assert synchronization["wall_age_ms"] == pytest.approx(10)
+    assert synchronization["pose_result_age_ms"] == pytest.approx(121)
+    assert synchronization["reason"] == "source_age_exceeded"
+    assert synchronization["fresh"] is False
+    assert not gate.accept_for_analysis(
+        timed,
+        current_frame_id=12,
+        now_ns=110_000_000,
+        current_frame_timestamp_ms=221,
+    )
+
+
+def test_pose_age_gate_rejects_pose_from_future_source_timestamp() -> None:
+    timed = TimedPoseResult(
+        frame_id=10,
+        capture_timestamp_ns=100_000_000,
+        inference_start_ns=101_000_000,
+        inference_end_ns=105_000_000,
+        result_ready_ns=106_000_000,
+        pose=_pose(100),
+        backend_name="mediapipe",
+    )
+    gate = PoseAgeGate(max_pose_age_ms=120, max_frame_gap=5)
+
+    synchronization = gate.synchronization(
+        timed,
+        current_frame_id=12,
+        now_ns=110_000_000,
+        current_frame_timestamp_ms=99,
+    )
+
+    assert synchronization["pose_result_age_ms"] == pytest.approx(-1)
+    assert synchronization["reason"] == "pose_from_future_timestamp"
+    assert synchronization["fresh"] is False
+
+
+def test_pose_age_gate_reports_exact_frame_and_timestamp_synchronization() -> None:
+    timed = TimedPoseResult(
+        frame_id=10,
+        capture_timestamp_ns=100_000_000,
+        inference_start_ns=101_000_000,
+        inference_end_ns=105_000_000,
+        result_ready_ns=106_000_000,
+        pose=_pose(100),
+        backend_name="mediapipe",
+    )
+    gate = PoseAgeGate(max_pose_age_ms=120, max_frame_gap=5)
+
+    synchronization = gate.synchronization(
+        timed,
+        current_frame_id=12,
+        now_ns=130_000_000,
+        current_frame_timestamp_ms=175,
+    )
+
+    assert synchronization == {
+        "fresh": True,
+        "reason": "fresh",
+        "current_frame_id": 12,
+        "pose_frame_id": 10,
+        "frame_gap": 2,
+        "current_frame_timestamp_ms": 175,
+        "pose_timestamp_ms": 100,
+        "pose_result_age_ms": 75.0,
+        "wall_age_ms": 30.0,
+    }
 
 
 def test_windows_camera_auto_uses_default_before_safe_fallbacks(

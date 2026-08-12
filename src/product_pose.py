@@ -20,10 +20,19 @@ DEFAULT_PRODUCT_POSE_CONFIG = installation_root() / "configs" / "product_pose.ya
 class RealtimeLatencyConfig:
     latest_frame_only: bool = True
     camera_buffer_size: int = 1
+    queue_size: int = 1
+    target_pose_fps: float = 15.0
+    max_pose_fps: float = 20.0
     warning_pose_age_ms: float = 80.0
-    max_pose_age_ms: float = 150.0
+    max_pose_age_ms: float = 120.0
     max_frame_gap: int = 5
     hide_pose_after_ms: float = 300.0
+
+
+@dataclass(frozen=True, slots=True)
+class PoseInferenceConfig:
+    inference_width: int = 640
+    adaptive_resolution: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +115,7 @@ class RealtimeSmoothingConfig:
 class DisplaySmoothingConfig:
     mode: str = "adaptive_one_euro"
     profile: str = "ultra_responsive"
-    prediction_enabled: bool = True
+    prediction_enabled: bool = False
     max_gap_ms_before_reset: float = 250.0
     min_cutoff: float = 2.2
     beta: float = 0.12
@@ -124,7 +133,7 @@ class DisplaySmoothingConfig:
 
 @dataclass(frozen=True, slots=True)
 class DisplayPredictionConfig:
-    enabled: bool = True
+    enabled: bool = False
     mode: str = "constant_velocity"
     max_horizon_ms: float = 45.0
     maximum_body_scale_displacement: float = 0.06
@@ -156,6 +165,18 @@ class ThreeDQualityConfig:
     max_z_change_body_scale: float = 0.35
     identity_swap_cost_ratio: float = 0.75
     max_gap_ms_before_reset: float = 250.0
+    bone_length_history_size: int = 31
+    max_left_right_bone_ratio: float = 0.25
+    max_landmark_speed_m_s: float = 5.0
+    isolated_velocity_ratio: float = 3.0
+    foot_stationary_speed_m_s: float = 0.35
+    foot_vertical_spread_body_ratio: float = 0.18
+    foot_contact_stable_frames: int = 3
+    ground_history_size: int = 31
+    ground_minimum_samples: int = 3
+    ground_minimum_contact_confidence: float = 0.55
+    ground_maximum_image_deviation: float = 0.025
+    ground_maximum_world_vertical_deviation_m: float = 0.08
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +186,7 @@ class ProductPoseConfig:
     realtime_model: str = "auto"
     analysis_model: str = "full"
     realtime_latency: RealtimeLatencyConfig = field(default_factory=RealtimeLatencyConfig)
+    pose: PoseInferenceConfig = field(default_factory=PoseInferenceConfig)
     analysis_smoothing: RealtimeSmoothingConfig = field(default_factory=RealtimeSmoothingConfig)
     display_smoothing: DisplaySmoothingConfig = field(default_factory=DisplaySmoothingConfig)
     display_prediction: DisplayPredictionConfig = field(default_factory=DisplayPredictionConfig)
@@ -194,6 +216,7 @@ def load_product_pose_config(
         {
             "product_pose",
             "realtime_latency",
+            "pose",
             "analysis_smoothing",
             "display_smoothing",
             "display_prediction",
@@ -249,6 +272,7 @@ def load_product_pose_config(
             key="product_pose.analysis_model",
         )
     realtime_latency = _load_realtime_latency(values.get("realtime_latency"), path=config_path)
+    pose = _load_pose_inference(values.get("pose"), path=config_path)
     if values.get("analysis_smoothing") is not None and values.get("realtime_smoothing") is not None:
         raise ConfigValidationError(
             "use analysis_smoothing; do not also define legacy realtime_smoothing",
@@ -297,6 +321,7 @@ def load_product_pose_config(
         realtime_model=realtime_model,
         analysis_model=analysis_model,
         realtime_latency=realtime_latency,
+        pose=pose,
         analysis_smoothing=analysis_smoothing,
         display_smoothing=display_smoothing,
         display_prediction=display_prediction,
@@ -306,6 +331,55 @@ def load_product_pose_config(
         rendering=rendering,
         camera=camera,
         local_first=local_first,
+    )
+
+
+def _load_pose_inference(value: object, *, path: Path) -> PoseInferenceConfig:
+    if value is None:
+        return PoseInferenceConfig()
+    if not isinstance(value, dict):
+        raise ConfigValidationError(
+            "pose must be a mapping",
+            path=path,
+            key="pose",
+        )
+    reject_unknown_fields(
+        value,
+        {"inference_width", "adaptive_resolution"},
+        path=path,
+        prefix="pose.",
+    )
+    raw_width = value.get("inference_width", 640)
+    if isinstance(raw_width, bool):
+        raise ConfigValidationError(
+            "must be an integer between 320 and 1920",
+            path=path,
+            key="pose.inference_width",
+        )
+    try:
+        inference_width = int(raw_width)
+    except (TypeError, ValueError) as exc:
+        raise ConfigValidationError(
+            "must be an integer between 320 and 1920",
+            path=path,
+            key="pose.inference_width",
+        ) from exc
+    if inference_width < 320 or inference_width > 1920:
+        raise ConfigValidationError(
+            "must be an integer between 320 and 1920",
+            path=path,
+            key="pose.inference_width",
+        )
+    adaptive = value.get("adaptive_resolution", True)
+    if not isinstance(adaptive, bool):
+        raise ConfigValidationError(
+            "must be true or false",
+            path=path,
+            key="pose.adaptive_resolution",
+        )
+    return PoseInferenceConfig(
+        inference_width=inference_width,
+        adaptive_resolution=adaptive,
     )
 
 
@@ -321,6 +395,9 @@ def _load_realtime_latency(value: object, *, path: Path) -> RealtimeLatencyConfi
     allowed = {
         "latest_frame_only",
         "camera_buffer_size",
+        "queue_size",
+        "target_pose_fps",
+        "max_pose_fps",
         "warning_pose_age_ms",
         "max_pose_age_ms",
         "max_frame_gap",
@@ -338,6 +415,13 @@ def _load_realtime_latency(value: object, *, path: Path) -> RealtimeLatencyConfi
         raise ConfigValidationError("must be exactly 1", path=path, key="realtime_latency.camera_buffer_size") from exc
     if isinstance(camera_buffer_size, bool) or parsed_camera_buffer_size != 1:
         raise ConfigValidationError("must be exactly 1", path=path, key="realtime_latency.camera_buffer_size")
+    queue_size = value.get("queue_size", 1)
+    try:
+        parsed_queue_size = int(queue_size)
+    except (TypeError, ValueError) as exc:
+        raise ConfigValidationError("must be exactly 1", path=path, key="realtime_latency.queue_size") from exc
+    if isinstance(queue_size, bool) or parsed_queue_size != 1:
+        raise ConfigValidationError("must be exactly 1", path=path, key="realtime_latency.queue_size")
 
     def positive_number(name: str, default: float) -> float:
         raw = value.get(name, default)
@@ -362,7 +446,15 @@ def _load_realtime_latency(value: object, *, path: Path) -> RealtimeLatencyConfi
         raise ConfigValidationError("must be a non-negative integer", path=path, key="realtime_latency.max_frame_gap")
 
     warning_pose_age_ms = positive_number("warning_pose_age_ms", 80.0)
-    max_pose_age_ms = positive_number("max_pose_age_ms", 150.0)
+    target_pose_fps = positive_number("target_pose_fps", 15.0)
+    max_pose_fps = positive_number("max_pose_fps", 20.0)
+    if target_pose_fps > max_pose_fps:
+        raise ConfigValidationError(
+            "must be <= realtime_latency.max_pose_fps",
+            path=path,
+            key="realtime_latency.target_pose_fps",
+        )
+    max_pose_age_ms = positive_number("max_pose_age_ms", 120.0)
     hide_pose_after_ms = positive_number("hide_pose_after_ms", 300.0)
     if warning_pose_age_ms > max_pose_age_ms:
         raise ConfigValidationError(
@@ -379,6 +471,9 @@ def _load_realtime_latency(value: object, *, path: Path) -> RealtimeLatencyConfi
     return RealtimeLatencyConfig(
         latest_frame_only=latest_frame_only,
         camera_buffer_size=1,
+        queue_size=1,
+        target_pose_fps=target_pose_fps,
+        max_pose_fps=max_pose_fps,
         warning_pose_age_ms=warning_pose_age_ms,
         max_pose_age_ms=max_pose_age_ms,
         max_frame_gap=max_frame_gap,
@@ -1041,8 +1136,26 @@ def _load_three_d_quality(value: object, *, path: Path) -> ThreeDQualityConfig:
         "max_z_change_body_scale",
         "identity_swap_cost_ratio",
         "max_gap_ms_before_reset",
+        "bone_length_history_size",
+        "max_left_right_bone_ratio",
+        "max_landmark_speed_m_s",
+        "isolated_velocity_ratio",
+        "foot_stationary_speed_m_s",
+        "foot_vertical_spread_body_ratio",
+        "foot_contact_stable_frames",
+        "ground_history_size",
+        "ground_minimum_samples",
+        "ground_minimum_contact_confidence",
+        "ground_maximum_image_deviation",
+        "ground_maximum_world_vertical_deviation_m",
     }
     reject_unknown_fields(value, fields, path=path, prefix="three_d_quality.")
+    integer_fields = {
+        "bone_length_history_size",
+        "foot_contact_stable_frames",
+        "ground_history_size",
+        "ground_minimum_samples",
+    }
     parsed = {
         name: _config_number(
             value,
@@ -1052,16 +1165,41 @@ def _load_three_d_quality(value: object, *, path: Path) -> ThreeDQualityConfig:
             positive=True,
             prefix="three_d_quality",
         )
-        for name in fields
+        for name in fields - integer_fields
     }
-    for name in ("min_visibility", "min_presence", "identity_swap_cost_ratio"):
+    parsed_integers: dict[str, int] = {}
+    for name in integer_fields:
+        raw = value.get(name, getattr(defaults, name))
+        if isinstance(raw, bool):
+            raise ConfigValidationError(
+                "must be a positive integer",
+                path=path,
+                key=f"three_d_quality.{name}",
+            )
+        try:
+            numeric = float(raw)
+        except (TypeError, ValueError, OverflowError):
+            numeric = 0.0
+        if not isfinite(numeric) or numeric <= 0 or not numeric.is_integer():
+            raise ConfigValidationError(
+                "must be a positive integer",
+                path=path,
+                key=f"three_d_quality.{name}",
+            )
+        parsed_integers[name] = int(numeric)
+    for name in (
+        "min_visibility",
+        "min_presence",
+        "identity_swap_cost_ratio",
+        "ground_minimum_contact_confidence",
+    ):
         if parsed[name] > 1.0:
             raise ConfigValidationError(
                 "must be greater than 0 and at most 1",
                 path=path,
                 key=f"three_d_quality.{name}",
             )
-    return ThreeDQualityConfig(**parsed)
+    return ThreeDQualityConfig(**parsed, **parsed_integers)
 
 
 def _config_number(

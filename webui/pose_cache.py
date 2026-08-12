@@ -165,6 +165,7 @@ class PoseLandmarkCache:
             inference_time_ms=0.0,
             bbox=_bbox(points) if success else None,
             timestamp_ms=int(round(float(self.timestamp_ms[index]))),
+            frame_id=int(self.frame_index[index]),
             extra={
                 "world_keypoints": world_points if world_available else [],
                 "world_landmarks_available": world_available,

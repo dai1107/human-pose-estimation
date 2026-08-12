@@ -21,6 +21,10 @@ class CapturedFrame:
     height: int
     capture_read_start_ns: int = 0
     capture_read_end_ns: int = 0
+    source_timestamp_ms: int | None = None
+    inference_width: int | None = None
+    inference_height: int | None = None
+    resize_ms: float = 0.0
 
 
 @dataclass(slots=True)
@@ -50,3 +54,14 @@ class TimedPoseResult:
 
     def age_ms(self, now_ns: int) -> float:
         return max(0, int(now_ns) - self.capture_timestamp_ns) / 1_000_000.0
+
+    @property
+    def pose_timestamp_ms(self) -> int:
+        if self.pose is not None and self.pose.timestamp_ms is not None:
+            return int(self.pose.timestamp_ms)
+        return int(self.capture_timestamp_ns // 1_000_000)
+
+    def source_age_ms(self, current_frame_timestamp_ms: int | float) -> float:
+        """Age on the camera/video timeline, independent of wall-clock delay."""
+
+        return float(current_frame_timestamp_ms) - float(self.pose_timestamp_ms)

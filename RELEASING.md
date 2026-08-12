@@ -14,17 +14,20 @@
 From a clean checkout with Python 3.10–3.12:
 
 ```powershell
+.\scripts\install_git_hooks.ps1
 python -m pip install -r requirements-dev.txt
-python -m pytest -q
-python -m src.smoke_test
-python -m build
+python tools/ci_preflight.py --stage all
 python -m pip install --force-reinstall --no-deps dist\pose_estimation_hyrox-*.whl
 pose-doctor --json
 ```
 
-The build must produce both a wheel and source archive in `dist/`. CI performs
-the import, compile, text-format, unit-test, no-camera smoke, and package-build
-checks on Windows and Linux.
+The repository pre-push hook runs the same preflight automatically. It checks
+the supported Python range, dependency consistency, tracked Python syntax,
+text format, the full test suite, the no-camera smoke test, outgoing Git blob
+count/size, and that the build contains exactly one wheel and one source
+archive. Raw videos, datasets, generated recordings, 100 MB GitHub blobs, and
+unusually large outgoing pushes are rejected before network upload. CI runs
+the same contract on Python 3.10 and 3.12 on both Windows and Linux.
 
 ## Upgrade behavior
 

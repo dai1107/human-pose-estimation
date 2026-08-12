@@ -63,6 +63,13 @@ def test_upload_performance_profile_writes_per_frame_csv_and_summary(
     assert summary["pose_inference_count"] == 2
     assert summary["processed_fps"] == pytest.approx(20.0)
     assert summary["real_time_factor"] == pytest.approx(1.5)
+    assert summary["analysis_speed_ratio"] == pytest.approx(2.0 / 3.0)
+    assert summary["normal_speed_analysis_passed"] is False
     assert summary["p50_pose_inference_ms"] == pytest.approx(30.0)
     assert summary["p95_pose_inference_ms"] == pytest.approx(39.0)
     assert summary["primary_bottleneck"] == "pose_inference_ms"
+    assert summary["playback_speed_ratio"] == pytest.approx(1.0)
+    assert summary["frames_read"] == 2
+    assert summary["frames_inferred"] == 2
+    assert summary["queue_depth"] == 0
+    assert summary["p50_inference_latency_ms"] == pytest.approx(30.0)

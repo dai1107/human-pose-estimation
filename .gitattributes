@@ -2,3 +2,4 @@
 tools/oni_bridge/OpenNI2/Drivers/OniFile.ini text eol=lf
 tools/oni_bridge/OPENNI2_LICENSE.txt text eol=lf
 tools/oni_bridge/MINGW_W64_RUNTIME_LICENSE.txt text eol=lf
+.githooks/* text eol=lf

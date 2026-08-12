@@ -135,6 +135,7 @@ def make_browser_pose_payload(
         "image_landmarks": landmarks,
         "world_landmarks": world,
         "pose_inference_ms": 8.25,
+        "pose_result_age_ms": 9.5,
         "pose_model": "full",
         "pose_model_benchmark": {
             "selectedModel": "full",
@@ -406,6 +407,33 @@ def test_browser_pose_frame_runs_rules_without_server_pose_inference() -> None:
     assert result["pose_model_benchmark"]["selected_model"] == "full"
     assert result["display_filter"]["profile"] == "ultra_responsive"
     assert result["display_filter"]["prediction_enabled"] is True
+    session.stop()
+
+
+def test_browser_pose_frame_suppresses_stale_source_pose_before_analysis() -> None:
+    session = RealtimePoseSession(
+        "browser-stale-pose",
+        backend_factory=lambda *_: (FakePoseBackend(), "fake"),
+        max_receive_fps=1000,
+        max_pose_age_ms=120,
+    )
+    session.mark_connected()
+    state = session.start({"action": "none", "backend": "mediapipe"})
+    payload = make_browser_pose_payload(
+        session_id=session.session_id,
+        run_id=str(state["run_id"]),
+    )
+    payload["pose_result_age_ms"] = 121.0
+
+    assert session.submit_pose_frame(payload) is True
+    result = wait_for_result(session)
+
+    assert result["pose_age_ms"] >= 121.0
+    assert result["latency_contract"]["stale"] is True
+    assert result["latency_contract"]["analysis_uses_prediction"] is False
+    assert result["pose_detected"] is False
+    assert result["keypoints"] == []
+    assert result["assessment"]["reason_codes"] == ["STALE_POSE"]
     session.stop()
 
 

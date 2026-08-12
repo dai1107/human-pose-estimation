@@ -88,6 +88,86 @@ def test_action_assessment_hides_unreliable_or_unavailable_three_d_angles() -> N
     assert result["angles"][0]["value"] == 159.0
 
 
+def test_action_assessment_falls_back_to_validated_2d_without_changing_rules() -> None:
+    result = assess_action(
+        "wall_ball",
+        "throw_extension",
+        {
+            "min_knee_angle": 155.0,
+            "left_knee_angle": 155.0,
+            "right_knee_angle": 157.0,
+            "three_d_kinematics": {
+                "measurements": {
+                    "left_knee_angle": {
+                        "angle_2d": 155.0,
+                        "angle_3d": 119.0,
+                        "confidence": 0.94,
+                        "three_d_reliable": False,
+                        "quality_reasons": ["two_d_three_d_conflict"],
+                    },
+                    "right_knee_angle": {
+                        "angle_2d": 157.0,
+                        "angle_3d": 159.0,
+                        "confidence": 0.92,
+                        "three_d_reliable": True,
+                        "quality_reasons": [],
+                    },
+                }
+            },
+        },
+    )
+
+    by_key = {item["key"]: item for item in result["angles"]}
+    left = by_key["left_knee_angle"]
+    right = by_key["right_knee_angle"]
+    assert left["value"] == 155.0
+    assert left["rule_angle_deg"] == 155.0
+    assert left["source"] == "2d"
+    assert (
+        left["display_angle_source"]
+        == "image_landmarks_smoothed_aspect_corrected_fallback"
+    )
+    assert right["value"] == 159.0
+    assert right["source"] == "3d"
+    assert right["display_angle_source"] == "world_landmarks_smoothed_validated"
+    assert result["status"] == "good"
+
+
+@pytest.mark.parametrize(
+    ("confidence", "reasons"),
+    (
+        (0.69, []),
+        (0.95, ["low_visibility"]),
+        (0.95, ["image_joint_missing"]),
+    ),
+)
+def test_action_assessment_suppresses_unsafe_2d_fallback(
+    confidence: float,
+    reasons: list[str],
+) -> None:
+    result = assess_action(
+        "lunge",
+        "bottom",
+        {
+            "min_knee_angle": 98.0,
+            "left_knee_angle": 98.0,
+            "three_d_kinematics": {
+                "measurements": {
+                    "left_knee_angle": {
+                        "angle_2d": 98.0,
+                        "angle_3d": None,
+                        "confidence": confidence,
+                        "three_d_reliable": False,
+                        "quality_reasons": reasons,
+                    }
+                }
+            },
+        },
+    )
+
+    assert result["angles"] == []
+
+
 def test_effort_feedback_is_hidden_during_recovery_but_retained_during_pull() -> None:
     items = [{"level": "warn", "code": "ARMS_ONLY_PULL", "text": "配合髋腿发力"}]
 

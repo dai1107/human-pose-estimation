@@ -4,12 +4,9 @@ from collections.abc import Mapping, Sequence
 from math import atan2, degrees, hypot, isfinite
 from typing import Any
 
-from .geometry import (
-    PosePoint,
-    calculate_angle_2d,
-    coerce_point,
-    midpoint,
-)
+from src.biomechanics.joint_metrics import calculate_angle_2d
+
+from .geometry import PosePoint, coerce_point, midpoint
 from .landmark_names import HYROX_CORE_LANDMARKS, LANDMARK_INDEX
 
 

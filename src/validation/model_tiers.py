@@ -181,8 +181,25 @@ def compare_model_tiers_case(
             lite_inference.append(float(lite_raw.inference_time_ms))
             full_result = full_smoother.smooth_result(full_raw, capture_timestamp_ns=capture_ns)
             lite_result = lite_smoother.smooth_result(lite_raw, capture_timestamp_ns=capture_ns)
-            full_result, full_3d = full_tracker.attach(full_result, capture_timestamp_ns=capture_ns, pose_age_ms=0)
-            lite_result, lite_3d = lite_tracker.attach(lite_result, capture_timestamp_ns=capture_ns, pose_age_ms=0)
+            height, width = frame.shape[:2]
+            full_result, full_3d = full_tracker.attach(
+                full_result,
+                capture_timestamp_ns=capture_ns,
+                pose_age_ms=0,
+                image_width=width,
+                image_height=height,
+                raw_result=full_raw,
+                camera_view=case.camera_view,
+            )
+            lite_result, lite_3d = lite_tracker.attach(
+                lite_result,
+                capture_timestamp_ns=capture_ns,
+                pose_age_ms=0,
+                image_width=width,
+                image_height=height,
+                raw_result=lite_raw,
+                camera_view=case.camera_view,
+            )
             full_has_pose = bool(full_result.success and full_result.keypoints)
             lite_has_pose = bool(lite_result.success and lite_result.keypoints)
             full_detected += int(full_has_pose)
@@ -190,7 +207,6 @@ def compare_model_tiers_case(
             full_three_d += int(full_3d.three_d_available)
             lite_three_d += int(lite_3d.three_d_available)
             three_d_status_matches += int(full_3d.assist_status == lite_3d.assist_status)
-            height, width = frame.shape[:2]
             full_features = extract_basic_pose_features(full_result.keypoints, width, height) if full_has_pose else None
             lite_features = extract_basic_pose_features(lite_result.keypoints, width, height) if lite_has_pose else None
             if full_features is not None:

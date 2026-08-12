@@ -15,7 +15,7 @@ function pose(wristX = 0.4, visibility = 1) {
 }
 
 test("prediction horizon follows pose age and is capped at 45 ms", () => {
-  const predictor = new DisplayPosePredictor();
+  const predictor = new DisplayPosePredictor({ enabled: true });
   predictor.update(pose(0.4), 0, "person-1");
   predictor.update(pose(0.5), 20, "person-1");
 
@@ -26,19 +26,19 @@ test("prediction horizon follows pose age and is capped at 45 ms", () => {
 });
 
 test("static and low visibility points do not drift", () => {
-  const staticPredictor = new DisplayPosePredictor();
+  const staticPredictor = new DisplayPosePredictor({ enabled: true });
   staticPredictor.update(pose(0.4), 0, "person-1");
   staticPredictor.update(pose(0.4), 20, "person-1");
   assert.equal(staticPredictor.predict(50).landmarks[4].x, 0.4);
 
-  const hiddenPredictor = new DisplayPosePredictor();
+  const hiddenPredictor = new DisplayPosePredictor({ enabled: true });
   hiddenPredictor.update(pose(0.4, 0.6), 0, "person-1");
   hiddenPredictor.update(pose(0.6, 0.6), 20, "person-1");
   assert.equal(hiddenPredictor.predict(50).landmarks[4].x, 0.6);
 });
 
 test("body scale displacement cap and support foot lock are enforced", () => {
-  const predictor = new DisplayPosePredictor();
+  const predictor = new DisplayPosePredictor({ enabled: true });
   const first = pose(0.1);
   const second = pose(0.8);
   first[5].x = 0.40;
@@ -53,7 +53,7 @@ test("body scale displacement cap and support foot lock are enforced", () => {
 });
 
 test("action endpoint phases reduce overshoot without changing mid-phase response", () => {
-  const predictor = new DisplayPosePredictor();
+  const predictor = new DisplayPosePredictor({ enabled: true });
   predictor.update(pose(0.4), 0, "person-1");
   predictor.update(pose(0.5), 20, "person-1");
 
@@ -65,7 +65,7 @@ test("action endpoint phases reduce overshoot without changing mid-phase respons
 });
 
 test("direction reversal damps prediction and gaps or identity switches reset it", () => {
-  const predictor = new DisplayPosePredictor();
+  const predictor = new DisplayPosePredictor({ enabled: true });
   predictor.update(pose(0.3), 0, "person-1");
   predictor.update(pose(0.5), 20, "person-1");
   predictor.update(pose(0.4), 40, "person-1");
@@ -78,7 +78,7 @@ test("direction reversal damps prediction and gaps or identity switches reset it
 });
 
 test("prediction returns copies and never changes confidence", () => {
-  const predictor = new DisplayPosePredictor();
+  const predictor = new DisplayPosePredictor({ enabled: true });
   const current = pose(0.5, 0.9);
   predictor.update(pose(0.4, 0.9), 0, "person-1");
   predictor.update(current, 20, "person-1");
@@ -88,4 +88,16 @@ test("prediction returns copies and never changes confidence", () => {
   assert.equal(result.landmarks[4].visibility, 0.9);
   assert.equal(result.landmarks[4].presence, 0.9);
   assert.notEqual(result.landmarks[4], current[4]);
+});
+
+test("prediction is experimental and disabled by default", () => {
+  const predictor = new DisplayPosePredictor();
+  predictor.update(pose(0.4), 0, "person-1");
+  predictor.update(pose(0.6), 20, "person-1");
+
+  const result = predictor.predict(40);
+  assert.equal(result.enabled, false);
+  assert.equal(result.applied, false);
+  assert.equal(result.horizonMs, 0);
+  assert.equal(result.landmarks[4].x, 0.6);
 });

@@ -461,6 +461,9 @@ def build_coordinate_output(
     metric_depth_landmarks: object | None = None,
 ) -> dict[str, object]:
     payload = dict(three_d_kinematics or {})
+    body_coordinates = payload.get("body_coordinate_system")
+    if body_canonical_landmarks is None and isinstance(body_coordinates, Mapping):
+        body_canonical_landmarks = body_coordinates.get("canonical_landmarks")
     reliable_ratio = float(payload.get("three_d_reliable_ratio", 0.0) or 0.0)
     failure_reasons = payload.get("failure_reasons") or payload.get("quality_reasons") or []
     if not isinstance(failure_reasons, list):

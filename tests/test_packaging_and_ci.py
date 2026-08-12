@@ -53,7 +53,13 @@ def test_verified_requirement_files_use_exact_direct_versions() -> None:
             if line.strip() and not line.lstrip().startswith(("#", "-r "))
         ]
         assert requirements
-        assert all(re.fullmatch(r"[A-Za-z0-9_.-]+==[^=<>!~]+", item) for item in requirements)
+        assert all(
+            re.fullmatch(
+                r'[A-Za-z0-9_.-]+==[^=<>!~;]+(?:; python_version < "3\.11")?',
+                item,
+            )
+            for item in requirements
+        )
 
     development_requirements = (ROOT / "requirements-dev.txt").read_text(
         encoding="utf-8"
@@ -69,14 +75,26 @@ def test_ci_covers_windows_linux_static_tests_smoke_and_build() -> None:
     for required in (
         "ubuntu-latest",
         "windows-latest",
-        "compileall",
-        "src.import_test",
-        "check_text_format.py",
+        'python-version: ["3.10", "3.12"]',
+        "ci_preflight.py --stage environment",
+        "ci_preflight.py --stage static",
         "pytest -q",
         "src.smoke_test",
-        "python -m build",
+        "python -m build --no-isolation",
+        "ci_preflight.py --stage package --dist-dir dist",
+        "python -m pip check",
     ):
         assert required in workflow
+
+
+def test_repository_pre_push_hook_runs_full_ci_preflight() -> None:
+    hook = (ROOT / ".githooks" / "pre-push").read_text(encoding="utf-8")
+    installer = (ROOT / "scripts" / "install_git_hooks.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "ci_preflight.py --stage all" in hook
+    assert "core.hooksPath .githooks" in installer
 
 
 def test_release_and_upgrade_documents_exist() -> None:

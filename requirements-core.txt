@@ -1,4 +1,4 @@
-# Verified on CPython 3.12.7; install this file for the MediaPipe/web core.
+# Verified by CI on CPython 3.10 and 3.12 on both Windows and Linux.
 mediapipe==0.10.35
 opencv-python==5.0.0.93
 numpy==2.2.6

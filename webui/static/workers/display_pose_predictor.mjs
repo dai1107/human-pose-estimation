@@ -1,5 +1,5 @@
 export const DEFAULT_DISPLAY_PREDICTION = Object.freeze({
-  enabled: true,
+  enabled: false,
   mode: "constant_velocity",
   max_horizon_ms: 45,
   maximum_body_scale_displacement: 0.06,
@@ -67,7 +67,7 @@ export class DisplayPosePredictor {
     };
     this.config = {
       ...DEFAULT_DISPLAY_PREDICTION,
-      enabled: candidate.enabled !== false,
+      enabled: candidate.enabled === true,
       mode: candidate.mode === "constant_velocity" ? candidate.mode : "constant_velocity",
       max_horizon_ms: number("max_horizon_ms", 45, 0, 60),
       maximum_body_scale_displacement: number("maximum_body_scale_displacement", 0.06, 0, 0.20),
