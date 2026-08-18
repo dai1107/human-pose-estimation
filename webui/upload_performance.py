@@ -4,6 +4,7 @@ import csv
 import json
 import math
 import statistics
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -94,12 +95,19 @@ class UploadVideoProfiler:
         self.rows: list[dict[str, Any]] = []
         self.phase_totals = {field: 0.0 for field in FRAME_TIMING_FIELDS}
         self.pose_inference_count = 0
+        self.pose_frame_count = 0
+        self.coarse_pose_frames = 0
+        self.refinement_pose_frames = 0
         self.output_fps = self.source_fps
         self.output_frame_count = 0
         self.analysis_started = 0.0
+        self.summary_metadata: dict[str, Any] = {}
 
     def start(self, monotonic_time: float) -> None:
         self.analysis_started = float(monotonic_time)
+
+    def set_summary_metadata(self, values: Mapping[str, object]) -> None:
+        self.summary_metadata.update(dict(values))
 
     def record_frame(
         self,
@@ -108,6 +116,8 @@ class UploadVideoProfiler:
         timestamp_ms: float,
         timings: Mapping[str, object],
         pose_inference_ran: bool,
+        pose_frame_analyzed: bool | None = None,
+        pass_name: str = "full",
     ) -> None:
         if not self.enabled:
             return
@@ -120,6 +130,12 @@ class UploadVideoProfiler:
             row[field] = round(value, 3)
             self.phase_totals[field] += value
         self.pose_inference_count += int(bool(pose_inference_ran))
+        analyzed = bool(pose_inference_ran) if pose_frame_analyzed is None else bool(pose_frame_analyzed)
+        self.pose_frame_count += int(analyzed)
+        if analyzed and pass_name == "coarse":
+            self.coarse_pose_frames += 1
+        elif analyzed and pass_name == "refinement":
+            self.refinement_pose_frames += 1
         row["pose_inference_count"] = self.pose_inference_count
         row.update(
             {
@@ -136,7 +152,7 @@ class UploadVideoProfiler:
                 "pose_result_age_ms": 0.0,
                 "frames_read": len(self.rows) + 1,
                 "frames_inferred": self.pose_inference_count,
-                "frames_skipped": max(0, len(self.rows) + 1 - self.pose_inference_count),
+                "frames_skipped": max(0, len(self.rows) + 1 - self.pose_frame_count),
                 "frames_rendered": self.output_frame_count,
                 "queue_depth": 0,
                 "playback_speed_ratio": 1.0,
@@ -149,6 +165,57 @@ class UploadVideoProfiler:
             return
         self.output_fps = _finite_nonnegative(output_fps) or self.source_fps
         self.output_frame_count += 1
+
+    def record_refinement_frame(
+        self,
+        *,
+        frame_index: int,
+        timings: Mapping[str, object],
+        pose_inference_ran: bool,
+        new_pose_frame: bool = True,
+    ) -> None:
+        """Add pass-two costs to an already decoded source-frame row."""
+
+        if not self.enabled:
+            return
+        frame_index = int(frame_index)
+        if frame_index < 0 or frame_index >= len(self.rows):
+            raise IndexError(f"refinement frame is not in decode profile: {frame_index}")
+        row = self.rows[frame_index]
+        for field in FRAME_TIMING_FIELDS:
+            value = _finite_nonnegative(timings.get(field, 0.0))
+            if value <= 0.0:
+                continue
+            row[field] = round(_finite_nonnegative(row.get(field, 0.0)) + value, 3)
+            self.phase_totals[field] += value
+        self.pose_inference_count += int(bool(pose_inference_ran))
+        self.pose_frame_count += int(bool(new_pose_frame))
+        self.refinement_pose_frames += 1
+
+    def record_replay_cost(
+        self,
+        *,
+        frame_index: int,
+        timings: Mapping[str, object],
+    ) -> None:
+        if not self.enabled:
+            return
+        frame_index = int(frame_index)
+        if frame_index < 0 or frame_index >= len(self.rows):
+            raise IndexError(f"replay frame is not in decode profile: {frame_index}")
+        row = self.rows[frame_index]
+        for field in (
+            "decode_ms",
+            "pose_inference_ms",
+            "smoothing_ms",
+            "feature_ms",
+            "rule_ms",
+            "serialize_ms",
+            "total_frame_ms",
+        ):
+            value = _finite_nonnegative(timings.get(field, 0.0))
+            row[field] = round(_finite_nonnegative(row.get(field, 0.0)) + value, 3)
+            self.phase_totals[field] += value
 
     def record_output_video(self, *, output_fps: float, frame_count: int) -> None:
         if not self.enabled:
@@ -167,6 +234,7 @@ class UploadVideoProfiler:
         return {
             "processed_fps": round(processed_fps, 2),
             "pose_inference_count": self.pose_inference_count,
+            "pose_frames": self.pose_frame_count,
             "performance_bottleneck": bottleneck,
         }
 
@@ -225,6 +293,14 @@ class UploadVideoProfiler:
             "source_frame_count": self.source_frame_count,
             "source_duration_ms": round(source_duration_ms, 3),
             "processed_frame_count": processed,
+            "decode_frames": processed,
+            "pose_frames": self.pose_frame_count,
+            "coarse_pose_frames": self.coarse_pose_frames,
+            "refinement_pose_frames": self.refinement_pose_frames,
+            "pose_sampling_ratio": round(
+                self.pose_frame_count / processed if processed > 0 else 0.0,
+                6,
+            ),
             "pose_inference_count": self.pose_inference_count,
             "output_fps": round(self.output_fps, 6),
             "output_frame_count": self.output_frame_count,
@@ -233,7 +309,9 @@ class UploadVideoProfiler:
             "output_duration_difference_ms": duration_difference_ms,
             "output_duration_tolerance_ms": duration_tolerance_ms,
             "total_analysis_time_ms": round(total_ms, 3),
+            "total_processing_ms": round(total_ms, 3),
             "processed_fps": round(processed_fps, 3),
+            "processing_fps": round(processed_fps, 3),
             "real_time_factor": round(real_time_factor, 6),
             "analysis_speed_ratio": round(analysis_speed_ratio, 6),
             "normal_speed_analysis_passed": (
@@ -311,7 +389,7 @@ class UploadVideoProfiler:
             "pose_result_age_ms": 0.0,
             "frames_read": processed,
             "frames_inferred": self.pose_inference_count,
-            "frames_skipped": max(0, processed - self.pose_inference_count),
+            "frames_skipped": max(0, processed - self.pose_frame_count),
             "frames_rendered": self.output_frame_count,
             "queue_depth": 0,
             "playback_speed_ratio": round(playback_speed_ratio, 6),
@@ -327,6 +405,13 @@ class UploadVideoProfiler:
             "p50_pose_result_age_ms": 0.0,
             "p95_pose_result_age_ms": 0.0,
             "primary_bottleneck": bottleneck,
+            "decode_ms": round(self.phase_totals["decode_ms"], 3),
+            "pose_inference_ms": round(
+                self.phase_totals["pose_inference_ms"],
+                3,
+            ),
+            "rule_engine_ms": round(self.phase_totals["rule_ms"], 3),
+            "report_ms": 0.0,
             "phase_total_ms": {
                 field: round(value, 3)
                 for field, value in self.phase_totals.items()
@@ -335,9 +420,11 @@ class UploadVideoProfiler:
         for field, values in timings_by_field.items():
             summary[f"p50_{field}"] = round(statistics.median(values), 3) if values else 0.0
             summary[f"p95_{field}"] = round(_percentile(values, 0.95), 3)
+        summary.update(self.summary_metadata)
         return summary
 
     def write(self, total_analysis_time_ms: float) -> tuple[Path, Path, dict[str, Any]]:
+        report_started = time.perf_counter()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         profile_path = self.output_dir / "upload_video_profile.csv"
         summary_path = self.output_dir / "upload_video_summary.json"
@@ -369,6 +456,10 @@ class UploadVideoProfiler:
             writer.writeheader()
             writer.writerows(self.rows)
         summary = self.summary(total_analysis_time_ms)
+        summary["report_ms"] = round(
+            (time.perf_counter() - report_started) * 1000.0,
+            3,
+        )
         summary_path.write_text(
             json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",

@@ -315,6 +315,7 @@ class ObservabilityAssessment:
     floor_reference_ready: bool | None
     camera_view_suitable: bool | None
     single_frame_failure: bool
+    formal_evidence_allowed: bool = True
     thresholds_by_rule: Mapping[str, Mapping[str, float]] = field(
         default_factory=dict
     )
@@ -330,7 +331,12 @@ class ObservabilityAssessment:
             "decisive_rule_confidence": self.decisive_rule_confidence,
             "floor_reference_ready": self.floor_reference_ready,
             "camera_view_suitable": self.camera_view_suitable,
+            # Backward-compatible metadata alias.  Camera view is advisory
+            # only and never participates in VALID / NO_REP / UNSURE.
+            "camera_view_recommended": self.camera_view_suitable,
+            "camera_view_advisory_only": True,
             "single_frame_failure": self.single_frame_failure,
+            "formal_evidence_allowed": self.formal_evidence_allowed,
             "thresholds_by_rule": {
                 rule_id: dict(thresholds)
                 for rule_id, thresholds in self.thresholds_by_rule.items()
@@ -374,7 +380,12 @@ def apply_observability_policy(
     action: str | None = None,
     camera_view: str = "unknown",
 ) -> tuple[RepDecision, ObservabilityAssessment]:
-    """Downgrade otherwise decisive results when their evidence is not observable."""
+    """Downgrade decisive results only when their actual evidence is unobservable.
+
+    ``camera_view_suitable`` is retained as recommendation metadata for report
+    compatibility.  A camera-view label alone is not evidence and therefore
+    never changes the formal repetition decision.
+    """
     required = _required_rule_results(decision, required_rules)
     if decision.status == "NO_REP":
         decisive = tuple(rule for rule in required if rule.status == "FAIL")
@@ -508,6 +519,35 @@ def apply_observability_policy(
             for rule in decisive
         )
     )
+    formal_evidence_reasons: list[str] = []
+    action_metrics = THREE_D_ASSIST_RULE_ANGLES.get(
+        action_key.strip().lower().replace("-", "_").replace(" ", "_"), {}
+    )
+    for rule in decisive:
+        for frame in evidence_by_rule[rule.rule_id]:
+            if frame.get("endpoint_evidence_allowed", True) is False:
+                formal_evidence_reasons.append("PREDICTED_EVIDENCE_FORBIDDEN")
+            observability = frame.get("metric_observability")
+            if not isinstance(observability, Mapping):
+                continue
+            metrics = action_metrics.get(rule.rule_id, ())
+            if metrics and all(
+                isinstance(observability.get(metric), Mapping)
+                and str(observability[metric].get("status")) == "UNOBSERVABLE"
+                for metric in metrics
+            ):
+                metric_reasons = [
+                    str(reason)
+                    for metric in metrics
+                    for reason in (
+                        observability[metric].get("reason_codes") or ()
+                        if isinstance(observability.get(metric), Mapping)
+                        else ()
+                    )
+                ]
+                formal_evidence_reasons.extend(
+                    metric_reasons or ["DECISIVE_EVIDENCE_UNOBSERVABLE"]
+                )
     reasons: list[str] = []
     if rep_mean is not None and any(
         rep_mean < thresholds["rep_mean_confidence"]
@@ -527,12 +567,11 @@ def apply_observability_policy(
         for rule in decisive
     ):
         reasons.append("DECISIVE_RULE_CONFIDENCE_LOW")
-    if camera_view_suitable is False:
-        reasons.append("CAMERA_VIEW_UNSUITABLE")
     if floor_ready is False:
         reasons.append("FLOOR_REFERENCE_UNSURE")
     if single_frame_failure:
         reasons.append("SINGLE_FRAME_RULE_FAILURE")
+    reasons.extend(formal_evidence_reasons)
     reason_codes = tuple(dict.fromkeys(reasons))
     assessment = ObservabilityAssessment(
         status="UNSURE" if reason_codes else "OBSERVABLE",
@@ -543,6 +582,7 @@ def apply_observability_policy(
         floor_reference_ready=floor_ready,
         camera_view_suitable=camera_view_suitable,
         single_frame_failure=single_frame_failure,
+        formal_evidence_allowed=not formal_evidence_reasons,
         thresholds_by_rule=thresholds_by_rule,
     )
     if not reason_codes or decision.status == "UNSURE":
@@ -558,7 +598,7 @@ def apply_observability_policy(
         if value is not None
     )
     unsure_confidence = min(confidence_values, default=0.0)
-    if camera_view_suitable is False or single_frame_failure:
+    if single_frame_failure:
         unsure_confidence = min(unsure_confidence, 0.49)
     return (
         RepDecision(

@@ -24,9 +24,23 @@ class RealtimeLatencyConfig:
     target_pose_fps: float = 15.0
     max_pose_fps: float = 20.0
     warning_pose_age_ms: float = 80.0
-    max_pose_age_ms: float = 120.0
+    analysis_max_pose_age_ms: float = 120.0
+    display_prediction_ms: float = 45.0
+    display_hold_ms: float = 250.0
+    display_fade_ms: float = 150.0
     max_frame_gap: int = 5
-    hide_pose_after_ms: float = 300.0
+
+    @property
+    def max_pose_age_ms(self) -> float:
+        """Backward-compatible name for the strict analysis freshness limit."""
+
+        return self.analysis_max_pose_age_ms
+
+    @property
+    def hide_pose_after_ms(self) -> float:
+        """Compatibility value for clients predating display hold/fade fields."""
+
+        return self.display_hold_ms + self.display_fade_ms
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +54,16 @@ class WebRealtimeConfig:
     max_requests_in_flight: int = 1
     inference_long_edge: int = 640
     jpeg_quality: float = 0.65
+
+
+@dataclass(frozen=True, slots=True)
+class OfflineFastConfig:
+    target_pose_fps: float = 15.0
+    detailed_trace: bool = False
+    refinement_enabled: bool = True
+    refinement_pose_fps: float = 30.0
+    candidate_margin_ms: float = 500.0
+    minimum_source_frames: int = 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,11 +141,11 @@ class DisplaySmoothingConfig:
     profile: str = "ultra_responsive"
     prediction_enabled: bool = False
     max_gap_ms_before_reset: float = 250.0
-    min_cutoff: float = 2.2
-    beta: float = 0.12
+    min_cutoff: float = 1.4
+    beta: float = 0.08
     d_cutoff: float = 1.0
     raw_blend_enabled: bool = True
-    max_raw_weight: float = 0.45
+    max_raw_weight: float = 0.10
     minimum_visibility: float = 0.70
     slow_speed: float = 0.15
     fast_speed: float = 1.20
@@ -129,6 +153,20 @@ class DisplaySmoothingConfig:
     core_raw_weight_scale: float = 0.35
     face_raw_weight_scale: float = 0.0
     world_speed_scale: float = 1.25
+    landmark_enter_confidence: float = 0.50
+    landmark_exit_confidence: float = 0.30
+    landmark_hold_ms: float = 220.0
+    pose_hold_frames: int = 5
+    jitter_deadband: float = 0.0025
+    quality_gate_enabled: bool = True
+    quality_minimum_confidence: float = 0.35
+    quality_max_speed_body_s: float = 18.0
+    quality_max_acceleration_body_s2: float = 180.0
+    quality_max_bone_length_change_ratio: float = 0.55
+    quality_identity_swap_margin: float = 0.12
+    occlusion_short_prediction_ms: float = 200.0
+    occlusion_hide_after_ms: float = 500.0
+    occlusion_reacquire_frames: int = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +215,15 @@ class ThreeDQualityConfig:
     ground_minimum_contact_confidence: float = 0.55
     ground_maximum_image_deviation: float = 0.025
     ground_maximum_world_vertical_deviation_m: float = 0.08
+    contact_constraint_high_confidence: float = 0.70
+    contact_constraint_drift_body_ratio: float = 0.10
+    camera_motion_unstable_score: float = 0.42
+    camera_motion_minimum_reliability: float = 0.35
+    local_ground_minimum_confidence: float = 0.50
+    biomech_minimum_confidence: float = 0.60
+    pose_reliability_minimum_joint_confidence: float = 0.50
+    validation_budget_ms: float = 4.0
+    validation_maximum_stride: int = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +240,7 @@ class ProductPoseConfig:
     three_d_kinematics: ThreeDKinematicsConfig = field(default_factory=ThreeDKinematicsConfig)
     three_d_quality: ThreeDQualityConfig = field(default_factory=ThreeDQualityConfig)
     web_realtime: WebRealtimeConfig = field(default_factory=WebRealtimeConfig)
+    offline_fast: OfflineFastConfig = field(default_factory=OfflineFastConfig)
     rendering: RenderingConfig = field(default_factory=RenderingConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     local_first: LocalFirstArchitectureConfig = field(
@@ -224,6 +272,7 @@ def load_product_pose_config(
             "three_d_kinematics",
             "three_d_quality",
             "web_realtime",
+            "offline_fast",
             "rendering",
             "camera",
             "local_first",
@@ -303,6 +352,12 @@ def load_product_pose_config(
             path=config_path,
             key="display_smoothing.prediction_enabled",
         )
+    if realtime_latency.display_prediction_ms != display_prediction.max_horizon_ms:
+        raise ConfigValidationError(
+            "must match display_prediction.max_horizon_ms",
+            path=config_path,
+            key="realtime_latency.display_prediction_ms",
+        )
     three_d_kinematics = _load_three_d_kinematics(
         values.get("three_d_kinematics"),
         path=config_path,
@@ -312,6 +367,7 @@ def load_product_pose_config(
         path=config_path,
     )
     web_realtime = _load_web_realtime(values.get("web_realtime"), path=config_path)
+    offline_fast = _load_offline_fast(values.get("offline_fast"), path=config_path)
     rendering = _load_rendering(values.get("rendering"), path=config_path)
     camera = _load_camera(values.get("camera"), path=config_path)
     local_first = _load_local_first(values.get("local_first"), path=config_path)
@@ -328,6 +384,7 @@ def load_product_pose_config(
         three_d_kinematics=three_d_kinematics,
         three_d_quality=three_d_quality,
         web_realtime=web_realtime,
+        offline_fast=offline_fast,
         rendering=rendering,
         camera=camera,
         local_first=local_first,
@@ -399,7 +456,11 @@ def _load_realtime_latency(value: object, *, path: Path) -> RealtimeLatencyConfi
         "target_pose_fps",
         "max_pose_fps",
         "warning_pose_age_ms",
+        "analysis_max_pose_age_ms",
         "max_pose_age_ms",
+        "display_prediction_ms",
+        "display_hold_ms",
+        "display_fade_ms",
         "max_frame_gap",
         "hide_pose_after_ms",
     }
@@ -454,19 +515,53 @@ def _load_realtime_latency(value: object, *, path: Path) -> RealtimeLatencyConfi
             path=path,
             key="realtime_latency.target_pose_fps",
         )
-    max_pose_age_ms = positive_number("max_pose_age_ms", 120.0)
-    hide_pose_after_ms = positive_number("hide_pose_after_ms", 300.0)
-    if warning_pose_age_ms > max_pose_age_ms:
+    legacy_analysis_age = value.get("max_pose_age_ms")
+    configured_analysis_age = value.get("analysis_max_pose_age_ms")
+    if legacy_analysis_age is not None and configured_analysis_age is not None:
+        legacy_analysis_value = positive_number("max_pose_age_ms", 120.0)
+        configured_analysis_value = positive_number("analysis_max_pose_age_ms", 120.0)
+        if legacy_analysis_value != configured_analysis_value:
+            raise ConfigValidationError(
+                "must match realtime_latency.analysis_max_pose_age_ms",
+                path=path,
+                key="realtime_latency.max_pose_age_ms",
+            )
+    analysis_max_pose_age_ms = positive_number(
+        "analysis_max_pose_age_ms" if configured_analysis_age is not None else "max_pose_age_ms",
+        120.0,
+    )
+    display_prediction_ms = positive_number("display_prediction_ms", 45.0)
+    display_hold_ms = positive_number("display_hold_ms", 250.0)
+    display_fade_ms = positive_number("display_fade_ms", 150.0)
+    if display_prediction_ms > 60.0:
         raise ConfigValidationError(
-            "must be <= realtime_latency.max_pose_age_ms",
+            "must be <= 60",
+            path=path,
+            key="realtime_latency.display_prediction_ms",
+        )
+    if display_hold_ms < analysis_max_pose_age_ms:
+        raise ConfigValidationError(
+            "must be >= realtime_latency.analysis_max_pose_age_ms",
+            path=path,
+            key="realtime_latency.display_hold_ms",
+        )
+    legacy_hide_after = value.get("hide_pose_after_ms")
+    if legacy_hide_after is not None:
+        hide_pose_after_ms = positive_number("hide_pose_after_ms", 400.0)
+        has_new_display_timing = (
+            "display_hold_ms" in value or "display_fade_ms" in value
+        )
+        if has_new_display_timing and hide_pose_after_ms != display_hold_ms + display_fade_ms:
+            raise ConfigValidationError(
+                "must equal display_hold_ms + display_fade_ms",
+                path=path,
+                key="realtime_latency.hide_pose_after_ms",
+            )
+    if warning_pose_age_ms > analysis_max_pose_age_ms:
+        raise ConfigValidationError(
+            "must be <= realtime_latency.analysis_max_pose_age_ms",
             path=path,
             key="realtime_latency.warning_pose_age_ms",
-        )
-    if hide_pose_after_ms < max_pose_age_ms:
-        raise ConfigValidationError(
-            "must be >= realtime_latency.max_pose_age_ms",
-            path=path,
-            key="realtime_latency.hide_pose_after_ms",
         )
     return RealtimeLatencyConfig(
         latest_frame_only=latest_frame_only,
@@ -475,9 +570,11 @@ def _load_realtime_latency(value: object, *, path: Path) -> RealtimeLatencyConfi
         target_pose_fps=target_pose_fps,
         max_pose_fps=max_pose_fps,
         warning_pose_age_ms=warning_pose_age_ms,
-        max_pose_age_ms=max_pose_age_ms,
+        analysis_max_pose_age_ms=analysis_max_pose_age_ms,
+        display_prediction_ms=display_prediction_ms,
+        display_hold_ms=display_hold_ms,
+        display_fade_ms=display_fade_ms,
         max_frame_gap=max_frame_gap,
-        hide_pose_after_ms=hide_pose_after_ms,
     )
 
 
@@ -539,6 +636,109 @@ def _load_web_realtime(value: object, *, path: Path) -> WebRealtimeConfig:
         max_requests_in_flight=1,
         inference_long_edge=inference_long_edge,
         jpeg_quality=jpeg_quality,
+    )
+
+
+def _load_offline_fast(value: object, *, path: Path) -> OfflineFastConfig:
+    defaults = OfflineFastConfig()
+    if value is None:
+        return defaults
+    if not isinstance(value, dict):
+        raise ConfigValidationError(
+            "offline_fast must be a mapping",
+            path=path,
+            key="offline_fast",
+        )
+    fields = {
+        "target_pose_fps",
+        "detailed_trace",
+        "refinement_enabled",
+        "refinement_pose_fps",
+        "candidate_margin_ms",
+        "minimum_source_frames",
+    }
+    reject_unknown_fields(value, fields, path=path, prefix="offline_fast.")
+
+    target_pose_fps = _config_number(
+        value,
+        "target_pose_fps",
+        defaults.target_pose_fps,
+        path=path,
+        positive=True,
+        prefix="offline_fast",
+    )
+    refinement_pose_fps = _config_number(
+        value,
+        "refinement_pose_fps",
+        defaults.refinement_pose_fps,
+        path=path,
+        positive=True,
+        prefix="offline_fast",
+    )
+    candidate_margin_ms = _config_number(
+        value,
+        "candidate_margin_ms",
+        defaults.candidate_margin_ms,
+        path=path,
+        positive=True,
+        prefix="offline_fast",
+    )
+    if target_pose_fps > 30.0:
+        raise ConfigValidationError(
+            "must be no greater than 30",
+            path=path,
+            key="offline_fast.target_pose_fps",
+        )
+    if refinement_pose_fps < target_pose_fps or refinement_pose_fps > 60.0:
+        raise ConfigValidationError(
+            "must be between target_pose_fps and 60",
+            path=path,
+            key="offline_fast.refinement_pose_fps",
+        )
+    if candidate_margin_ms > 5000.0:
+        raise ConfigValidationError(
+            "must be no greater than 5000",
+            path=path,
+            key="offline_fast.candidate_margin_ms",
+        )
+    detailed_trace = value.get("detailed_trace", defaults.detailed_trace)
+    refinement_enabled = value.get(
+        "refinement_enabled",
+        defaults.refinement_enabled,
+    )
+    if not isinstance(detailed_trace, bool):
+        raise ConfigValidationError(
+            "must be true or false",
+            path=path,
+            key="offline_fast.detailed_trace",
+        )
+    if not isinstance(refinement_enabled, bool):
+        raise ConfigValidationError(
+            "must be true or false",
+            path=path,
+            key="offline_fast.refinement_enabled",
+        )
+    minimum_source_frames = value.get(
+        "minimum_source_frames",
+        defaults.minimum_source_frames,
+    )
+    if (
+        isinstance(minimum_source_frames, bool)
+        or not isinstance(minimum_source_frames, int)
+        or minimum_source_frames < 1
+    ):
+        raise ConfigValidationError(
+            "must be a positive integer",
+            path=path,
+            key="offline_fast.minimum_source_frames",
+        )
+    return OfflineFastConfig(
+        target_pose_fps=target_pose_fps,
+        detailed_trace=detailed_trace,
+        refinement_enabled=refinement_enabled,
+        refinement_pose_fps=refinement_pose_fps,
+        candidate_margin_ms=candidate_margin_ms,
+        minimum_source_frames=minimum_source_frames,
     )
 
 
@@ -866,6 +1066,20 @@ def _load_display_smoothing(value: object, *, path: Path) -> DisplaySmoothingCon
         "core_raw_weight_scale",
         "face_raw_weight_scale",
         "world_speed_scale",
+        "landmark_enter_confidence",
+        "landmark_exit_confidence",
+        "landmark_hold_ms",
+        "pose_hold_frames",
+        "jitter_deadband",
+        "quality_gate_enabled",
+        "quality_minimum_confidence",
+        "quality_max_speed_body_s",
+        "quality_max_acceleration_body_s2",
+        "quality_max_bone_length_change_ratio",
+        "quality_identity_swap_margin",
+        "occlusion_short_prediction_ms",
+        "occlusion_hide_after_ms",
+        "occlusion_reacquire_frames",
     }
     reject_unknown_fields(value, fields, path=path, prefix="display_smoothing.")
     mode = str(value.get("mode", defaults.mode)).strip().lower()
@@ -896,6 +1110,13 @@ def _load_display_smoothing(value: object, *, path: Path) -> DisplaySmoothingCon
             path=path,
             key="display_smoothing.raw_blend_enabled",
         )
+    quality_gate_enabled = value.get("quality_gate_enabled", defaults.quality_gate_enabled)
+    if not isinstance(quality_gate_enabled, bool):
+        raise ConfigValidationError(
+            "must be true or false",
+            path=path,
+            key="display_smoothing.quality_gate_enabled",
+        )
     numeric_fields = {
         "max_gap_ms_before_reset": (defaults.max_gap_ms_before_reset, True, False),
         "min_cutoff": (defaults.min_cutoff, True, False),
@@ -909,6 +1130,17 @@ def _load_display_smoothing(value: object, *, path: Path) -> DisplaySmoothingCon
         "core_raw_weight_scale": (defaults.core_raw_weight_scale, False, True),
         "face_raw_weight_scale": (defaults.face_raw_weight_scale, False, True),
         "world_speed_scale": (defaults.world_speed_scale, True, False),
+        "landmark_enter_confidence": (defaults.landmark_enter_confidence, False, True),
+        "landmark_exit_confidence": (defaults.landmark_exit_confidence, False, True),
+        "landmark_hold_ms": (defaults.landmark_hold_ms, True, False),
+        "jitter_deadband": (defaults.jitter_deadband, False, True),
+        "quality_minimum_confidence": (defaults.quality_minimum_confidence, False, True),
+        "quality_max_speed_body_s": (defaults.quality_max_speed_body_s, True, False),
+        "quality_max_acceleration_body_s2": (defaults.quality_max_acceleration_body_s2, True, False),
+        "quality_max_bone_length_change_ratio": (defaults.quality_max_bone_length_change_ratio, True, False),
+        "quality_identity_swap_margin": (defaults.quality_identity_swap_margin, False, True),
+        "occlusion_short_prediction_ms": (defaults.occlusion_short_prediction_ms, False, True),
+        "occlusion_hide_after_ms": (defaults.occlusion_hide_after_ms, True, False),
     }
     parsed = {
         name: _config_number(
@@ -927,6 +1159,10 @@ def _load_display_smoothing(value: object, *, path: Path) -> DisplaySmoothingCon
         "extremity_raw_weight_scale",
         "core_raw_weight_scale",
         "face_raw_weight_scale",
+        "landmark_enter_confidence",
+        "landmark_exit_confidence",
+        "quality_minimum_confidence",
+        "quality_identity_swap_margin",
     ):
         if parsed[name] > 1.0:
             raise ConfigValidationError(
@@ -940,17 +1176,68 @@ def _load_display_smoothing(value: object, *, path: Path) -> DisplaySmoothingCon
             path=path,
             key="display_smoothing.max_raw_weight",
         )
+    if parsed["jitter_deadband"] > 0.02:
+        raise ConfigValidationError(
+            "must be between 0 and 0.02",
+            path=path,
+            key="display_smoothing.jitter_deadband",
+        )
+    if parsed["landmark_hold_ms"] > parsed["max_gap_ms_before_reset"]:
+        raise ConfigValidationError(
+            "must be <= display_smoothing.max_gap_ms_before_reset",
+            path=path,
+            key="display_smoothing.landmark_hold_ms",
+        )
     if parsed["fast_speed"] <= parsed["slow_speed"]:
         raise ConfigValidationError(
             "must be greater than display_smoothing.slow_speed",
             path=path,
             key="display_smoothing.fast_speed",
         )
+    if parsed["landmark_exit_confidence"] >= parsed["landmark_enter_confidence"]:
+        raise ConfigValidationError(
+            "must be less than display_smoothing.landmark_enter_confidence",
+            path=path,
+            key="display_smoothing.landmark_exit_confidence",
+        )
+    if parsed["occlusion_hide_after_ms"] < parsed["occlusion_short_prediction_ms"]:
+        raise ConfigValidationError(
+            "must be >= display_smoothing.occlusion_short_prediction_ms",
+            path=path,
+            key="display_smoothing.occlusion_hide_after_ms",
+        )
+    pose_hold_frames = value.get("pose_hold_frames", defaults.pose_hold_frames)
+    if (
+        isinstance(pose_hold_frames, bool)
+        or not isinstance(pose_hold_frames, int)
+        or not 0 <= pose_hold_frames <= 8
+    ):
+        raise ConfigValidationError(
+            "must be an integer between 0 and 8",
+            path=path,
+            key="display_smoothing.pose_hold_frames",
+        )
+    occlusion_reacquire_frames = value.get(
+        "occlusion_reacquire_frames", defaults.occlusion_reacquire_frames
+    )
+    if (
+        isinstance(occlusion_reacquire_frames, bool)
+        or not isinstance(occlusion_reacquire_frames, int)
+        or not 1 <= occlusion_reacquire_frames <= 12
+    ):
+        raise ConfigValidationError(
+            "must be an integer between 1 and 12",
+            path=path,
+            key="display_smoothing.occlusion_reacquire_frames",
+        )
     return DisplaySmoothingConfig(
         mode=mode,
         profile=profile,
         prediction_enabled=prediction_enabled,
         raw_blend_enabled=raw_blend_enabled,
+        quality_gate_enabled=quality_gate_enabled,
+        pose_hold_frames=pose_hold_frames,
+        occlusion_reacquire_frames=occlusion_reacquire_frames,
         **parsed,
     )
 
@@ -1148,6 +1435,15 @@ def _load_three_d_quality(value: object, *, path: Path) -> ThreeDQualityConfig:
         "ground_minimum_contact_confidence",
         "ground_maximum_image_deviation",
         "ground_maximum_world_vertical_deviation_m",
+        "contact_constraint_high_confidence",
+        "contact_constraint_drift_body_ratio",
+        "camera_motion_unstable_score",
+        "camera_motion_minimum_reliability",
+        "local_ground_minimum_confidence",
+        "biomech_minimum_confidence",
+        "pose_reliability_minimum_joint_confidence",
+        "validation_budget_ms",
+        "validation_maximum_stride",
     }
     reject_unknown_fields(value, fields, path=path, prefix="three_d_quality.")
     integer_fields = {
@@ -1155,6 +1451,7 @@ def _load_three_d_quality(value: object, *, path: Path) -> ThreeDQualityConfig:
         "foot_contact_stable_frames",
         "ground_history_size",
         "ground_minimum_samples",
+        "validation_maximum_stride",
     }
     parsed = {
         name: _config_number(
@@ -1192,6 +1489,12 @@ def _load_three_d_quality(value: object, *, path: Path) -> ThreeDQualityConfig:
         "min_presence",
         "identity_swap_cost_ratio",
         "ground_minimum_contact_confidence",
+        "contact_constraint_high_confidence",
+        "camera_motion_unstable_score",
+        "camera_motion_minimum_reliability",
+        "local_ground_minimum_confidence",
+        "biomech_minimum_confidence",
+        "pose_reliability_minimum_joint_confidence",
     ):
         if parsed[name] > 1.0:
             raise ConfigValidationError(

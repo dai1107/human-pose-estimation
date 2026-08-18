@@ -608,3 +608,22 @@ def test_phase_sequence_tracker_never_skips_a_required_endpoint() -> None:
     assert tracker.update("ascent") is False
     assert tracker.update("stand") is False
     assert tracker.debug()["rep_completed"] is False
+
+
+def test_phase_confirmation_holds_a_meaningful_stage_through_short_occlusion() -> None:
+    analyzer = BaseActionAnalyzer(action="test")
+    analyzer.stable_phase = "bottom"
+    analyzer.raw_phase = "bottom"
+    analyzer.frames_in_phase = 3
+    analyzer.rep_sequence = PhaseSequenceTracker(
+        ("stand", "bottom", "stand"),
+    )
+    analyzer.rep_sequence.update("stand")
+    analyzer.rep_sequence.update("bottom")
+
+    for _ in range(analyzer.active_sequence_loss_grace_frames):
+        analyzer._advance_confirmed_phase("low_visibility", 2)
+
+    assert analyzer.phase == "bottom"
+    analyzer._advance_confirmed_phase("low_visibility", 2)
+    assert analyzer.phase == "low_visibility"

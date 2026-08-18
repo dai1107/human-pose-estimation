@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from hyrox.feedback import FeedbackMessage
 
@@ -51,6 +52,30 @@ class ActionViewPolicy:
     side_codes: frozenset[str]
 
 
+ViewCapabilityLevel = Literal[
+    "recommended", "usable", "not_recommended", "unjudgeable"
+]
+
+
+@dataclass(frozen=True)
+class ActionViewCapability:
+    level: ViewCapabilityLevel
+    score_multiplier: float
+    threshold_scale: float
+    observable_feature_groups: tuple[str, ...]
+    limited_feature_groups: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "level": self.level,
+            "score_multiplier": self.score_multiplier,
+            "threshold_scale": self.threshold_scale,
+            "observable_feature_groups": list(self.observable_feature_groups),
+            "limited_feature_groups": list(self.limited_feature_groups),
+            "decision_gate": False,
+        }
+
+
 _POLICIES: dict[str, ActionViewPolicy] = {
     "lunge": ActionViewPolicy(
         frozenset({"front", "side"}),
@@ -95,6 +120,69 @@ _POLICIES: dict[str, ActionViewPolicy] = {
 }
 
 
+_FULL = ("joint_angles", "body_center", "normalized_rom", "phase_order")
+_VIEW_CAPABILITIES: dict[str, dict[str, ActionViewCapability]] = {
+    "lunge": {
+        "side": ActionViewCapability("recommended", 1.00, 1.00, _FULL),
+        "front": ActionViewCapability("usable", 0.92, 1.08, _FULL, ("sagittal_depth",)),
+    },
+    "wall_ball": {
+        "front": ActionViewCapability("recommended", 1.00, 1.00, _FULL),
+        "side": ActionViewCapability("recommended", 1.00, 1.00, _FULL),
+    },
+    "farmers_carry": {
+        "front": ActionViewCapability("recommended", 1.00, 1.00, _FULL),
+        "side": ActionViewCapability("usable", 0.90, 1.10, _FULL, ("bilateral_symmetry",)),
+    },
+    "rowing": {
+        "side": ActionViewCapability("recommended", 1.00, 1.00, _FULL),
+        "front": ActionViewCapability("not_recommended", 0.72, 1.20, ("body_center", "phase_order"), ("sagittal_rom",)),
+    },
+    "skierg": {
+        "front": ActionViewCapability("recommended", 1.00, 1.00, _FULL),
+        "side": ActionViewCapability("usable", 0.90, 1.10, _FULL, ("bilateral_symmetry",)),
+    },
+    "burpee_broad_jump": {
+        "side": ActionViewCapability("recommended", 1.00, 1.00, _FULL),
+        "front": ActionViewCapability("usable", 0.88, 1.12, _FULL, ("forward_displacement",)),
+    },
+    "sled_push": {
+        "side": ActionViewCapability("recommended", 1.00, 1.00, _FULL),
+        "front": ActionViewCapability("not_recommended", 0.74, 1.20, ("phase_order", "bilateral_symmetry"), ("torso_lean", "forward_displacement")),
+    },
+    "sled_pull": {
+        "side": ActionViewCapability("recommended", 1.00, 1.00, _FULL),
+        "front": ActionViewCapability("not_recommended", 0.76, 1.20, ("phase_order", "bilateral_symmetry"), ("torso_lean", "pull_rom")),
+    },
+}
+
+
+_UNKNOWN_CAPABILITY = ActionViewCapability(
+    "usable", 1.0, 1.0, ("joint_angles", "body_center", "normalized_rom", "phase_order")
+)
+
+
+def action_view_capability(action: str, camera_view: str) -> ActionViewCapability:
+    """Return conservative capability metadata; labels alone never reject a rep."""
+    profile = view_profile(camera_view)
+    if profile == "unknown":
+        return _UNKNOWN_CAPABILITY
+    action_matrix = _VIEW_CAPABILITIES.get(_action_key(action))
+    if action_matrix is None:
+        return _UNKNOWN_CAPABILITY
+    return action_matrix.get(
+        profile,
+        ActionViewCapability("unjudgeable", 0.55, 1.30, ("phase_order",), ("joint_angles", "normalized_rom")),
+    )
+
+
+def action_view_capability_matrix() -> dict[str, dict[str, dict[str, object]]]:
+    return {
+        action: {view: capability.as_dict() for view, capability in views.items()}
+        for action, views in _VIEW_CAPABILITIES.items()
+    }
+
+
 def _action_key(action: str) -> str:
     return action.strip().lower().replace(" ", "_")
 
@@ -110,18 +198,21 @@ def filter_feedback_for_view(
         return messages, False
     allowed = policy.front_codes if profile == "front" else policy.side_codes
     filtered = [message for message in messages if message.code.upper() in allowed]
-    limited = profile not in policy.preferred
-    if limited:
+    not_recommended = profile not in policy.preferred
+    if not_recommended:
         preferred_text = "正面" if "front" in policy.preferred else "侧面"
         filtered.append(
             FeedbackMessage(
                 level="info",
-                code="CAMERA_VIEW_LIMITED",
-                text=f"当前视角仅提供有限评价；此动作建议使用{preferred_text}视角",
+                code="CAMERA_VIEW_NOT_RECOMMENDED",
+                text=(
+                    f"当前视角不是推荐视角；建议使用{preferred_text}视角以提高稳定性，"
+                    "系统仍将按可观测人体证据继续分析"
+                ),
                 confidence=1.0,
             )
         )
-    return filtered, limited
+    return filtered, not_recommended
 
 
 def action_view_suitability(
@@ -135,12 +226,27 @@ def action_view_suitability(
     return profile in policy.preferred
 
 
+def recommended_camera_views(action: str) -> tuple[str, ...]:
+    """Return recommendation metadata without implying a decision gate."""
+    policy = _POLICIES.get(_action_key(action))
+    if policy is None:
+        return ()
+    return tuple(
+        profile for profile in ("front", "side") if profile in policy.preferred
+    )
+
+
 __all__ = [
     "CAMERA_VIEWS",
     "ActionViewPolicy",
+    "ActionViewCapability",
+    "ViewCapabilityLevel",
+    "action_view_capability",
+    "action_view_capability_matrix",
     "action_view_suitability",
     "filter_feedback_for_view",
     "normalize_camera_view",
     "next_camera_view",
+    "recommended_camera_views",
     "view_profile",
 ]

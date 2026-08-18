@@ -1,9 +1,10 @@
-import { DisplayPosePredictor } from "./workers/display_pose_predictor.mjs";
+import { DisplayPoseController } from "./workers/display_pose_controller.mjs";
 import {
   DomUpdateScheduler,
   RenderPerformanceMonitor,
 } from "./workers/render_performance.mjs";
 import { CameraDiagnostics } from "./workers/camera_diagnostics.mjs";
+import { stabilizeUploadTimeline } from "./workers/upload_pose_stabilizer.mjs";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -98,7 +99,7 @@ const ui = {
   uploadPlaybackRafId: null,
 };
 
-const displayPosePredictor = new DisplayPosePredictor();
+const displayPoseController = new DisplayPoseController();
 const domUpdateScheduler = new DomUpdateScheduler();
 const renderPerformance = new RenderPerformanceMonitor();
 const cameraDiagnostics = new CameraDiagnostics();
@@ -154,6 +155,7 @@ const drawingCache = {
     mainThreadLongTaskTotalMs: 0,
     longTaskPhases: {},
   },
+  displayTrackingMetrics: {},
 };
 const cameraDiagnosticCache = {
   canvas: null,
@@ -319,6 +321,19 @@ function renderCameraDiagnostics(snapshot) {
   if (node) node.dataset.state = warnings ? "warning" : "healthy";
 }
 
+function latestPersonBounds() {
+  const points = ui.latestResult?.keypoints || [];
+  const body = points.filter(point => poseNameToIndex.has(point.name)
+    && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y)));
+  if (body.length < 4) return null;
+  const xs = body.map(point => Number(point.x));
+  const ys = body.map(point => Number(point.y));
+  return {
+    x1: Math.max(0, Math.min(...xs)), y1: Math.max(0, Math.min(...ys)),
+    x2: Math.min(1, Math.max(...xs)), y2: Math.min(1, Math.max(...ys)),
+  };
+}
+
 function sampleCameraDiagnostics(now) {
   const config = ui.realtimeConfig.camera || {};
   const interval = 1000 / Math.max(1, Number(config.diagnostic_sample_fps || 5));
@@ -349,6 +364,10 @@ function sampleCameraDiagnostics(now) {
   cameraDiagnostics.observeImage(
     luminanceTotal / samples,
     cameraDiagnosticCache.hasPreviousLuma && differenceTotal / samples < 1.5,
+    cameraDiagnosticCache.previousLuma,
+    32,
+    18,
+    latestPersonBounds(),
   );
   cameraDiagnosticCache.hasPreviousLuma = true;
   const ended = performance.now();
@@ -656,7 +675,7 @@ function handleLocalPoseResult(message) {
       fps: analysis.metrics?.fps || 0,
     },
   };
-  updateDisplayPredictionSource(ui.latestResult);
+  updateDisplayPoseSource(ui.latestResult);
   ui.lastResultAt = receivedAt;
   $("#loadingOverlay").hidden = true;
   if (domUpdateScheduler.due("local_metrics", receivedAt)) {
@@ -685,6 +704,7 @@ function handleLocalPoseResult(message) {
       pose_model: ui.poseWorkerActiveModel,
       pose_model_benchmark: benchmarkReport,
       display_filter: message.displayFilter || {},
+      camera_motion: cameraDiagnostics.snapshot().cameraMotion || {},
       source: "browser_mediapipe",
       frame_meta: frameMeta,
       timing: ui.latestResult.latency_timing,
@@ -821,7 +841,7 @@ function restartBrowserPoseWorker() {
   ui.poseWorkerBenchmarkReport = null;
   ui.poseWorkerBenchmarkSent = false;
   ui.poseWorkerModelSwitching = false;
-  displayPosePredictor.reset();
+  displayPoseController.reset();
   setPoseRuntimeMode("initializing");
   if (ui.mediaStream && $("#poseRuntimeSelect")?.value !== "server") void initializeBrowserPoseWorker();
 }
@@ -987,7 +1007,11 @@ async function loadOptions() {
     domUpdateScheduler.configure(ui.realtimeConfig.rendering || {});
     renderPerformance.configure(ui.realtimeConfig.rendering || {});
     cameraDiagnostics.configure(ui.realtimeConfig.camera || {});
-    displayPosePredictor.configure(ui.realtimeConfig.browser_pose?.display_prediction || {});
+    displayPoseController.configure({
+      ...ui.realtimeConfig,
+      display: ui.realtimeConfig.browser_pose?.display_smoothing || {},
+      prediction: ui.realtimeConfig.browser_pose?.display_prediction || {},
+    });
     const modelPreference = ui.realtimeConfig.browser_pose?.model_preference || "auto";
     if (["auto", "lite", "full"].includes(modelPreference)) {
       $("#poseModelSelect").value = modelPreference;
@@ -1022,6 +1046,7 @@ function settingsPayload() {
       ui.sourceMode === "upload"
       && $("#annotatedVideoToggle").checked
     ),
+    analysis_mode: "fast",
   };
 }
 
@@ -1083,7 +1108,7 @@ function setRunning(running) {
   $("#pauseButton").disabled = !running;
   $("#recordButton").disabled = !running || !window.MediaRecorder;
   $("#screenshotButton").disabled = !running;
-  $$("#sourceTabs button, #videoFile, #backendSelect, #poseRuntimeSelect, #poseModelSelect, #openCameraButton, #annotatedVideoToggle").forEach(node => { node.disabled = running; });
+  $$("#sourceTabs button, #videoFile, #backendSelect, #poseRuntimeSelect, #poseModelSelect, #openCameraButton, #annotatedVideoToggle, input[name='analysisMode']").forEach(node => { node.disabled = running; });
   $("#switchCameraButton").disabled = !ui.mediaStream;
   $("#cameraDevice").disabled = !ui.mediaStream;
 }
@@ -1096,7 +1121,7 @@ function setPermissionState(state, message) {
 
 function stopMediaTracks() {
   stopVideoFrameAudit();
-  displayPosePredictor.reset();
+  displayPoseController.reset();
   cameraDiagnostics.reset();
   cameraDiagnosticCache.hasPreviousLuma = false;
   cameraDiagnosticCache.lastSampleAt = 0;
@@ -1508,7 +1533,7 @@ function handleRealtimeResult(result) {
       latency_timing: { ...(result.latency_timing || pending?.timing || {}), client_result_receive_ms: receivedAt },
     };
     ui.lastResultAt = receivedAt;
-    updateDisplayPredictionSource(ui.latestResult);
+    updateDisplayPoseSource(ui.latestResult);
   }
   const roundTrip = pending ? receivedAt - pending.sentAt : result.metrics.server_ms;
   let quality = "流畅";
@@ -1580,19 +1605,15 @@ function displayPredictionIdentity(result) {
   ].join("|");
 }
 
-function updateDisplayPredictionSource(result) {
+function updateDisplayPoseSource(result) {
   const frameMeta = result?.frame_meta || {};
   const rawCaptureTimestamp = frameMeta.captureTime;
   const captureTimestamp = rawCaptureTimestamp === null || rawCaptureTimestamp === undefined
     ? null
     : finiteNumber(rawCaptureTimestamp);
   const sourceTimestamp = captureTimestamp ?? finiteNumber(frameMeta.presentationTime);
-  if (!result?.pose_detected || !Array.isArray(result.keypoints) || sourceTimestamp === null) {
-    displayPosePredictor.reset(displayPredictionIdentity(result));
-    return;
-  }
-  displayPosePredictor.update(
-    result.keypoints,
+  displayPoseController.update(
+    result,
     sourceTimestamp,
     displayPredictionIdentity(result),
   );
@@ -1611,25 +1632,17 @@ function renderPoseForVideoFrame(currentVideoFrame, now = performance.now()) {
 
 function renderPoseForVideoFrameCore(currentVideoFrame, now = performance.now()) {
   if (!ui.mediaStream || !ui.running) return;
-  const result = ui.latestResult;
+  const latestResult = ui.latestResult;
   const actionSelect = cachedNode("#actionSelect");
   const backendSelect = cachedNode("#backendSelect");
   const contextIsCurrent = Boolean(
-    result
-    && result.session_id === ui.activeRealtimeSessionId
-    && result.run_id === ui.activeRealtimeRunId
-    && result.action === actionSelect.value
-    && result.request_backend === backendSelect.value
+    latestResult
+    && latestResult.session_id === ui.activeRealtimeSessionId
+    && latestResult.run_id === ui.activeRealtimeRunId
+    && latestResult.action === actionSelect.value
+    && latestResult.request_backend === backendSelect.value
   );
-  const receiptAge = ui.lastResultAt > 0 ? Math.max(0, now - ui.lastResultAt) : Infinity;
-  const reportedPoseAge = Math.max(
-    0,
-    finiteNumber(result?.metrics?.pose_age_ms, finiteNumber(result?.pose_age_ms, 0)),
-  );
-  const displayAge = receiptAge + reportedPoseAge;
-  const warningAge = Number(ui.realtimeConfig.warning_pose_age_ms || 80);
-  const maxAge = Number(ui.realtimeConfig.max_pose_age_ms || 120);
-  if (!contextIsCurrent || displayAge > maxAge) {
+  if (!contextIsCurrent) {
     if (ui.floorCalibrationActive || ui.manualFloorPoints.length) {
       drawSkeleton({ keypoints: [], connections: [], assessment: {}, floor_reference: {} }, 1);
     } else {
@@ -1639,19 +1652,31 @@ function renderPoseForVideoFrameCore(currentVideoFrame, now = performance.now())
     }
     return;
   }
-  const fadeAfter = Math.min(warningAge, maxAge);
-  const opacity = displayAge <= fadeAfter
-    ? 1
-    : Math.max(0, 1 - (displayAge - fadeAfter) / Math.max(1, maxAge - fadeAfter));
-  drawingCache.predictionContext.action = result.action;
-  drawingCache.predictionContext.phase = result.assessment?.phase || result.phase || "";
-  drawingCache.predictionContext.supportFootNames = result.assessment?.support_foot_names || [];
-  const prediction = displayPosePredictor.predict(
+  drawingCache.predictionContext.action = latestResult.action;
+  drawingCache.predictionContext.phase = latestResult.assessment?.phase || latestResult.phase || "";
+  drawingCache.predictionContext.supportFootNames = latestResult.assessment?.support_foot_names || [];
+  const displayPose = displayPoseController.resolve(
     finiteNumber(currentVideoFrame.expectedDisplayTime, now),
     drawingCache.predictionContext,
+    displayPredictionIdentity(latestResult),
   );
+  if (domUpdateScheduler.due("display_tracking_metrics", now)) {
+    sendSocket({ type: "display_tracking_metrics", metrics: displayPose.metrics });
+  }
+  if (!displayPose.shouldRender) {
+    if (ui.floorCalibrationActive || ui.manualFloorPoints.length) {
+      drawSkeleton({ keypoints: [], connections: [], assessment: {}, floor_reference: {} }, 1);
+    } else {
+      const canvas = cachedNode("#overlayCanvas");
+      canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+      canvas.hidden = true;
+    }
+    return;
+  }
+  const result = displayPose.result;
+  drawingCache.displayTrackingMetrics = displayPose.metrics;
   const renderStart = performance.now();
-  drawSkeleton(result, opacity, renderStart, prediction.landmarks);
+  drawSkeleton(result, displayPose.opacity, renderStart, displayPose.landmarks);
   const renderEnd = performance.now();
   if (result.frame_id > ui.lastAuditedPoseFrameId) {
     if (domUpdateScheduler.due("performance_snapshot", renderStart)) {
@@ -1685,7 +1710,12 @@ function renderPoseForVideoFrameCore(currentVideoFrame, now = performance.now())
     result.latency_timing = timing;
     result.latency = deriveWebLatencies(timing);
     ui.lastAuditedPoseFrameId = result.frame_id;
-    sendSocket({ type: "latency_audit", frame_id: result.frame_id, timing });
+    sendSocket({
+      type: "latency_audit",
+      frame_id: result.frame_id,
+      timing,
+      display_tracking: displayPose.metrics,
+    });
   }
 }
 
@@ -1720,23 +1750,11 @@ function drawSkeletonCore(result, opacity = 1, now = performance.now(), displayL
   drawingCache.pointPresent.fill(0);
   for (const point of displayLandmarks || result.keypoints || []) {
     const index = poseNameToIndex.get(point.name);
-    if (index === undefined) continue;
+    if (index === undefined || point.displayValid === false) continue;
     drawingCache.pointPresent[index] = 1;
     drawingCache.pointX[index] = offsetX + (mirrored ? 1 - point.x : point.x) * drawWidth;
     drawingCache.pointY[index] = offsetY + point.y * drawHeight;
     drawingCache.pointVisibility[index] = Number(point.visibility || 0);
-  }
-  // Prediction only contains the 33 pose landmarks. Keep the current hand
-  // detections alongside the predicted body instead of dropping the fingers.
-  if (displayLandmarks) {
-    for (const point of result.keypoints || []) {
-      const index = poseNameToIndex.get(point.name);
-      if (index === undefined || index < poseLandmarkNames.length) continue;
-      drawingCache.pointPresent[index] = 1;
-      drawingCache.pointX[index] = offsetX + (mirrored ? 1 - point.x : point.x) * drawWidth;
-      drawingCache.pointY[index] = offsetY + point.y * drawHeight;
-      drawingCache.pointVisibility[index] = Number(point.visibility || 0);
-    }
   }
   if (drawingCache.connectionSource !== result.connections) {
     drawingCache.connectionSource = result.connections;
@@ -1782,8 +1800,6 @@ function drawSkeletonCore(result, opacity = 1, now = performance.now(), displayL
     if (
       !drawingCache.pointPresent[start]
       || !drawingCache.pointPresent[end]
-      || drawingCache.pointVisibility[start] < 0.2
-      || drawingCache.pointVisibility[end] < 0.2
     ) {
       continue;
     }
@@ -1793,7 +1809,7 @@ function drawSkeletonCore(result, opacity = 1, now = performance.now(), displayL
     ctx.stroke();
   }
   for (let index = 0; index < renderLandmarkNames.length; index += 1) {
-    if (!drawingCache.pointPresent[index] || drawingCache.pointVisibility[index] < 0.2) continue;
+    if (!drawingCache.pointPresent[index]) continue;
     ctx.beginPath();
     ctx.arc(
       drawingCache.pointX[index],
@@ -1814,7 +1830,7 @@ function drawSkeletonCore(result, opacity = 1, now = performance.now(), displayL
   for (let angleIndex = 0; angleIndex < drawingCache.angleCount; angleIndex += 1) {
     const angle = drawingCache.angleEntries[angleIndex];
     const anchor = angle.anchorIndex;
-    if (!drawingCache.pointPresent[anchor] || drawingCache.pointVisibility[anchor] < 0.2) continue;
+    if (!drawingCache.pointPresent[anchor]) continue;
     const x = drawingCache.pointX[anchor];
     const y = drawingCache.pointY[anchor];
     const width = ctx.measureText(angle.label).width;
@@ -2087,6 +2103,7 @@ function renderUploadPlaybackFrame() {
     : Number.POSITIVE_INFINITY;
   if (result && differenceMs <= 150) {
     drawSkeleton(result, 1, performance.now());
+    setTextIfChanged("#poseModeBadge", "原速回放 · MediaPipe 正式骨架");
     setTextIfChanged("#videoRepCount", result.candidate_count ?? result.reps ?? 0);
     setTextIfChanged("#repCount", result.candidate_count ?? result.reps ?? 0);
     setTextIfChanged("#poseValidRepCount", result.pose_valid_rep_count ?? result.reps ?? 0);
@@ -2103,9 +2120,7 @@ function renderUploadPlaybackFrame() {
 async function startUploadPlayback(report) {
   if (!ui.uploadPlaybackUrl) throw new Error("浏览器中的原始视频已不可用，请重新选择文件");
   stopUploadPlayback();
-  ui.uploadTimeline = [...(report.frames || [])]
-    .filter(frame => Number.isFinite(Number(frame.timestamp_ms)))
-    .sort((left, right) => Number(left.timestamp_ms) - Number(right.timestamp_ms));
+  loadUploadTimeline(report);
   const video = $("#localVideo");
   video.srcObject = null;
   video.src = ui.uploadPlaybackUrl;
@@ -2135,6 +2150,13 @@ async function startUploadPlayback(report) {
   await video.play().catch(() => undefined);
 }
 
+function loadUploadTimeline(report) {
+  const timeline = [...(report.frames || [])]
+    .filter(frame => Number.isFinite(Number(frame.timestamp_ms)))
+    .sort((left, right) => Number(left.timestamp_ms) - Number(right.timestamp_ms));
+  ui.uploadTimeline = stabilizeUploadTimeline(timeline);
+}
+
 async function uploadSelectedVideo() {
   const file = $("#videoFile").files[0];
   if (!file) throw new Error("请先选择本地视频");
@@ -2160,7 +2182,7 @@ async function startAnalysis() {
     if (ui.sourceMode === "camera") {
       ui.latestResult = null;
       ui.latestAnalysisResult = null;
-      displayPosePredictor.reset();
+      displayPoseController.reset();
       ui.lastResultAt = 0;
       ui.lastRenderedPoseFrameId = -1;
       ui.lastDiscardedFrameId = -1;
@@ -2183,6 +2205,12 @@ async function startAnalysis() {
       await connectRealtime();
       return;
     }
+    // Hide any previous upload result before starting another analysis.
+    // Do not leave a previous upload result visible while a new run starts.
+    if (ui.uploadPlaybackActive || !$("#localVideo").hidden) {
+      stopUploadPlayback({ hideVideo: true });
+    }
+    clearOverlay();
     let videoId;
     if (ui.sourceMode === "sample") {
       const sample = ui.samplesByAction.get($("#actionSelect").value);
@@ -2275,7 +2303,7 @@ async function updateLiveSetting(key, value) {
     ui.latestAnalysisResult = null;
     ui.lastRenderedPoseFrameId = -1;
     ui.poseWorker?.postMessage({ type: "reset" });
-    displayPosePredictor.reset();
+    displayPoseController.reset();
   }
   if (!ui.running) return;
   try {
@@ -2454,7 +2482,12 @@ async function pollState() {
         if (ui.sourceMode === "upload" && state.playback_ready) {
           try {
             const playbackReport = await api("/api/report");
-            await startUploadPlayback(playbackReport);
+            if (ui.uploadPlaybackActive) {
+              loadUploadTimeline(playbackReport);
+              $("#poseModeBadge").textContent = "原速回放 · 时间轴叠加";
+            } else {
+              await startUploadPlayback(playbackReport);
+            }
           } catch (error) {
             toast(error.message || "原始视频回放启动失败", true);
           }

@@ -13,6 +13,39 @@ from .landmark_names import HYROX_CORE_LANDMARKS, LANDMARK_INDEX
 FeatureValue = float | None
 
 
+_FORBIDDEN_ORIGINS = frozenset({"predicted", "held", "synthetic", "rejected"})
+
+
+_METRIC_DEPENDENCIES: dict[str, tuple[str, ...]] = {
+    "left_knee_angle": ("left_hip", "left_knee", "left_ankle"),
+    "right_knee_angle": ("right_hip", "right_knee", "right_ankle"),
+    "left_hip_angle": ("left_shoulder", "left_hip", "left_knee"),
+    "right_hip_angle": ("right_shoulder", "right_hip", "right_knee"),
+    "left_elbow_angle": ("left_shoulder", "left_elbow", "left_wrist"),
+    "right_elbow_angle": ("right_shoulder", "right_elbow", "right_wrist"),
+    "left_shoulder_angle": ("left_elbow", "left_shoulder", "left_hip"),
+    "right_shoulder_angle": ("right_elbow", "right_shoulder", "right_hip"),
+    "torso_angle": ("left_shoulder", "right_shoulder", "left_hip", "right_hip"),
+    "shoulder_tilt": ("left_shoulder", "right_shoulder"),
+    "hip_tilt": ("left_hip", "right_hip"),
+    "body_center_x": ("left_shoulder", "right_shoulder", "left_hip", "right_hip"),
+    "body_center_y": ("left_shoulder", "right_shoulder", "left_hip", "right_hip"),
+    "hip_center_x": ("left_hip", "right_hip"),
+    "hip_center_y": ("left_hip", "right_hip"),
+    "knee_center_x": ("left_knee", "right_knee"),
+    "knee_center_y": ("left_knee", "right_knee"),
+    "shoulder_center_y": ("left_shoulder", "right_shoulder"),
+    "wrist_center_y": ("left_wrist", "right_wrist"),
+    "hip_knee_depth": ("left_hip", "right_hip", "left_knee", "right_knee"),
+    "wrist_above_shoulder": ("left_shoulder", "right_shoulder", "left_wrist", "right_wrist"),
+    "wrist_distance_norm": ("left_wrist", "right_wrist"),
+    "ankle_distance_norm": ("left_ankle", "right_ankle"),
+    "hip_width": ("left_hip", "right_hip"),
+    "knee_width": ("left_knee", "right_knee"),
+    "ankle_width": ("left_ankle", "right_ankle"),
+}
+
+
 def _empty_features() -> dict[str, FeatureValue]:
     return {
         "left_knee_angle": None,
@@ -143,7 +176,15 @@ def _scaled_point(
     name_or_index: str | int,
     image_width: int,
     image_height: int,
+    landmark_quality: Mapping[str, object] | None = None,
 ) -> PosePoint | None:
+    name = str(name_or_index)
+    if landmark_quality is not None:
+        raw_quality = landmark_quality.get(name)
+        if isinstance(raw_quality, Mapping):
+            origin = str(raw_quality.get("origin", "observed")).lower()
+            if raw_quality.get("observable", True) is False or origin in _FORBIDDEN_ORIGINS:
+                return None
     point = coerce_point(
         _lookup_landmark(landmarks, name_or_index),
         min_visibility=0.2,
@@ -191,9 +232,18 @@ def _max_value(*values: FeatureValue) -> FeatureValue:
 def _visibility_score(
     landmarks: Sequence[object] | Mapping[str | int, object] | None,
     names: Sequence[str] = HYROX_CORE_LANDMARKS,
+    landmark_quality: Mapping[str, object] | None = None,
 ) -> float:
     scores: list[float] = []
     for name in names:
+        if landmark_quality is not None:
+            raw_quality = landmark_quality.get(name)
+            if isinstance(raw_quality, Mapping) and (
+                raw_quality.get("observable", True) is False
+                or str(raw_quality.get("origin", "observed")).lower() in _FORBIDDEN_ORIGINS
+            ):
+                scores.append(0.0)
+                continue
         point = coerce_point(
             _lookup_landmark(landmarks, name),
             min_visibility=0.0,
@@ -238,28 +288,41 @@ def extract_basic_pose_features(
     image_height: int,
     *,
     segmentation_mask: object | None = None,
+    landmark_quality: Mapping[str, object] | None = None,
+    identity_continuity: Mapping[str, object] | None = None,
+    formal_quality: Mapping[str, object] | None = None,
 ) -> dict[str, Any]:
     features = _empty_features()
     if landmarks is None:
         return features
 
-    left_shoulder = _scaled_point(landmarks, "left_shoulder", image_width, image_height)
-    right_shoulder = _scaled_point(landmarks, "right_shoulder", image_width, image_height)
-    left_hip = _scaled_point(landmarks, "left_hip", image_width, image_height)
-    right_hip = _scaled_point(landmarks, "right_hip", image_width, image_height)
-    left_knee = _scaled_point(landmarks, "left_knee", image_width, image_height)
-    right_knee = _scaled_point(landmarks, "right_knee", image_width, image_height)
-    left_ankle = _scaled_point(landmarks, "left_ankle", image_width, image_height)
-    right_ankle = _scaled_point(landmarks, "right_ankle", image_width, image_height)
-    left_elbow = _scaled_point(landmarks, "left_elbow", image_width, image_height)
-    right_elbow = _scaled_point(landmarks, "right_elbow", image_width, image_height)
-    left_wrist = _scaled_point(landmarks, "left_wrist", image_width, image_height)
-    right_wrist = _scaled_point(landmarks, "right_wrist", image_width, image_height)
-    left_heel = _scaled_point(landmarks, "left_heel", image_width, image_height)
-    right_heel = _scaled_point(landmarks, "right_heel", image_width, image_height)
-    left_foot_index = _scaled_point(landmarks, "left_foot_index", image_width, image_height)
-    right_foot_index = _scaled_point(landmarks, "right_foot_index", image_width, image_height)
-    nose = _scaled_point(landmarks, "nose", image_width, image_height)
+    if formal_quality is not None:
+        raw_landmarks = formal_quality.get("landmarks")
+        if landmark_quality is None and isinstance(raw_landmarks, Mapping):
+            landmark_quality = raw_landmarks
+        raw_identity = formal_quality.get("identity_continuity")
+        if identity_continuity is None and isinstance(raw_identity, Mapping):
+            identity_continuity = raw_identity
+    def landmark_point(name: str) -> PosePoint | None:
+        return _scaled_point(landmarks, name, image_width, image_height, landmark_quality)
+
+    left_shoulder = landmark_point("left_shoulder")
+    right_shoulder = landmark_point("right_shoulder")
+    left_hip = landmark_point("left_hip")
+    right_hip = landmark_point("right_hip")
+    left_knee = landmark_point("left_knee")
+    right_knee = landmark_point("right_knee")
+    left_ankle = landmark_point("left_ankle")
+    right_ankle = landmark_point("right_ankle")
+    left_elbow = landmark_point("left_elbow")
+    right_elbow = landmark_point("right_elbow")
+    left_wrist = landmark_point("left_wrist")
+    right_wrist = landmark_point("right_wrist")
+    left_heel = landmark_point("left_heel")
+    right_heel = landmark_point("right_heel")
+    left_foot_index = landmark_point("left_foot_index")
+    right_foot_index = landmark_point("right_foot_index")
+    nose = landmark_point("nose")
 
     shoulder_center = midpoint(left_shoulder, right_shoulder)
     hip_center = midpoint(left_hip, right_hip)
@@ -369,23 +432,78 @@ def extract_basic_pose_features(
     ]
     if torso_length is not None and leg_lengths:
         features["skeleton_height_estimate_norm"] = torso_length + sum(leg_lengths) / len(leg_lengths)
-    features["visible_score"] = _visibility_score(landmarks)
+    features["visible_score"] = _visibility_score(landmarks, landmark_quality=landmark_quality)
     features["upper_body_visible_score"] = _visibility_score(
         landmarks,
-        ("left_shoulder", "right_shoulder", "left_elbow", "right_elbow", "left_wrist", "right_wrist"),
+        ("left_shoulder", "right_shoulder", "left_elbow", "right_elbow", "left_wrist", "right_wrist"), landmark_quality,
     )
     features["lower_body_visible_score"] = _visibility_score(
         landmarks,
-        ("left_hip", "right_hip", "left_knee", "right_knee", "left_ankle", "right_ankle"),
+        ("left_hip", "right_hip", "left_knee", "right_knee", "left_ankle", "right_ankle"), landmark_quality,
     )
     features["left_side_visible_score"] = _visibility_score(
         landmarks,
-        ("left_shoulder", "left_elbow", "left_wrist", "left_hip", "left_knee", "left_ankle"),
+        ("left_shoulder", "left_elbow", "left_wrist", "left_hip", "left_knee", "left_ankle"), landmark_quality,
     )
     features["right_side_visible_score"] = _visibility_score(
         landmarks,
-        ("right_shoulder", "right_elbow", "right_wrist", "right_hip", "right_knee", "right_ankle"),
+        ("right_shoulder", "right_elbow", "right_wrist", "right_hip", "right_knee", "right_ankle"), landmark_quality,
     )
+    # Additive body-centred coordinates and normalized ROM features.  These
+    # keep the existing image-normalized metrics unchanged.
+    body_scale = features.get("skeleton_height_estimate_norm")
+    if body_scale is None or float(body_scale) <= 1e-6:
+        body_scale = features.get("body_height_norm")
+    features["body_scale_norm"] = body_scale
+    if body_scale is not None and float(body_scale) > 1e-6 and body_center is not None:
+        scale = float(body_scale)
+        for name, value in (
+            ("left_wrist", left_wrist), ("right_wrist", right_wrist),
+            ("left_shoulder", left_shoulder), ("right_shoulder", right_shoulder),
+            ("left_hip", left_hip), ("right_hip", right_hip),
+            ("left_knee", left_knee), ("right_knee", right_knee),
+            ("left_ankle", left_ankle), ("right_ankle", right_ankle),
+        ):
+            features[f"{name}_body_x"] = None if value is None else (value.x / width - body_center.x / width) / scale
+            features[f"{name}_body_y"] = None if value is None else (value.y / height - body_center.y / height) / scale
+        features["hip_knee_depth_body"] = (
+            None if features["hip_knee_depth"] is None else float(features["hip_knee_depth"]) / scale
+        )
+        features["wrist_rom_body"] = (
+            None if features["wrist_above_shoulder"] is None else float(features["wrist_above_shoulder"]) / scale
+        )
+        features["ankle_span_body"] = (
+            None if features["ankle_distance_norm"] is None else float(features["ankle_distance_norm"]) / scale
+        )
+    quality_map = dict(landmark_quality or {})
+    metric_observability: dict[str, dict[str, object]] = {}
+    for metric, dependencies in _METRIC_DEPENDENCIES.items():
+        reasons: list[str] = []
+        for name in dependencies:
+            raw = quality_map.get(name)
+            if isinstance(raw, Mapping):
+                origin = str(raw.get("origin", "observed")).lower()
+                if raw.get("observable", True) is False or origin in _FORBIDDEN_ORIGINS:
+                    reasons.extend(str(value) for value in (raw.get("reason_codes") or ()))
+                    reasons.append("PREDICTED_EVIDENCE_FORBIDDEN" if origin in {"predicted", "held", "synthetic"} else "LANDMARK_UNOBSERVABLE")
+            if landmark_point(name) is None:
+                reasons.append("LANDMARK_UNOBSERVABLE")
+        metric_observability[metric] = {
+            "status": "UNOBSERVABLE" if reasons or features.get(metric) is None else "OBSERVABLE",
+            "required_landmarks": list(dependencies),
+            "reason_codes": list(dict.fromkeys(reasons)),
+        }
+    features["landmark_quality"] = quality_map
+    features["metric_observability"] = metric_observability
+    features["identity_continuity"] = dict(identity_continuity or {"status": "UNKNOWN", "reason_codes": []})
+    if formal_quality is not None:
+        features["formal_evidence_quality"] = float(formal_quality.get("evidence_quality", features["visible_score"]) or 0.0)
+        features["endpoint_evidence_allowed"] = formal_quality.get("endpoint_evidence_allowed", True) is not False
+        features["formal_quality_reason_codes"] = list(formal_quality.get("reason_codes") or ())
+    else:
+        features["formal_evidence_quality"] = features["visible_score"]
+        features["endpoint_evidence_allowed"] = True
+        features["formal_quality_reason_codes"] = []
     # The segmentation mask is deliberately private and current-frame only.
     # BaseActionAnalyzer removes private keys before buffering evidence.
     if segmentation_mask is not None:

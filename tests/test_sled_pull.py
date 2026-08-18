@@ -84,6 +84,13 @@ def test_sled_pull_counts_only_after_pull_and_forward_recovery() -> None:
     assert completed["rep_count"] == 1
     assert completed["debug"]["rep_completed"] is True
     assert completed["debug"]["pull_count"] == 1
+    assert completed["debug"]["side_selection_strategy"] == (
+        "bilateral_cycle_with_reliability_metadata"
+    )
+    assert completed["debug"]["reliable_side_selection"]["selected_side"] in {
+        "left",
+        "right",
+    }
     assert completed["debug"]["required_phase_sequence"] == [
         "reach",
         "pull",

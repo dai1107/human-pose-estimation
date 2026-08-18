@@ -68,6 +68,14 @@ from src.realtime.budget import RealtimeBudgetController
 from src.realtime.scheduler import LatestOnlyMediaPipeScheduler, PoseAgeGate
 from src.realtime.session import build_pose_frame_from_result, current_model_label
 from src.realtime.types import CapturedFrame, TimedPoseResult
+from src.realtime.camera_motion import LatestCameraMotionWorker
+from src.realtime.temporal_pose import TemporalPoseBuffer
+from src.realtime.validation import (
+    LatestValidationWorker,
+    ValidationBudgetGate,
+    build_validation_task,
+    realtime_layer_contract,
+)
 
 LOGGER = logging.getLogger("pose.desktop")
 
@@ -108,6 +116,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     pose_scheduler: LatestOnlyMediaPipeScheduler | None = None
     pose_age_gate: PoseAgeGate | None = None
     budget_controller: RealtimeBudgetController | None = None
+    camera_motion_worker: LatestCameraMotionWorker | None = None
+    validation_worker: LatestValidationWorker | None = None
     record_writer = None
     raw_writer = None
     save_dir = Path(args.save_dir)
@@ -273,6 +283,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             product_pose_config.three_d_quality,
             max_pose_age_ms=realtime_latency_config.max_pose_age_ms,
         )
+        temporal_pose_buffer = TemporalPoseBuffer()
+        camera_motion_worker = LatestCameraMotionWorker() if input_mode == "camera" else None
+        validation_worker = LatestValidationWorker()
+        validation_budget_gate = ValidationBudgetGate(
+            warning_pose_age_ms=realtime_latency_config.warning_pose_age_ms,
+            validation_budget_ms=product_pose_config.three_d_quality.validation_budget_ms,
+            maximum_stride=(
+                product_pose_config.three_d_quality.validation_maximum_stride
+            ),
+        )
         feedback_engine = FeedbackEngine()
         started_ns = time.monotonic_ns()
         frame_index = 0
@@ -326,6 +346,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return False
             args.hyrox_action = action_name
             three_d_tracker.reset()
+            temporal_pose_buffer.reset()
+            if camera_motion_worker is not None:
+                camera_motion_worker.reset()
+            if validation_worker is not None:
+                validation_worker.reset()
             if pose_scheduler is not None:
                 pose_scheduler.invalidate()
                 if pose_age_gate is not None:
@@ -627,23 +652,74 @@ def main(argv: Sequence[str] | None = None) -> int:
                     analysis_result,
                     capture_timestamp_ns=observation_timestamp_ns,
                 )
-                result, _ = three_d_tracker.attach(
+                pose_age_for_3d_ms = (
+                    max(0.0, accepted_timed.source_age_ms(timestamp_ms))
+                    if accepted_timed is not None
+                    else 0.0
+                )
+                validation_snapshot = (
+                    validation_worker.snapshot() if validation_worker is not None else {}
+                )
+                result, three_d_result = three_d_tracker.attach(
                     result,
                     capture_timestamp_ns=(
                         accepted_timed.capture_timestamp_ns
                         if accepted_timed is not None
                         else int(analysis_timestamp_ms * 1_000_000)
                     ),
-                    pose_age_ms=(
-                        max(0.0, accepted_timed.source_age_ms(timestamp_ms))
-                        if accepted_timed is not None
-                        else 0.0
-                    ),
+                    pose_age_ms=pose_age_for_3d_ms,
                     image_width=frame_width,
                     image_height=frame_height,
                     raw_result=analysis_result,
                     camera_view=args.camera_view,
+                    camera_motion=(
+                        camera_motion_worker.snapshot()
+                        if camera_motion_worker is not None
+                        else None
+                    ),
+                    validation_enabled=False,
+                    validation_result=validation_snapshot,
                 )
+                validation_stride = validation_budget_gate.observe(
+                    pose_age_ms=pose_age_for_3d_ms,
+                    validation_ms=float(validation_snapshot.get("validation_ms", 0.0)),
+                )
+                if budget_controller is not None:
+                    validation_stride = max(
+                        validation_stride, budget_controller.extra_analysis_stride
+                    )
+                if (
+                    validation_worker is not None
+                    and analysis_frame_id % validation_stride == 0
+                ):
+                    validation_worker.submit(
+                        build_validation_task(
+                            result,
+                            three_d_result,
+                            local_ground_minimum_confidence=(
+                                product_pose_config.three_d_quality.local_ground_minimum_confidence
+                            ),
+                            biomech_minimum_confidence=(
+                                product_pose_config.three_d_quality.biomech_minimum_confidence
+                            ),
+                        )
+                    )
+                result = replace(
+                    result,
+                    extra={
+                        **result.extra,
+                        "realtime_layers": realtime_layer_contract(
+                            validation=validation_snapshot,
+                            validation_stride=validation_stride,
+                        ),
+                    },
+                )
+                if camera_motion_worker is not None:
+                    camera_motion_worker.submit(
+                        display_frame,
+                        timestamp_ms=analysis_timestamp_ms,
+                        person_keypoints=result.keypoints,
+                    )
                 if hand_overlay_enabled:
                     tracker = ensure_hand_tracker(required=False)
                     if tracker is None:
@@ -708,6 +784,25 @@ def main(argv: Sequence[str] | None = None) -> int:
                     three_d_kinematics=result.extra.get("three_d_kinematics"),
                     extract_when_disabled=bool(args.hyrox_debug),
                 )
+                temporal_context = temporal_pose_buffer.update(
+                    result.keypoints,
+                    timestamp_ms=analysis_timestamp_ms,
+                    features=hyrox_features,
+                    three_d_kinematics=result.extra.get("three_d_kinematics"),
+                    phase=(
+                        str(hyrox_action_state.get("phase", "unknown"))
+                        if hyrox_action_state is not None
+                        else "unknown"
+                    ),
+                )
+                result_extra = dict(result.extra)
+                result_extra["temporal_motion_context"] = temporal_context
+                result = replace(result, extra=result_extra)
+                if hyrox_action_state is not None:
+                    hyrox_action_state = dict(hyrox_action_state)
+                    hyrox_debug = dict(hyrox_action_state.get("debug") or {})
+                    hyrox_debug["temporal_motion_context"] = temporal_context
+                    hyrox_action_state["debug"] = hyrox_debug
                 rule_finished_ns = time.perf_counter_ns()
                 pose_age_ms = (
                     max(0.0, accepted_timed.source_age_ms(timestamp_ms))
@@ -1017,6 +1112,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     analysis_smoother = create_runtime_smoother(args, realtime_smoothing_config)
                     display_smoother = create_display_smoother(product_pose_config.display_smoothing)
                     three_d_tracker.reset()
+                    temporal_pose_buffer.reset()
+                    if camera_motion_worker is not None:
+                        camera_motion_worker.reset()
+                    if validation_worker is not None:
+                        validation_worker.reset()
                     kinematics_processor.reset()
                     set_status(f"backend switched to {resolved_backend}")
                     LOGGER.info(
@@ -1036,6 +1136,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     analysis_smoother.reset()
                     display_smoother.reset()
                     three_d_tracker.reset()
+                    temporal_pose_buffer.reset()
+                    if camera_motion_worker is not None:
+                        camera_motion_worker.reset()
+                    if validation_worker is not None:
+                        validation_worker.reset()
                     kinematics_processor.reset()
                     hand_detections = {}
                     last_hand_detection_timestamp_ms = -1
@@ -1058,6 +1163,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         analysis_smoother.reset()
                         display_smoother.reset()
                     three_d_tracker.reset()
+                    temporal_pose_buffer.reset()
+                    if camera_motion_worker is not None:
+                        camera_motion_worker.reset()
+                    if validation_worker is not None:
+                        validation_worker.reset()
                     set_status(f"camera view {args.camera_view}", seconds=3.0)
                     LOGGER.info("Camera view: %s", args.camera_view)
                 elif key in (ord("r"), ord("R")):
@@ -1213,6 +1323,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                 LOGGER,
                 "active session",
                 save_active_session,
+                debug=bool(args.debug),
+            )
+            if error is not None:
+                cleanup_errors.append(error)
+        if camera_motion_worker is not None:
+            error = safe_cleanup(
+                LOGGER,
+                "camera motion worker",
+                camera_motion_worker.close,
+                debug=bool(args.debug),
+            )
+            if error is not None:
+                cleanup_errors.append(error)
+        if validation_worker is not None:
+            error = safe_cleanup(
+                LOGGER,
+                "validation worker",
+                validation_worker.close,
                 debug=bool(args.debug),
             )
             if error is not None:

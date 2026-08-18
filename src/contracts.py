@@ -464,6 +464,8 @@ def build_coordinate_output(
     body_coordinates = payload.get("body_coordinate_system")
     if body_canonical_landmarks is None and isinstance(body_coordinates, Mapping):
         body_canonical_landmarks = body_coordinates.get("canonical_landmarks")
+    local_ground = payload.get("local_ground_frame")
+    local_ground = dict(local_ground) if isinstance(local_ground, Mapping) else {}
     reliable_ratio = float(payload.get("three_d_reliable_ratio", 0.0) or 0.0)
     failure_reasons = payload.get("failure_reasons") or payload.get("quality_reasons") or []
     if not isinstance(failure_reasons, list):
@@ -475,6 +477,8 @@ def build_coordinate_output(
         "analysis_space": contract.default_analysis_space,
         "fallback_space": contract.fallback_space,
         "body_canonical_landmarks": body_canonical_landmarks,
+        "local_ground_frame": local_ground,
+        "local_ground_frame_is_true_world": False,
         "world_landmarks": world_landmarks,
         "camera_ray_landmarks": camera_ray_landmarks,
         "metric_depth_landmarks": metric_depth_landmarks,

@@ -25,7 +25,8 @@ def test_main_capabilities_models_and_health_checks_are_documented() -> None:
             "DTW",
             "python -m src.doctor",
             "python -m pytest -q",
-            "CAMERA_VIEW_LIMITED",
+            "CAMERA_VIEW_NOT_RECOMMENDED",
+            "ReliableSideSelector",
             "check_multicamera.py",
         ):
             assert required in document
@@ -74,3 +75,21 @@ def test_current_counting_violation_and_debug_semantics_are_documented() -> None
     for document in (readme, guide, config_guide):
         assert "虚拟膝盖表面点" in document
         assert "虚拟胸部表面点" in document
+
+
+def test_all_six_pose_improvement_rounds_and_side_boundaries_are_documented() -> None:
+    readme, guide = _documents()
+    web_guide = (ROOT / "网页版使用说明.md").read_text(encoding="utf-8")
+    config_guide = (ROOT / "configs" / "hyrox" / "README.md").read_text(
+        encoding="utf-8"
+    )
+
+    for document in (readme, guide):
+        for round_number in range(1, 7):
+            assert f"{round_number}" in document
+        assert "ReliableSideSelector" in document
+
+    for document in (readme, guide, web_guide, config_guide):
+        assert "bilateral" in document
+        assert "Lunge" in document
+        assert "camera_view" in document or "视角" in document

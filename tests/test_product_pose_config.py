@@ -19,12 +19,17 @@ def test_product_pose_config_defaults_to_mediapipe_and_disables_experiments() ->
     assert config.analysis_smoothing.prediction_enabled is False
     assert config.realtime_smoothing is config.analysis_smoothing
     assert config.display_smoothing.profile == "ultra_responsive"
-    assert config.display_smoothing.min_cutoff == pytest.approx(2.2)
-    assert config.display_smoothing.beta == pytest.approx(0.12)
+    assert config.display_smoothing.min_cutoff == pytest.approx(1.4)
+    assert config.display_smoothing.beta == pytest.approx(0.08)
     assert config.display_smoothing.raw_blend_enabled is True
-    assert config.display_smoothing.max_raw_weight == pytest.approx(0.45)
-    assert config.display_smoothing.prediction_enabled is False
-    assert config.display_prediction.enabled is False
+    assert config.display_smoothing.max_raw_weight == pytest.approx(0.10)
+    assert config.display_smoothing.landmark_enter_confidence == pytest.approx(0.50)
+    assert config.display_smoothing.landmark_exit_confidence == pytest.approx(0.30)
+    assert config.display_smoothing.landmark_hold_ms == pytest.approx(220)
+    assert config.display_smoothing.pose_hold_frames == 5
+    assert config.display_smoothing.jitter_deadband == pytest.approx(0.0025)
+    assert config.display_smoothing.prediction_enabled is True
+    assert config.display_prediction.enabled is True
     assert config.display_prediction.max_horizon_ms == pytest.approx(45)
     assert config.display_prediction.maximum_body_scale_displacement == pytest.approx(0.06)
     assert config.display_prediction.disable_after_gap_ms == pytest.approx(100)
@@ -37,11 +42,21 @@ def test_product_pose_config_defaults_to_mediapipe_and_disables_experiments() ->
     assert config.realtime_latency.queue_size == 1
     assert config.realtime_latency.target_pose_fps == pytest.approx(15)
     assert config.realtime_latency.max_pose_fps == pytest.approx(20)
+    assert config.realtime_latency.analysis_max_pose_age_ms == 120
     assert config.realtime_latency.max_pose_age_ms == 120
+    assert config.realtime_latency.display_prediction_ms == 45
+    assert config.realtime_latency.display_hold_ms == 250
+    assert config.realtime_latency.display_fade_ms == 150
+    assert config.realtime_latency.hide_pose_after_ms == 400
     assert config.realtime_latency.max_frame_gap == 5
     assert config.web_realtime.max_requests_in_flight == 1
     assert config.web_realtime.inference_long_edge == 640
     assert config.web_realtime.jpeg_quality == pytest.approx(0.65)
+    assert config.offline_fast.target_pose_fps == pytest.approx(15)
+    assert config.offline_fast.detailed_trace is False
+    assert config.offline_fast.refinement_enabled is True
+    assert config.offline_fast.refinement_pose_fps == pytest.approx(30)
+    assert config.offline_fast.candidate_margin_ms == pytest.approx(500)
     assert config.camera.preferred_width == 640
     assert config.camera.preferred_height == 480
     assert config.camera.preferred_fps == pytest.approx(60)
@@ -97,6 +112,42 @@ def test_product_pose_config_rejects_multiple_web_requests_in_flight(
 
     with pytest.raises(ConfigValidationError, match="exactly 1"):
         load_product_pose_config(path)
+
+
+def test_product_pose_config_rejects_display_hold_shorter_than_analysis_freshness(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "product_pose.yaml"
+    path.write_text(
+        "product_pose:\n"
+        "  backend: mediapipe\n"
+        "  allow_experimental_backends: false\n"
+        "realtime_latency:\n"
+        "  analysis_max_pose_age_ms: 120\n"
+        "  display_hold_ms: 100\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigValidationError, match="analysis_max_pose_age_ms"):
+        load_product_pose_config(path)
+
+
+def test_product_pose_config_accepts_legacy_pose_age_names(tmp_path: Path) -> None:
+    path = tmp_path / "product_pose.yaml"
+    path.write_text(
+        "product_pose:\n"
+        "  backend: mediapipe\n"
+        "  allow_experimental_backends: false\n"
+        "realtime_latency:\n"
+        "  max_pose_age_ms: 120\n"
+        "  hide_pose_after_ms: 300\n",
+        encoding="utf-8",
+    )
+
+    config = load_product_pose_config(path)
+    assert config.realtime_latency.analysis_max_pose_age_ms == 120
+    assert config.realtime_latency.display_hold_ms == 250
+    assert config.realtime_latency.display_fade_ms == 150
 
 
 @pytest.mark.parametrize("model", ["auto", "lite", "full"])
@@ -169,6 +220,22 @@ def test_product_pose_config_rejects_prediction_in_analysis_stream(tmp_path: Pat
     )
 
     with pytest.raises(ConfigValidationError, match="analysis prediction"):
+        load_product_pose_config(path)
+
+
+def test_product_pose_config_rejects_inverted_landmark_hysteresis(tmp_path: Path) -> None:
+    path = tmp_path / "product_pose.yaml"
+    path.write_text(
+        "product_pose:\n"
+        "  backend: mediapipe\n"
+        "  allow_experimental_backends: false\n"
+        "display_smoothing:\n"
+        "  landmark_enter_confidence: 0.50\n"
+        "  landmark_exit_confidence: 0.50\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigValidationError, match="landmark_enter_confidence"):
         load_product_pose_config(path)
 
 

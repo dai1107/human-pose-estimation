@@ -612,6 +612,12 @@ def test_wall_ball_side_view_uses_one_consistent_observable_side() -> None:
     assert completed["last_rep_candidate"]["events"][
         "pose_side_strategy"
     ] == "selected_right"
+    assert completed["debug"]["side_selection_strategy"] == (
+        "reliable_single_chain"
+    )
+    assert completed["debug"]["reliable_side_selection"]["selected_side"] == (
+        "right"
+    )
 
 
 def test_wall_ball_heel_rise_feedback_is_sustained_and_technique_only() -> None:

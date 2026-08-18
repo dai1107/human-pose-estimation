@@ -54,6 +54,11 @@ from .geometry import (
     midpoint,
     safe_distance,
 )
+from .reliable_side import (
+    ReliableSideSelection,
+    ReliableSideSelector,
+    SideReliability,
+)
 from .validity import (
     BodyRuleResult,
     ObservabilityAssessment,
@@ -111,6 +116,9 @@ __all__ = [
     "PosePoint",
     "RepCandidate",
     "RepDecision",
+    "ReliableSideSelection",
+    "ReliableSideSelector",
+    "SideReliability",
     "angle_3pts",
     "calculate_angle_2d",
     "calculate_angle_3d",

@@ -261,6 +261,7 @@ def test_valid_burpee_uses_all_eight_rules_and_waits_for_next_hands() -> None:
     assert final["candidate_count"] == 1
     assert final["rep_count"] == 1
     assert final["last_rep_decision"]["status"] == "VALID"
+    assert final["debug"]["side_selection_strategy"] == "bilateral_required"
     assert tuple(rules) == BURPEE_REQUIRED_RULES
     assert all(rule["status"] == "PASS" for rule in rules.values())
     assert final["last_rep_candidate"]["events"]["validation_boundary"] == (

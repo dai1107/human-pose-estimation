@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_rowing_config
 from hyrox.feedback import FeedbackMessage
+from hyrox.reliable_side import ReliableSideSelector
 from hyrox.violations import TemporalViolationTracker, ViolationResult
 
 
@@ -43,39 +44,6 @@ def _min_metric(*values: object) -> float | None:
     return min(valid) if valid else None
 
 
-def _side_metric(
-    *,
-    left_value: object,
-    right_value: object,
-    left_confidence: object,
-    right_confidence: object,
-    fallback: str = "min",
-) -> tuple[float | None, str | None]:
-    """Select the better observed body side without averaging in an occluded side."""
-    left = _safe_float(left_value)
-    right = _safe_float(right_value)
-    left_score = _safe_float(left_confidence)
-    right_score = _safe_float(right_confidence)
-    candidates = [
-        (left_score, left, "left"),
-        (right_score, right, "right"),
-    ]
-    observed = [
-        (score, value, side)
-        for score, value, side in candidates
-        if score is not None and value is not None
-    ]
-    if observed:
-        _, value, side = max(observed, key=lambda item: item[0])
-        return value, side
-    values = [(left, "left"), (right, "right")]
-    values = [(value, side) for value, side in values if value is not None]
-    if not values:
-        return None, None
-    selector = max if fallback == "max" else min
-    return selector(values, key=lambda item: item[0])
-
-
 class RowingAnalyzer(BaseActionAnalyzer):
     """Approximate side-view rowing stroke analyzer based on body pose only."""
 
@@ -95,6 +63,11 @@ class RowingAnalyzer(BaseActionAnalyzer):
                 values.get("standing_violation_min_hold_ms"),
                 300,
             ),
+        )
+        self.side_selector = ReliableSideSelector(
+            min_confidence=0.45,
+            switch_margin=0.08,
+            switch_confirmation_frames=2,
         )
         visibility_min = _resolved_float(values.get("visibility_min"), 0.55)
         super().__init__(action="rowing", min_visible_score=min(1.0, visibility_min))
@@ -158,6 +131,7 @@ class RowingAnalyzer(BaseActionAnalyzer):
 
     def reset(self) -> None:
         super().reset()
+        self.side_selector.reset()
         self.phase = "unknown"
         self.raw_phase = "unknown"
         self.stable_phase = "unknown"
@@ -351,16 +325,18 @@ class RowingAnalyzer(BaseActionAnalyzer):
         visible_score = self._visible_score(values)
         left_knee = _safe_float(values.get("left_knee_angle"))
         right_knee = _safe_float(values.get("right_knee_angle"))
-        knee_angle, selected_side = _side_metric(
-            left_value=left_knee,
-            right_value=right_knee,
-            left_confidence=values.get("left_knee_confidence"),
-            right_confidence=values.get("right_knee_confidence"),
+        side_selection = self.side_selector.select(
+            values,
+            required_landmarks=("hip", "knee", "ankle", "elbow"),
+            required_metrics=("knee_angle", "hip_angle", "elbow_angle"),
         )
+        selected_side = side_selection.selected_side
         if selected_side is None:
+            knee_angle = _min_metric(left_knee, right_knee)
             hip_angle = _min_metric(values.get("left_hip_angle"), values.get("right_hip_angle"))
             elbow_angle = _mean_metric(values.get("left_elbow_angle"), values.get("right_elbow_angle"))
         else:
+            knee_angle = _safe_float(values.get(f"{selected_side}_knee_angle"))
             hip_angle = _safe_float(values.get(f"{selected_side}_hip_angle"))
             elbow_angle = _safe_float(values.get(f"{selected_side}_elbow_angle"))
             if hip_angle is None:
@@ -464,6 +440,8 @@ class RowingAnalyzer(BaseActionAnalyzer):
                 "left_knee_angle": left_knee,
                 "right_knee_angle": right_knee,
                 "selected_pose_side": selected_side,
+                "side_selection_strategy": "reliable_single_chain",
+                "reliable_side_selection": side_selection.as_dict(),
                 "analysis_visible_score": visible_score,
                 "torso_angle": torso_angle,
                 "elbow_angle_mean": elbow_angle,

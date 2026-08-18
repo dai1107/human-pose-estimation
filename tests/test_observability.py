@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from hyrox.base import BaseActionAnalyzer
 from hyrox.config import (
     DEFAULT_OBSERVABILITY_CONFIG,
@@ -12,7 +14,7 @@ from hyrox.validity import (
     aggregate_rep_decision,
     apply_observability_policy,
 )
-from hyrox.view_policy import action_view_suitability
+from hyrox.view_policy import CAMERA_VIEWS, action_view_suitability
 
 
 def _rule(
@@ -174,7 +176,7 @@ def test_low_decisive_rule_confidence_is_unsure() -> None:
     assert decision.reason_codes == ("DECISIVE_RULE_CONFIDENCE_LOW",)
 
 
-def test_invalid_floor_or_known_unsuitable_view_is_unsure() -> None:
+def test_invalid_floor_is_unsure_but_view_remains_metadata() -> None:
     raw = aggregate_rep_decision((_rule("FAIL"),))
     candidate = _candidate(
         {
@@ -196,19 +198,109 @@ def test_invalid_floor_or_known_unsuitable_view_is_unsure() -> None:
     )
 
     assert decision.status == "UNSURE"
-    assert decision.reason_codes == (
-        "CAMERA_VIEW_UNSUITABLE",
-        "FLOOR_REFERENCE_UNSURE",
-    )
+    assert decision.reason_codes == ("FLOOR_REFERENCE_UNSURE",)
     assert assessment.floor_reference_ready is False
     assert assessment.camera_view_suitable is False
+    assert assessment.as_dict()["camera_view_recommended"] is False
+    assert assessment.as_dict()["camera_view_advisory_only"] is True
 
 
-def test_only_known_incompatible_camera_view_is_rejected() -> None:
+def test_action_view_suitability_is_recommendation_metadata() -> None:
     assert action_view_suitability("Lunge", "side") is True
     assert action_view_suitability("Lunge", "front") is True
     assert action_view_suitability("Lunge", "unknown") is None
     assert action_view_suitability("Wall Ball", "front") is True
+
+
+@pytest.mark.parametrize(
+    "action",
+    (
+        "Lunge",
+        "Wall Ball",
+        "Farmers Carry",
+        "Rowing",
+        "SkiErg",
+        "Burpee Broad Jump",
+        "Sled Push",
+        "Sled Pull",
+    ),
+)
+@pytest.mark.parametrize("camera_view", CAMERA_VIEWS)
+def test_all_actions_keep_valid_decision_for_every_view_label(
+    action: str,
+    camera_view: str,
+) -> None:
+    raw = aggregate_rep_decision((_rule("PASS"),))
+    candidate = RepCandidate(
+        action=action,
+        start_frame=1,
+        end_frame=2,
+        frames=(
+            {"visible_score": 0.95},
+            {"visible_score": 0.95},
+        ),
+    )
+
+    decision, assessment = apply_observability_policy(
+        raw,
+        candidate,
+        policy=_policy(),
+        camera_view_suitable=action_view_suitability(action, camera_view),
+        action=action,
+        camera_view=camera_view,
+    )
+
+    assert decision.status == "VALID"
+    assert decision.reason_codes == ("required_rule",)
+    assert assessment.status == "OBSERVABLE"
+    assert assessment.reason_codes == ()
+
+
+def test_nonrecommended_view_keeps_clear_repeated_failure_as_no_rep() -> None:
+    raw = aggregate_rep_decision((_rule("FAIL", evidence_frames=(1, 2)),))
+    candidate = _candidate(
+        {"visible_score": 0.95},
+        {"visible_score": 0.95},
+    )
+
+    decision, assessment = apply_observability_policy(
+        raw,
+        candidate,
+        policy=_policy(),
+        camera_view_suitable=False,
+    )
+
+    assert decision.status == "NO_REP"
+    assert decision.reason_codes == ("RULE_FAILED",)
+    assert assessment.status == "OBSERVABLE"
+
+
+def test_unavailable_required_metric_stays_unsure_without_view_reason() -> None:
+    raw = aggregate_rep_decision(
+        (
+            BodyRuleResult(
+                "required_rule",
+                "UNSURE",
+                0.0,
+                reason_code="REQUIRED_LANDMARK_UNAVAILABLE",
+                evidence_frames=(1, 2),
+            ),
+        )
+    )
+    candidate = _candidate(
+        {"visible_score": 0.95},
+        {"visible_score": 0.95},
+    )
+
+    decision, _ = apply_observability_policy(
+        raw,
+        candidate,
+        policy=_policy(),
+        camera_view_suitable=False,
+    )
+
+    assert decision.status == "UNSURE"
+    assert decision.reason_codes == ("REQUIRED_LANDMARK_UNAVAILABLE",)
 
 
 def test_single_abnormal_frame_cannot_be_no_rep() -> None:

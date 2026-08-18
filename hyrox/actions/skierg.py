@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_skierg_config
 from hyrox.feedback import FeedbackMessage
+from hyrox.reliable_side import ReliableSideSelector
 
 
 SENSITIVITY_FRAME_DELTAS = {"low": 1, "medium": 0, "high": -1}
@@ -37,28 +38,6 @@ def _mean_metric(*values: object) -> float | None:
     return sum(valid) / len(valid) if valid else None
 
 
-def _best_side_value(
-    *,
-    left_value: object,
-    right_value: object,
-    left_confidence: object,
-    right_confidence: object,
-) -> tuple[float | None, str | None]:
-    candidates = []
-    for side, raw_value, raw_confidence in (
-        ("left", left_value, left_confidence),
-        ("right", right_value, right_confidence),
-    ):
-        value = _safe_float(raw_value)
-        confidence = _safe_float(raw_confidence)
-        if value is not None:
-            candidates.append((confidence if confidence is not None else -1.0, value, side))
-    if not candidates:
-        return None, None
-    _, value, side = max(candidates, key=lambda item: item[0])
-    return value, side
-
-
 class SkiErgAnalyzer(BaseActionAnalyzer):
     """Front/oblique-view SkiErg pull analyzer based on pose landmarks only."""
 
@@ -72,6 +51,11 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
         if sensitivity not in SENSITIVITY_FRAME_DELTAS:
             raise ValueError(f"unsupported HYROX sensitivity: {sensitivity}")
         values = dict(config or load_skierg_config())
+        self.side_selector = ReliableSideSelector(
+            min_confidence=0.45,
+            switch_margin=0.08,
+            switch_confirmation_frames=2,
+        )
         visibility_min = _resolved_float(values.get("visibility_min"), 0.50)
         super().__init__(action="skierg", min_visible_score=min(1.0, visibility_min))
         self.configure_feedback_limits(values)
@@ -112,6 +96,7 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
 
     def reset(self) -> None:
         super().reset()
+        self.side_selector.reset()
         self.phase = "unknown"
         self.raw_phase = "unknown"
         self.stable_phase = "unknown"
@@ -264,14 +249,16 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
         visible_score = self._visible_score(values)
         left_wrist_y = _safe_float(values.get("left_wrist_y"))
         right_wrist_y = _safe_float(values.get("right_wrist_y"))
-        wrist_height, selected_side = _best_side_value(
-            left_value=left_wrist_y,
-            right_value=right_wrist_y,
-            left_confidence=values.get("left_wrist_confidence"),
-            right_confidence=values.get("right_wrist_confidence"),
+        side_selection = self.side_selector.select(
+            values,
+            required_landmarks=("shoulder", "wrist"),
+            required_metrics=("wrist_y", "wrist_above_shoulder"),
         )
+        selected_side = side_selection.selected_side
         if selected_side is None:
             wrist_height = _mean_metric(left_wrist_y, right_wrist_y)
+        else:
+            wrist_height = _safe_float(values.get(f"{selected_side}_wrist_y"))
         wrist_asymmetry = None if left_wrist_y is None or right_wrist_y is None else abs(left_wrist_y - right_wrist_y)
         left_above = _safe_float(values.get("left_wrist_above_shoulder"))
         right_above = _safe_float(values.get("right_wrist_above_shoulder"))
@@ -324,6 +311,8 @@ class SkiErgAnalyzer(BaseActionAnalyzer):
                 "pull_count": self.rep_count,
                 "wrist_height_mean": wrist_height,
                 "selected_pose_side": selected_side,
+                "side_selection_strategy": "reliable_single_chain",
+                "reliable_side_selection": side_selection.as_dict(),
                 "analysis_visible_score": visible_score,
                 "wrist_above_shoulder": wrist_above_shoulder,
                 "wrist_below_shoulder": wrist_below_shoulder,

@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_sled_push_config
 from hyrox.feedback import FeedbackMessage
+from hyrox.reliable_side import ReliableSideSelector
 
 
 SENSITIVITY_FRAME_DELTAS = {"low": 1, "medium": 0, "high": -1}
@@ -50,6 +51,11 @@ class SledPushAnalyzer(BaseActionAnalyzer):
         if sensitivity not in SENSITIVITY_FRAME_DELTAS:
             raise ValueError(f"unsupported HYROX sensitivity: {sensitivity}")
         values = dict(config or load_sled_push_config())
+        self.side_selector = ReliableSideSelector(
+            min_confidence=0.45,
+            switch_margin=0.08,
+            switch_confirmation_frames=2,
+        )
         visibility_min = _resolved_float(values.get("visibility_min"), 0.55)
         super().__init__(action="sled_push", min_visible_score=min(1.0, visibility_min))
         self.configure_feedback_limits(values)
@@ -86,6 +92,7 @@ class SledPushAnalyzer(BaseActionAnalyzer):
 
     def reset(self) -> None:
         super().reset()
+        self.side_selector.reset()
         self.phase = "unknown"
         self.raw_phase = "unknown"
         self.stable_phase = "unknown"
@@ -147,12 +154,32 @@ class SledPushAnalyzer(BaseActionAnalyzer):
         visible_score = self._visible_score(values)
         torso_angle = _safe_float(values.get("torso_angle"))
         torso_abs = None if torso_angle is None else abs(torso_angle)
-        knee_angle = _mean_metric(values.get("left_knee_angle"), values.get("right_knee_angle"))
+        side_selection = self.side_selector.select(
+            values,
+            required_landmarks=("wrist", "hip", "knee", "ankle"),
+            required_metrics=("knee_angle", "wrist_y", "ankle_y"),
+        )
+        selected_side = side_selection.selected_side
+        knee_angle = (
+            _mean_metric(
+                values.get("left_knee_angle"),
+                values.get("right_knee_angle"),
+            )
+            if selected_side is None
+            else _safe_float(values.get(f"{selected_side}_knee_angle"))
+        )
         body_center_x = _safe_float(values.get("body_center_x"))
         left_ankle_y = _safe_float(values.get("left_ankle_y"))
         right_ankle_y = _safe_float(values.get("right_ankle_y"))
         ankle_distance = _safe_float(values.get("ankle_distance_norm"))
-        wrist_height = _mean_metric(values.get("left_wrist_y"), values.get("right_wrist_y"))
+        wrist_height = (
+            _mean_metric(
+                values.get("left_wrist_y"),
+                values.get("right_wrist_y"),
+            )
+            if selected_side is None
+            else _safe_float(values.get(f"{selected_side}_wrist_y"))
+        )
         shoulder_height = _safe_float(values.get("shoulder_center_y"))
         hip_tilt = _safe_float(values.get("hip_tilt"))
 
@@ -261,6 +288,9 @@ class SledPushAnalyzer(BaseActionAnalyzer):
                 "step_count": self.rep_count,
                 "torso_angle": torso_angle,
                 "knee_angle_mean": knee_angle,
+                "selected_pose_side": selected_side,
+                "side_selection_strategy": "reliable_single_chain",
+                "reliable_side_selection": side_selection.as_dict(),
                 "ankle_delta": ankle_delta,
                 "body_center_delta_x": body_center_delta_x,
                 "drive_score": drive_score,

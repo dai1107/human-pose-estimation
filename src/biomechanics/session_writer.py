@@ -394,6 +394,23 @@ class SessionWriter:
                 f"{angle_name}_3d_reliable",
             )
         ]
+        biomech_columns = [
+            field
+            for metric_name in (
+                "left_knee_flexion_proxy",
+                "right_knee_flexion_proxy",
+                "left_hip_flexion_proxy",
+                "right_hip_flexion_proxy",
+                "trunk_flexion",
+                "pelvis_orientation",
+                "trunk_rotation",
+            )
+            for field in (
+                f"{metric_name}_biomech_angle",
+                f"{metric_name}_confidence",
+                f"{metric_name}_observable",
+            )
+        ]
         columns = versioned_csv_columns(
             [
                 "frame_index",
@@ -410,6 +427,10 @@ class SessionWriter:
                 "body_canonical_available",
                 "body_canonical_reliable",
                 "body_canonical_confidence",
+                "local_ground_available",
+                "local_ground_reliable",
+                "local_ground_confidence",
+                "local_ground_support_plane_residual_m",
                 "ground_status",
                 "ground_confidence",
                 "ground_y_image_normalized",
@@ -419,7 +440,17 @@ class SessionWriter:
                 "right_ground_contact_evidence_status",
                 "right_ground_contact_evidence_confidence",
                 "quality_reasons",
+                "pose_reliability_global_confidence",
+                "pose_reliability_reasons",
+                "left_knee_angle_candidate_source",
+                "right_knee_angle_candidate_source",
+                "left_hip_angle_candidate_source",
+                "right_hip_angle_candidate_source",
+                "validation_available",
+                "validation_mode",
+                "validation_ms",
                 *angle_columns,
+                *biomech_columns,
             ]
         )
         with path.open("w", newline="", encoding="utf-8") as file:
@@ -433,6 +464,21 @@ class SessionWriter:
                 ground = kinematics.get("ground_estimation")
                 if not isinstance(ground, Mapping):
                     ground = {}
+                local_ground = kinematics.get("local_ground_frame")
+                if not isinstance(local_ground, Mapping):
+                    local_ground = {}
+                biomech = kinematics.get("biomech_metrics")
+                if not isinstance(biomech, Mapping):
+                    biomech = {}
+                pose_reliability = kinematics.get("pose_reliability")
+                if not isinstance(pose_reliability, Mapping):
+                    pose_reliability = {}
+                metric_candidates = kinematics.get("metric_candidates")
+                if not isinstance(metric_candidates, Mapping):
+                    metric_candidates = {}
+                validation = kinematics.get("validation_status")
+                if not isinstance(validation, Mapping):
+                    validation = {}
                 ground_contacts = ground.get("contact_evidence")
                 if not isinstance(ground_contacts, Mapping):
                     ground_contacts = {}
@@ -471,6 +517,12 @@ class SessionWriter:
                     "body_canonical_confidence": _number(
                         body_coordinates.get("confidence")
                     ),
+                    "local_ground_available": int(bool(local_ground.get("available"))),
+                    "local_ground_reliable": int(bool(local_ground.get("reliable"))),
+                    "local_ground_confidence": _number(local_ground.get("confidence")),
+                    "local_ground_support_plane_residual_m": _number(
+                        local_ground.get("support_plane_residual_m")
+                    ),
                     "ground_status": ground.get("status", "UNSURE"),
                     "ground_confidence": _number(ground.get("ground_confidence")),
                     "ground_y_image_normalized": _number(
@@ -492,8 +544,42 @@ class SessionWriter:
                     "quality_reasons": ";".join(
                         str(reason) for reason in kinematics.get("quality_reasons", [])
                     ),
+                    "pose_reliability_global_confidence": _number(
+                        pose_reliability.get("global_confidence")
+                    ),
+                    "pose_reliability_reasons": ";".join(
+                        str(reason) for reason in pose_reliability.get("reasons", [])
+                    ),
+                    "validation_available": int(bool(validation.get("available"))),
+                    "validation_mode": validation.get("mode", "unknown"),
+                    "validation_ms": _number(validation.get("validation_ms")),
                 }
+                for candidate_name in (
+                    "left_knee_angle",
+                    "right_knee_angle",
+                    "left_hip_angle",
+                    "right_hip_angle",
+                ):
+                    candidate = metric_candidates.get(candidate_name)
+                    row[f"{candidate_name}_candidate_source"] = (
+                        candidate.get("selected_source", "UNSURE")
+                        if isinstance(candidate, Mapping)
+                        else "UNSURE"
+                    )
                 for column in angle_columns:
                     value = kinematics.get(column)
+                    row[column] = int(value) if isinstance(value, bool) else _number(value)
+                for column in biomech_columns:
+                    if column.endswith("_biomech_angle"):
+                        metric_name = column.removesuffix("_biomech_angle")
+                        field = "biomech_angle"
+                    elif column.endswith("_confidence"):
+                        metric_name = column.removesuffix("_confidence")
+                        field = "confidence"
+                    else:
+                        metric_name = column.removesuffix("_observable")
+                        field = "observable"
+                    metric = biomech.get(metric_name)
+                    value = metric.get(field) if isinstance(metric, Mapping) else None
                     row[column] = int(value) if isinstance(value, bool) else _number(value)
                 writer.writerow(versioned_csv_row(row))

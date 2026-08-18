@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- 完成 HYROX 姿态系统改进第 6 轮：新增统一 `ReliableSideSelector`，按左右关键点
+  置信度、正式指标完整度和覆盖率评分，加入 `0.08` 切换 margin、连续 2 帧确认及
+  当前侧不可观测时的即时 failover；Rowing、SkiErg、Sled Push、Lunge 伸展链和
+  Wall Ball 条件单链接入正式选择，Sled Pull 保留双臂周期并输出可靠侧 metadata。
+  Burpee/Farmers 和 Wall Ball 必需双侧证据明确标记为 bilateral；Lunge 前后腿身份不由
+  左右侧选择器改写。至此《HYROX 姿态系统三项问题改进方案》六轮任务全部完成。
+- 完成 HYROX 姿态系统改进第 5 轮：`camera_view` 从正式可观测性硬门禁改为
+  metadata/advice，非推荐视角使用 `CAMERA_VIEW_NOT_RECOMMENDED` 软提示，`unknown`
+  仍继续分析；正式 `VALID / NO_REP / UNSURE` 只由实际关键点、指标、地板和时序证据
+  决定。现有动作投影补偿和双侧正式规则保持不变，统一 ReliableSideSelector 留在第 6 轮。
+- 完成上传视频快速分析优化：MediaPipe/HYROX 使用源视频时间戳采样、候选窗口加密和
+  浏览器本地原视频时钟回放；正式 `VALID / NO_REP / UNSURE` 语义及 2D 规则阈值保持不变。
 - 完成实时姿态优化第 1–12 轮第一版：统一性能 CSV 与播放速度比、摄像头/有窗口视频
   Latest-Frame、MediaPipe LIVE_STREAM 单槽调度、显示/分析双 One Euro、纯推理自适应
   分辨率、统一 `JointMetric`、3D 可靠性、人体 canonical 坐标、时序地板估计、姿态

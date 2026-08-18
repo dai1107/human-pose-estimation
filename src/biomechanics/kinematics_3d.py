@@ -21,10 +21,18 @@ from src.biomechanics.joint_metrics import (
     calculate_angle_3d,
     select_joint_metric,
 )
+from src.biomechanics.biomech_metrics import build_biomechanical_representation
+from src.biomechanics.local_ground_frame import build_local_ground_frame
+from src.biomechanics.pose_reliability import (
+    PoseReliability,
+    build_pose_reliability,
+    select_metric_candidates,
+)
 from src.biomechanics.shadow_evidence_3d import (
     BodyRelative3DTracker,
     ShadowEvidence3DConfig,
 )
+from src.realtime.camera_motion import CAMERA_UNSTABLE, normalize_camera_motion
 
 
 ANGLE_DEFINITIONS_3D = ANGLE_DEFINITIONS
@@ -59,6 +67,14 @@ class ThreeDKinematicsResult:
     reliability: Mapping[str, Any]
     foot_contact_evidence: Mapping[str, Any]
     ground_estimation: Mapping[str, Any]
+    constrained_3d: Mapping[str, Any]
+    camera_motion: Mapping[str, Any]
+    local_ground_frame: Mapping[str, Any]
+    segment_coordinates: Mapping[str, Any]
+    biomech_metrics: Mapping[str, Any]
+    pose_reliability: PoseReliability
+    metric_candidates: Mapping[str, Any]
+    validation_status: Mapping[str, Any]
 
     def as_dict(self) -> dict[str, Any]:
         angles_2d: dict[str, float | None] = {}
@@ -130,6 +146,14 @@ class ThreeDKinematicsResult:
             "reliability": dict(self.reliability),
             "foot_contact_evidence": dict(self.foot_contact_evidence),
             "ground_estimation": dict(self.ground_estimation),
+            "constrained_3d": dict(self.constrained_3d),
+            "camera_motion": dict(self.camera_motion),
+            "local_ground_frame": dict(self.local_ground_frame),
+            "segment_coordinates": dict(self.segment_coordinates),
+            "biomech_metrics": dict(self.biomech_metrics),
+            "pose_reliability": self.pose_reliability.as_dict(),
+            "metric_candidates": dict(self.metric_candidates),
+            "validation_status": dict(self.validation_status),
             "ground_confidence": self.ground_estimation.get(
                 "ground_confidence", 0.0
             ),
@@ -164,6 +188,7 @@ class ThreeDKinematicsTracker:
         self._previous_angles: dict[str, float] = {}
         self._foot_centers: dict[str, np.ndarray] = {}
         self._foot_stable_frames = {"left": 0, "right": 0}
+        self._contact_anchors: dict[str, np.ndarray] = {}
         self._ground_estimator = GroundEstimator(
             GroundEstimatorConfig(
                 history_size=self.quality_config.ground_history_size,
@@ -189,6 +214,7 @@ class ThreeDKinematicsTracker:
         self._previous_angles.clear()
         self._foot_centers.clear()
         self._foot_stable_frames = {"left": 0, "right": 0}
+        self._contact_anchors.clear()
         self._ground_estimator.reset()
         self._body_relative.reset()
 
@@ -202,6 +228,9 @@ class ThreeDKinematicsTracker:
         image_height: int | float | None = None,
         raw_result: PoseResult | None = None,
         camera_view: str | None = None,
+        camera_motion: Mapping[str, object] | None = None,
+        validation_enabled: bool = True,
+        validation_result: Mapping[str, Any] | None = None,
     ) -> ThreeDKinematicsResult:
         image_points = _point_map(result.keypoints)
         raw_world = result.extra.get("world_keypoints")
@@ -284,6 +313,26 @@ class ThreeDKinematicsTracker:
             raw_world if isinstance(raw_world, (list, tuple)) else (),
             foot_contact_evidence,
         )
+        resolved_camera_motion = normalize_camera_motion(camera_motion)
+        camera_score = float(resolved_camera_motion.get("camera_motion_score", 0.0))
+        camera_reliability_factor = max(
+            self.quality_config.camera_motion_minimum_reliability,
+            1.0 - camera_score,
+        )
+        ground_estimation = {
+            **ground_estimation,
+            "camera_motion_score": camera_score,
+            "camera_adjusted_ground_confidence": (
+                float(ground_estimation.get("ground_confidence", 0.0))
+                * camera_reliability_factor
+            ),
+        }
+        constrained_3d = self._contact_aware_constraint(
+            body_coordinate_system,
+            foot_contact_evidence,
+            body_scale=body_scale,
+        )
+        drifting_sides = set(constrained_3d.get("drifting_contact_sides", ()))
         global_reasons: set[str] = set()
         if not self.kinematics_config.enabled:
             global_reasons.add("three_d_disabled")
@@ -351,6 +400,10 @@ class ThreeDKinematicsTracker:
             if any(point_name in isolated_velocity_joints for point_name in definition):
                 reasons.add("isolated_landmark_velocity")
                 severe_temporal_failure = True
+
+            for side in drifting_sides:
+                if any(point_name.startswith(f"{side}_") for point_name in definition):
+                    reasons.add("contact_foot_drift")
 
             if body_scale is not None and self._previous_world:
                 for point_name in definition:
@@ -422,6 +475,52 @@ class ThreeDKinematicsTracker:
         for measurement in measurements.values():
             all_reasons.update(measurement.quality_reasons)
 
+        source_world_points = raw_world if isinstance(raw_world, (list, tuple)) else ()
+        if validation_enabled:
+            local_ground_frame = build_local_ground_frame(
+                source_world_points,
+                body_coordinate_system=body_coordinate_system,
+                ground_estimation=ground_estimation,
+                foot_contact_evidence=foot_contact_evidence,
+                minimum_confidence=self.quality_config.local_ground_minimum_confidence,
+            )
+            segment_coordinates, biomech_metrics = build_biomechanical_representation(
+                source_world_points,
+                quality_points=result.keypoints,
+                body_coordinate_system=body_coordinate_system,
+                local_ground_frame=local_ground_frame,
+                measurements=measurements,
+                minimum_quality=self.quality_config.biomech_minimum_confidence,
+            )
+            validation_status: dict[str, Any] = {
+                "available": True,
+                "mode": "synchronous",
+                "runs_off_render_thread": False,
+                "formal_threshold_replacement_allowed": False,
+            }
+        else:
+            validation_snapshot = (
+                dict(validation_result) if isinstance(validation_result, Mapping) else {}
+            )
+            local_ground_frame = _mapping_or_empty(
+                validation_snapshot.get("local_ground_frame")
+            )
+            segment_coordinates = _mapping_or_empty(
+                validation_snapshot.get("segment_coordinates")
+            )
+            biomech_metrics = _mapping_or_empty(
+                validation_snapshot.get("biomech_metrics")
+            )
+            validation_status = {
+                "available": bool(validation_snapshot.get("available")),
+                "mode": "latest_only_async",
+                "reason": validation_snapshot.get("reason"),
+                "source_timestamp_ms": validation_snapshot.get("source_timestamp_ms"),
+                "validation_ms": validation_snapshot.get("validation_ms", 0.0),
+                "runs_off_render_thread": True,
+                "formal_threshold_replacement_allowed": False,
+            }
+
         if (
             self.kinematics_config.enabled
             and world_available
@@ -450,6 +549,55 @@ class ThreeDKinematicsTracker:
                 if measurement.angle_3d is not None
             }
 
+        reliability = {
+            "schema_version": 1,
+            "bone_length_history_samples": {
+                _segment_label(segment): len(values)
+                for segment, values in sorted(self._bone_length_history.items())
+            },
+            "bone_length_historical_median_m": {
+                _segment_label(segment): value
+                for segment, value in sorted(historical_bone_lengths.items())
+            },
+            "left_right_mismatch_segments": [
+                _segment_label(segment) for segment in sorted(bilateral_mismatches)
+            ],
+            "landmark_speed_m_s": dict(sorted(landmark_speeds.items())),
+            "isolated_velocity_joints": sorted(isolated_velocity_joints),
+            "confidence_only": True,
+            "position_correction_applied": False,
+            "global_position_reliability": camera_reliability_factor,
+            "ground_reliability": float(
+                ground_estimation.get("camera_adjusted_ground_confidence", 0.0)
+            ),
+            "contact_reliability": {
+                side: float(item.get("foot_contact_confidence", 0.0))
+                * camera_reliability_factor
+                for side, item in foot_contact_evidence.items()
+                if side in {"left", "right"} and isinstance(item, Mapping)
+            },
+            "camera_unstable": (
+                resolved_camera_motion.get("state") == CAMERA_UNSTABLE
+                or camera_score >= self.quality_config.camera_motion_unstable_score
+            ),
+        }
+        pose_reliability = build_pose_reliability(
+            measurements,
+            body_coordinate_system=body_coordinate_system,
+            ground_estimation=ground_estimation,
+            foot_contact_evidence=foot_contact_evidence,
+            camera_motion=resolved_camera_motion,
+            reliability=reliability,
+        )
+        metric_candidates = select_metric_candidates(
+            measurements,
+            biomech_metrics,
+            pose_reliability,
+            minimum_joint_confidence=(
+                self.quality_config.pose_reliability_minimum_joint_confidence
+            ),
+        )
+
         return ThreeDKinematicsResult(
             enabled=self.kinematics_config.enabled,
             decision_mode=self.kinematics_config.decision_mode,
@@ -467,26 +615,17 @@ class ThreeDKinematicsTracker:
             quality_reasons=tuple(sorted(all_reasons)),
             body_relative=body_relative,
             body_coordinate_system=body_coordinate_system,
-            reliability={
-                "schema_version": 1,
-                "bone_length_history_samples": {
-                    _segment_label(segment): len(values)
-                    for segment, values in sorted(self._bone_length_history.items())
-                },
-                "bone_length_historical_median_m": {
-                    _segment_label(segment): value
-                    for segment, value in sorted(historical_bone_lengths.items())
-                },
-                "left_right_mismatch_segments": [
-                    _segment_label(segment) for segment in sorted(bilateral_mismatches)
-                ],
-                "landmark_speed_m_s": dict(sorted(landmark_speeds.items())),
-                "isolated_velocity_joints": sorted(isolated_velocity_joints),
-                "confidence_only": True,
-                "position_correction_applied": False,
-            },
+            reliability=reliability,
             foot_contact_evidence=foot_contact_evidence,
             ground_estimation=ground_estimation,
+            constrained_3d=constrained_3d,
+            camera_motion=resolved_camera_motion,
+            local_ground_frame=local_ground_frame,
+            segment_coordinates=segment_coordinates,
+            biomech_metrics=biomech_metrics,
+            pose_reliability=pose_reliability,
+            metric_candidates=metric_candidates,
+            validation_status=validation_status,
         )
 
     def attach(
@@ -499,6 +638,9 @@ class ThreeDKinematicsTracker:
         image_height: int | float | None = None,
         raw_result: PoseResult | None = None,
         camera_view: str | None = None,
+        camera_motion: Mapping[str, object] | None = None,
+        validation_enabled: bool = True,
+        validation_result: Mapping[str, Any] | None = None,
     ) -> tuple[PoseResult, ThreeDKinematicsResult]:
         kinematics = self.update(
             result,
@@ -508,10 +650,80 @@ class ThreeDKinematicsTracker:
             image_height=image_height,
             raw_result=raw_result,
             camera_view=camera_view,
+            camera_motion=camera_motion,
+            validation_enabled=validation_enabled,
+            validation_result=validation_result,
         )
         extra = dict(result.extra)
         extra["three_d_kinematics"] = kinematics.as_dict()
         return replace(result, extra=extra), kinematics
+
+    def _contact_aware_constraint(
+        self,
+        body_coordinate_system: Mapping[str, Any],
+        foot_contact_evidence: Mapping[str, Any],
+        *,
+        body_scale: float | None,
+    ) -> dict[str, Any]:
+        """Detect contact-inconsistent drift without mutating any landmark stream."""
+
+        canonical_items = body_coordinate_system.get("canonical_landmarks", ())
+        canonical: dict[str, np.ndarray] = {}
+        if isinstance(canonical_items, Sequence):
+            for item in canonical_items:
+                if not isinstance(item, Mapping) or not item.get("name"):
+                    continue
+                try:
+                    point = np.asarray(
+                        [float(item[axis]) for axis in ("x", "y", "z")],
+                        dtype=float,
+                    )
+                except (KeyError, TypeError, ValueError, OverflowError):
+                    continue
+                if np.all(np.isfinite(point)):
+                    canonical[str(item["name"])] = point
+        scale = body_scale if body_scale is not None and body_scale > 1e-8 else None
+        drifts: dict[str, float | None] = {}
+        drifting: list[str] = []
+        for side in ("left", "right"):
+            ankle = canonical.get(f"{side}_ankle")
+            evidence = foot_contact_evidence.get(side)
+            confidence = (
+                float(evidence.get("foot_contact_confidence", 0.0))
+                if isinstance(evidence, Mapping)
+                else 0.0
+            )
+            anchor = self._contact_anchors.get(side)
+            drift = (
+                None
+                if ankle is None or anchor is None or scale is None
+                else float(np.linalg.norm(ankle - anchor) / scale)
+            )
+            drifts[side] = drift
+            if drift is not None and drift > self.quality_config.contact_constraint_drift_body_ratio:
+                drifting.append(side)
+            if ankle is not None and confidence >= self.quality_config.contact_constraint_high_confidence:
+                if anchor is None or side in drifting:
+                    self._contact_anchors[side] = ankle.copy()
+            elif confidence < 0.25 and side not in drifting:
+                self._contact_anchors.pop(side, None)
+        return {
+            "schema_version": 1,
+            "available": bool(canonical),
+            "landmarks": [dict(item) for item in canonical_items]
+            if isinstance(canonical_items, Sequence)
+            else [],
+            "source": "canonical_3d",
+            "constraint_mode": "reliability_only",
+            "soft_constraint_enabled": False,
+            "constraint_applied": False,
+            "raw_landmarks_modified": False,
+            "filtered_landmarks_modified": False,
+            "canonical_landmarks_modified": False,
+            "contact_anchor_drift_body_ratio": drifts,
+            "drifting_contact_sides": drifting,
+            "formal_threshold_replacement_allowed": False,
+        }
 
     def _identity_swapped(self, current: Mapping[str, np.ndarray]) -> bool:
         same_cost = 0.0
@@ -686,6 +898,16 @@ def _summarize_shadow_items(items: Sequence[Mapping[str, Any]]) -> dict[str, Any
     ground_ready = 0
     ground_confidences: list[float] = []
     ground_contact_statuses: Counter[str] = Counter()
+    local_ground_available = 0
+    local_ground_reliable = 0
+    local_ground_confidences: list[float] = []
+    biomech_values: dict[str, list[float]] = {}
+    biomech_observable: Counter[str] = Counter()
+    pose_reliability_confidences: list[float] = []
+    pose_reliability_reasons: Counter[str] = Counter()
+    metric_candidate_sources: Counter[str] = Counter()
+    validation_available = 0
+    validation_times_ms: list[float] = []
     for item in items:
         decision_mode_counts.update((str(item.get("decision_mode", "unknown")),))
         assist_status_counts.update((str(item.get("assist_status", "unknown")),))
@@ -717,6 +939,45 @@ def _summarize_shadow_items(items: Sequence[Mapping[str, Any]]) -> dict[str, Any
                         ground_contact_statuses.update(
                             (f"{side}:{evidence.get('status', 'UNSURE')}",)
                         )
+        local_ground = item.get("local_ground_frame")
+        if isinstance(local_ground, Mapping):
+            local_ground_available += int(bool(local_ground.get("available")))
+            local_ground_reliable += int(bool(local_ground.get("reliable")))
+            confidence = local_ground.get("confidence")
+            if isinstance(confidence, (int, float)) and isfinite(float(confidence)):
+                local_ground_confidences.append(float(confidence))
+        biomech = item.get("biomech_metrics")
+        if isinstance(biomech, Mapping):
+            for name, metric in biomech.items():
+                if not isinstance(metric, Mapping):
+                    continue
+                biomech_observable.update(
+                    (f"{name}:{'observable' if metric.get('observable') else 'unobservable'}",)
+                )
+                value = metric.get("biomech_angle")
+                if isinstance(value, (int, float)) and isfinite(float(value)):
+                    biomech_values.setdefault(str(name), []).append(float(value))
+        pose_reliability = item.get("pose_reliability")
+        if isinstance(pose_reliability, Mapping):
+            confidence = pose_reliability.get("global_confidence")
+            if isinstance(confidence, (int, float)) and isfinite(float(confidence)):
+                pose_reliability_confidences.append(float(confidence))
+            reasons = pose_reliability.get("reasons")
+            if isinstance(reasons, (list, tuple)):
+                pose_reliability_reasons.update(str(reason) for reason in reasons)
+        candidates = item.get("metric_candidates")
+        if isinstance(candidates, Mapping):
+            for name, candidate in candidates.items():
+                if isinstance(candidate, Mapping):
+                    metric_candidate_sources.update(
+                        (f"{name}:{candidate.get('selected_source', 'UNSURE')}",)
+                    )
+        validation = item.get("validation_status")
+        if isinstance(validation, Mapping):
+            validation_available += int(bool(validation.get("available")))
+            validation_ms = validation.get("validation_ms")
+            if isinstance(validation_ms, (int, float)) and isfinite(float(validation_ms)):
+                validation_times_ms.append(float(validation_ms))
     return {
         "frame_count": len(items),
         "world_landmarks_availability_ratio": available / len(items) if items else 0.0,
@@ -742,6 +1003,40 @@ def _summarize_shadow_items(items: Sequence[Mapping[str, Any]]) -> dict[str, Any
         "ground_contact_evidence_statuses": dict(
             sorted(ground_contact_statuses.items())
         ),
+        "local_ground_available_ratio": (
+            local_ground_available / len(items) if items else 0.0
+        ),
+        "local_ground_reliable_ratio": (
+            local_ground_reliable / len(items) if items else 0.0
+        ),
+        "mean_local_ground_confidence": (
+            float(np.mean(local_ground_confidences))
+            if local_ground_confidences
+            else 0.0
+        ),
+        "biomech_observability": dict(sorted(biomech_observable.items())),
+        "mean_pose_reliability_global_confidence": (
+            float(np.mean(pose_reliability_confidences))
+            if pose_reliability_confidences
+            else 0.0
+        ),
+        "pose_reliability_reason_counts": dict(sorted(pose_reliability_reasons.items())),
+        "metric_candidate_source_counts": dict(sorted(metric_candidate_sources.items())),
+        "validation_available_ratio": (
+            validation_available / len(items) if items else 0.0
+        ),
+        "mean_validation_ms": (
+            float(np.mean(validation_times_ms)) if validation_times_ms else 0.0
+        ),
+        "biomech_metrics": {
+            name: {
+                "count": len(values),
+                "mean": float(np.mean(values)),
+                "min": float(np.min(values)),
+                "max": float(np.max(values)),
+            }
+            for name, values in sorted(biomech_values.items())
+        },
         "angle_difference_deg": {
             name: {
                 "count": len(values),
@@ -760,6 +1055,10 @@ def _point_map(points: Sequence[object]) -> dict[str, object]:
         for point in points
         if (name := getattr(point, "name", None))
     }
+
+
+def _mapping_or_empty(value: object) -> dict[str, Any]:
+    return dict(value) if isinstance(value, Mapping) else {}
 
 
 def _xyz(point: object | None) -> np.ndarray | None:

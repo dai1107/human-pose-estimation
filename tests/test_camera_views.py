@@ -41,15 +41,19 @@ def test_front_and_side_profiles_use_different_wall_ball_rules() -> None:
     assert side_limited is False
 
 
-def test_side_preferred_action_marks_front_view_as_limited() -> None:
-    filtered, limited = filter_feedback_for_view(
+def test_side_preferred_action_marks_front_view_as_not_recommended() -> None:
+    filtered, not_recommended = filter_feedback_for_view(
         "rowing",
         "front",
         [_message("TOO_MUCH_BACK_LEAN"), _message("NOT_SEATED_OR_BAD_VIEW")],
     )
 
-    assert limited is True
-    assert [message.code for message in filtered] == ["NOT_SEATED_OR_BAD_VIEW", "CAMERA_VIEW_LIMITED"]
+    assert not_recommended is True
+    assert [message.code for message in filtered] == [
+        "NOT_SEATED_OR_BAD_VIEW",
+        "CAMERA_VIEW_NOT_RECOMMENDED",
+    ]
+    assert "仍将按可观测人体证据继续分析" in filtered[-1].text
 
 
 def test_factory_and_replay_parser_accept_camera_view() -> None:
@@ -80,14 +84,33 @@ def test_camera_view_cycles_and_overlay_exposes_active_profile() -> None:
     assert lines[2][0] == "view: side / side"
 
 
-def test_unknown_view_context_prompts_for_explicit_selection() -> None:
+def test_unknown_view_context_is_advisory_metadata_only() -> None:
     analyzer = create_action_analyzer("rowing")
     state = analyzer.attach_view_context(
         {"action": "rowing", "phase": "catch", "rep_count": 0, "feedback_messages": [], "debug": {}}
     )
 
-    assert state["feedback_messages"][0].code == "CAMERA_VIEW_REQUIRED"
+    assert state["feedback_messages"][0].code == "CAMERA_VIEW_UNKNOWN"
     assert state["debug"]["view_profile"] == "unknown"
+    assert state["debug"]["camera_view_recommended"] is None
+    assert state["debug"]["camera_view_advisory_only"] is True
+    assert state["debug"]["recommended_camera_views"] == ["side"]
+
+
+def test_nonrecommended_view_context_exposes_recommendation_without_gate() -> None:
+    analyzer = create_action_analyzer("rowing", camera_view="front")
+    state = analyzer.attach_view_context(
+        {
+            "action": "rowing",
+            "phase": "catch",
+            "rep_count": 0,
+            "feedback_messages": [],
+            "debug": {},
+        }
+    )
+
+    assert state["debug"]["camera_view_recommended"] is False
+    assert state["debug"]["camera_view_advisory_only"] is True
 
 
 def test_multicamera_plan_accepts_front_and_side_sources() -> None:

@@ -67,6 +67,16 @@ from webui.upload_performance import (
     video_duration_matches,
 )
 from webui.upload_pipeline import UploadInferenceAudit
+from webui.offline_fast import (
+    AdaptiveOfflineFastScheduler,
+    CandidateObservation,
+    FastFrameSelection,
+    TimestampSampler,
+    build_candidate_windows,
+    discovery_state_values,
+    media_timestamp_ms,
+    timestamp_in_windows,
+)
 from webui.angle_trace import angle_source_summary, trace_angle_sources
 from webui.pose_cache import (
     CachedPoseBackend,
@@ -383,6 +393,9 @@ def _render_cached_annotated_video(
     writer = None
     output_frame_count = 0
     started = time.perf_counter()
+    display_smoother = KeypointSmoother.from_display_config(
+        load_product_pose_config().display_smoothing
+    )
     try:
         if not capture.isOpened():
             raise RuntimeError("第二遍渲染无法重新打开上传视频")
@@ -410,6 +423,12 @@ def _render_cached_annotated_video(
                         "第二遍渲染读取帧数少于首遍分析缓存"
                     )
             result = _pose_result_from_cached_frame(record)
+            display_timestamp_ms = index * 1000.0 / max(source_fps, 1e-6)
+            result = replace(result, timestamp_ms=int(round(display_timestamp_ms)))
+            result = display_smoother.smooth_result(
+                result,
+                capture_timestamp_ns=int(round(display_timestamp_ms * 1_000_000.0)),
+            )
             assessment = record.get("assessment")
             assessment = assessment if isinstance(assessment, Mapping) else {}
             visible_names = set(record.get("visible_names", ()))
@@ -464,6 +483,7 @@ def _render_cached_annotated_video(
         )
     return {
         "rendered_from_pose_cache": True,
+        "display_stabilized": True,
         "pose_inference_count": 0,
         "input_frame_count": len(cached_frames),
         "output_frame_count": actual_output_frames,
@@ -517,6 +537,7 @@ class PoseStreamEngine:
             "status_text": "等待开始",
             "source_mode": "camera",
             "source_name": "摄像头 0",
+            "analysis_mode": "fast",
             "backend": "-",
             "cached_source_backend": "",
             "action": "lunge",
@@ -561,6 +582,14 @@ class PoseStreamEngine:
             "pose_cache_metadata_path": "",
             "single_inference_per_frame": True,
             "analysis_pass_complete": False,
+            "offline_fast_enabled": False,
+            "source_frames": 0,
+            "pose_frames": 0,
+            "pose_sampling_ratio": 0.0,
+            "coarse_pose_frames": 0,
+            "refinement_pose_frames": 0,
+            "refinement_candidate_count": 0,
+            "candidate_windows": [],
             "generate_annotated_video": False,
             "annotated_video_ready": False,
             "annotated_video_path": "",
@@ -590,7 +619,7 @@ class PoseStreamEngine:
                 }
             )
             self._record_requested = False
-            self._history.clear()
+            self._history = deque(maxlen=9000)
             self._voice_feedback.reset()
             self._latest_jpeg = None
             self._latest_frame = None
@@ -601,6 +630,7 @@ class PoseStreamEngine:
                     "status_text": "正在加载模型…",
                     "source_mode": config["source_mode"],
                     "source_name": config["source_name"],
+                    "analysis_mode": str(config.get("analysis_mode", "fast")),
                     "backend": config["backend"],
                     "cached_source_backend": "",
                     "action": config["action"],
@@ -645,6 +675,14 @@ class PoseStreamEngine:
                     "pose_cache_metadata_path": "",
                     "single_inference_per_frame": True,
                     "analysis_pass_complete": False,
+                    "offline_fast_enabled": False,
+                    "source_frames": 0,
+                    "pose_frames": 0,
+                    "pose_sampling_ratio": 0.0,
+                    "coarse_pose_frames": 0,
+                    "refinement_pose_frames": 0,
+                    "refinement_candidate_count": 0,
+                    "candidate_windows": [],
                     "generate_annotated_video": bool(
                         config.get("generate_annotated_video", False)
                     ),
@@ -771,6 +809,7 @@ class PoseStreamEngine:
             "privacy": "报告不包含原始或标注视频帧",
             "summary": {
                 "source_name": state["source_name"],
+                "analysis_mode": state.get("analysis_mode", "fast"),
                 "action": state["action"],
                 "action_label": state["action_label"],
                 "reps": state["reps"],
@@ -815,6 +854,23 @@ class PoseStreamEngine:
                 "analysis_pass_complete",
                 False,
             ),
+            "offline_fast_enabled": state.get(
+                "offline_fast_enabled",
+                False,
+            ),
+            "source_frames": state.get("source_frames", 0),
+            "pose_frames": state.get("pose_frames", 0),
+            "pose_sampling_ratio": state.get("pose_sampling_ratio", 0.0),
+            "coarse_pose_frames": state.get("coarse_pose_frames", 0),
+            "refinement_pose_frames": state.get(
+                "refinement_pose_frames",
+                0,
+            ),
+            "refinement_candidate_count": state.get(
+                "refinement_candidate_count",
+                0,
+            ),
+            "candidate_windows": list(state.get("candidate_windows") or []),
             "generate_annotated_video": state.get(
                 "generate_annotated_video",
                 False,
@@ -948,6 +1004,462 @@ class PoseStreamEngine:
                 )
         raise ValueError(f"unknown backend: {resolved}")
 
+    def _run_offline_fast_two_pass(
+        self,
+        *,
+        config: Mapping[str, Any],
+        capture: Any,
+        backend: Any,
+        full_pose_cache: Any | None,
+        source_fps: float,
+        total_frames: int,
+        source_width: int,
+        source_height: int,
+        pose_inference_ran: bool,
+        inference_audit: UploadInferenceAudit,
+        profiler: UploadVideoProfiler,
+        fast_config: Any,
+    ) -> dict[str, Any]:
+        """Run coarse discovery, candidate-only refinement and formal replay."""
+
+        with self._lock:
+            settings = dict(self._settings)
+        coarse_sampler = TimestampSampler(fast_config.target_pose_fps)
+        dense_sampler = TimestampSampler(fast_config.refinement_pose_fps)
+        discovery_smoother = KeypointSmoother(
+            mode="one-euro",
+            max_missing_frames=5,
+            occlusion_guard=True,
+        )
+        discovery_analyzer = (
+            create_action_analyzer(
+                str(settings["action"]),
+                sensitivity=str(settings["sensitivity"]),
+                camera_view=str(settings["camera_view"]),
+                live_mode=False,
+            )
+            if settings["action"] != "none"
+            else None
+        )
+        manual_points = settings.get("manual_floor_points") or []
+        if discovery_analyzer is not None:
+            discovery_analyzer.set_manual_floor_line(
+                manual_points[0] if len(manual_points) == 2 else None,
+                manual_points[1] if len(manual_points) == 2 else None,
+            )
+
+        poses: dict[int, PoseResult] = {}
+        pose_pass: dict[int, str] = {}
+        timestamps: list[float] = []
+        observations: list[CandidateObservation] = []
+        previous_timestamp: float | None = None
+        frame_index = 0
+        while not self._stop_event.is_set():
+            frame_started = time.perf_counter()
+            decode_started = time.perf_counter()
+            ok, frame = capture.read()
+            decode_ms = (time.perf_counter() - decode_started) * 1000.0
+            if not ok or frame is None:
+                break
+            current = frame_index
+            frame_index += 1
+            inference_audit.record_decoded(current)
+            timestamp_ms = media_timestamp_ms(
+                capture,
+                frame_index=current,
+                source_fps=source_fps,
+                previous_timestamp_ms=previous_timestamp,
+                pos_msec_property=cv2.CAP_PROP_POS_MSEC,
+            )
+            previous_timestamp = timestamp_ms
+            timestamps.append(timestamp_ms)
+            coarse = coarse_sampler.sample(timestamp_ms)
+            inference_ms = 0.0
+            feature_ms = 0.0
+            rule_ms = 0.0
+            backend_performance: Mapping[str, Any] = {}
+            if coarse:
+                inference_started = time.perf_counter()
+                if full_pose_cache is not None:
+                    detected = full_pose_cache.pose_result(current)
+                else:
+                    detected = backend.detect(frame, timestamp_ms=int(round(timestamp_ms)))
+                detected = replace(
+                    detected,
+                    frame_id=current,
+                    timestamp_ms=int(round(timestamp_ms)),
+                )
+                inference_ms = (time.perf_counter() - inference_started) * 1000.0
+                if pose_inference_ran:
+                    inference_audit.record_inference(
+                        current,
+                        pass_name="coarse",
+                    )
+                poses[current] = detected
+                pose_pass[current] = "coarse"
+                backend_performance = detected.extra.get("performance") or {}
+                smoothed = discovery_smoother.smooth_result(detected)
+                features = None
+                if smoothed.success and smoothed.keypoints:
+                    feature_started = time.perf_counter()
+                    features = extract_basic_pose_features(
+                        smoothed.keypoints,
+                        image_width=source_width,
+                        image_height=source_height,
+                        segmentation_mask=None,
+                        formal_quality=(
+                            discovery_analyzer.formal_quality_gate.evaluate(
+                                smoothed.keypoints,
+                                timestamp_ms=int(round(timestamp_ms)),
+                                metadata=smoothed.extra,
+                            ).as_dict()
+                            if discovery_analyzer is not None
+                            else None
+                        ),
+                    )
+                    feature_ms = (time.perf_counter() - feature_started) * 1000.0
+                discovery_state = None
+                if discovery_analyzer is not None:
+                    rule_started = time.perf_counter()
+                    discovery_state = discovery_analyzer.update(
+                        features,
+                        timestamp_ms=int(
+                            round(timestamp_ms + 1000.0 / source_fps)
+                        ),
+                    )
+                    rule_ms = (time.perf_counter() - rule_started) * 1000.0
+                phase, candidate_count = discovery_state_values(discovery_state)
+                observations.append(
+                    CandidateObservation(timestamp_ms, phase, candidate_count)
+                )
+            total_frame_ms = (time.perf_counter() - frame_started) * 1000.0
+            profiler.record_frame(
+                frame_index=current,
+                timestamp_ms=timestamp_ms,
+                timings={
+                    "decode_ms": decode_ms,
+                    "resize_ms": backend_performance.get("resize_ms", 0.0),
+                    "color_convert_ms": backend_performance.get("color_convert_ms", 0.0),
+                    "pose_inference_ms": backend_performance.get(
+                        "pose_inference_ms", inference_ms if coarse else 0.0
+                    ),
+                    "feature_ms": feature_ms,
+                    "rule_ms": rule_ms,
+                    "total_frame_ms": total_frame_ms,
+                },
+                pose_inference_ran=bool(coarse and pose_inference_ran),
+                pose_frame_analyzed=coarse,
+                pass_name="coarse" if coarse else "full",
+            )
+            if frame_index % 8 == 0 or frame_index == total_frames:
+                progress = frame_index / total_frames * 55.0 if total_frames else 0.0
+                with self._frame_ready:
+                    self._state.update(
+                        {
+                            "frame_index": frame_index,
+                            "progress": round(min(progress, 55.0), 1),
+                            "decoded_frame_count": inference_audit.decoded_frame_count,
+                            **profiler.live_metrics(
+                                time.perf_counter() - profiler.analysis_started
+                            ),
+                        }
+                    )
+                    self._frame_ready.notify_all()
+
+        if self._stop_event.is_set():
+            return {"completed": False}
+        duration_ms = (
+            (timestamps[-1] + 1000.0 / source_fps) if timestamps else 0.0
+        )
+        windows = build_candidate_windows(
+            observations,
+            margin_ms=fast_config.candidate_margin_ms,
+            duration_ms=duration_ms,
+        ) if fast_config.refinement_enabled else ()
+
+        refinement_decode_frames = 0
+        if windows:
+            refinement_backend = backend
+            owns_refinement_backend = False
+            if full_pose_cache is None:
+                refinement_backend, _ = self._create_backend(
+                    "mediapipe",
+                    str(config["action"]),
+                    str(config.get("video_path", "")),
+                    target_select="tracking",
+                )
+                owns_refinement_backend = True
+                inference_audit.record_model_initialization()
+            second_capture, _, _ = self._open_capture(config)
+            try:
+                second_index = 0
+                pass_two_offset_ms = int(duration_ms) + 1000
+                while not self._stop_event.is_set():
+                    decode_started = time.perf_counter()
+                    ok, frame = second_capture.read()
+                    decode_ms = (time.perf_counter() - decode_started) * 1000.0
+                    if not ok or frame is None or second_index >= len(timestamps):
+                        break
+                    timestamp_ms = timestamps[second_index]
+                    profiler.record_replay_cost(
+                        frame_index=second_index,
+                        timings={"decode_ms": decode_ms, "total_frame_ms": decode_ms},
+                    )
+                    refinement_decode_frames += 1
+                    dense = dense_sampler.sample(timestamp_ms)
+                    if (
+                        dense
+                        and timestamp_in_windows(timestamp_ms, windows)
+                    ):
+                        new_pose_frame = second_index not in poses
+                        inference_started = time.perf_counter()
+                        if full_pose_cache is not None:
+                            detected = full_pose_cache.pose_result(second_index)
+                        else:
+                            detected = refinement_backend.detect(
+                                frame,
+                                timestamp_ms=pass_two_offset_ms + int(round(timestamp_ms)),
+                            )
+                        inference_wall_ms = (
+                            time.perf_counter() - inference_started
+                        ) * 1000.0
+                        detected = replace(
+                            detected,
+                            frame_id=second_index,
+                            timestamp_ms=int(round(timestamp_ms)),
+                        )
+                        if pose_inference_ran:
+                            inference_audit.record_inference(
+                                second_index,
+                                pass_name="refinement",
+                            )
+                        poses[second_index] = detected
+                        pose_pass[second_index] = "refinement"
+                        performance = detected.extra.get("performance") or {}
+                        profiler.record_refinement_frame(
+                            frame_index=second_index,
+                            timings={
+                                "resize_ms": performance.get("resize_ms", 0.0),
+                                "color_convert_ms": performance.get("color_convert_ms", 0.0),
+                                "pose_inference_ms": performance.get(
+                                    "pose_inference_ms", inference_wall_ms
+                                ),
+                                "total_frame_ms": inference_wall_ms,
+                            },
+                            pose_inference_ran=pose_inference_ran,
+                            new_pose_frame=new_pose_frame,
+                        )
+                    second_index += 1
+            finally:
+                second_capture.release()
+                if owns_refinement_backend:
+                    refinement_backend.close()
+
+        formal_smoother = KeypointSmoother(
+            mode="one-euro",
+            max_missing_frames=5,
+            occlusion_guard=True,
+        )
+        formal_analyzer = (
+            create_action_analyzer(
+                str(settings["action"]),
+                sensitivity=str(settings["sensitivity"]),
+                camera_view=str(settings["camera_view"]),
+                live_mode=False,
+            )
+            if settings["action"] != "none"
+            else None
+        )
+        if formal_analyzer is not None:
+            formal_analyzer.set_manual_floor_line(
+                manual_points[0] if len(manual_points) == 2 else None,
+                manual_points[1] if len(manual_points) == 2 else None,
+            )
+        final_state: Mapping[str, Any] | None = None
+        for sequence, current in enumerate(sorted(poses), start=1):
+            replay_started = time.perf_counter()
+            analysis_timestamp_ms = int(
+                round(timestamps[current] + 1000.0 / source_fps)
+            )
+            detected = replace(
+                poses[current],
+                timestamp_ms=analysis_timestamp_ms,
+            )
+            smoothing_started = time.perf_counter()
+            result = formal_smoother.smooth_result(detected)
+            smoothing_ms = (time.perf_counter() - smoothing_started) * 1000.0
+            has_pose = bool(result.success and result.keypoints)
+            feature_started = time.perf_counter()
+            features = (
+                extract_basic_pose_features(
+                    result.keypoints,
+                    image_width=source_width,
+                    image_height=source_height,
+                    segmentation_mask=None,
+                    formal_quality=(
+                        formal_analyzer.formal_quality_gate.evaluate(
+                            result.keypoints,
+                            timestamp_ms=analysis_timestamp_ms,
+                            metadata=result.extra,
+                        ).as_dict()
+                        if formal_analyzer is not None
+                        else None
+                    ),
+                )
+                if has_pose
+                else None
+            )
+            feature_ms = (time.perf_counter() - feature_started) * 1000.0
+            rule_started = time.perf_counter()
+            final_state = (
+                formal_analyzer.attach_view_context(
+                    formal_analyzer.update(
+                        features,
+                        timestamp_ms=analysis_timestamp_ms,
+                    )
+                )
+                if formal_analyzer is not None
+                else None
+            )
+            rule_ms = (time.perf_counter() - rule_started) * 1000.0
+            phase = "idle" if final_state is None else str(final_state.get("phase", "unknown"))
+            debug = final_state.get("debug") if isinstance(final_state, Mapping) else {}
+            debug = debug if isinstance(debug, Mapping) else {}
+            feedback_all = _feedback_items(final_state, phase_aware=False)
+            evaluation_phase = str(debug.get("raw_phase", phase))
+            feedback = visible_feedback(feedback_all, evaluation_phase)
+            assessment = assess_action(
+                str(settings["action"]), evaluation_phase, features, feedback
+            )
+            reps = int(final_state.get("rep_count", 0)) if final_state else 0
+            candidate_count = int(final_state.get("candidate_count", reps)) if final_state else 0
+            visible_names = _result_visible_names(
+                str(settings["landmark_profile"]),
+                {point.name for point in result.keypoints},
+                show_fingers=False,
+            )
+            keypoints = [
+                {
+                    "name": point.name,
+                    "x": round(float(point.x), 6),
+                    "y": round(float(point.y), 6),
+                    "z": round(float(point.z), 6) if math.isfinite(float(point.z)) else 0.0,
+                    "visibility": round(float(point.confidence), 4),
+                }
+                for point in result.keypoints
+                if point.name in visible_names
+                and math.isfinite(float(point.x))
+                and math.isfinite(float(point.y))
+            ]
+            three_d_payload = {
+                "enabled": False,
+                "decision_mode": "off",
+                "assist_status": "offline_fast_disabled",
+                "three_d_available": False,
+                "three_d_reliable": False,
+                "angles_2d": {},
+                "angles_3d": {},
+                "measurements": {},
+                "quality_reasons": ["offline_fast_minimal_report"],
+            }
+            frame_record = {
+                "sequence": sequence,
+                "frame_index": current,
+                "timestamp_ms": timestamps[current],
+                "analysis_timestamp_ms": analysis_timestamp_ms,
+                "timestamp_unix_ms": int(time.time() * 1000),
+                "action": settings["action"],
+                "phase": phase,
+                "reps": reps,
+                "candidate_count": candidate_count,
+                "pose_valid_rep_count": int(final_state.get("pose_valid_rep_count", reps)) if final_state else reps,
+                "no_rep_count": int(final_state.get("no_rep_count", 0)) if final_state else 0,
+                "unsure_count": int(final_state.get("unsure_count", 0)) if final_state else 0,
+                "floor_reference": dict(debug.get("floor_reference") or {}),
+                "contacts": dict(debug.get("contacts") or {}),
+                "foot_events": dict(debug.get("foot_events") or {}),
+                "last_rep_decision": dict(final_state.get("last_rep_decision") or {}) if final_state else {},
+                "last_rep_observability": dict(final_state.get("last_rep_observability") or {}) if final_state else {},
+                "pose_detected": has_pose,
+                "hands_detected": False,
+                "feedback": feedback,
+                "voice_feedback": None,
+                "detected_issues": feedback_all,
+                "assessment": assessment,
+                "angle_observations": [],
+                "angle_sources": angle_source_summary([]),
+                "world_angles": {},
+                "three_d_kinematics": three_d_payload,
+                "raw_keypoints": [],
+                "raw_world_keypoints": [],
+                "world_keypoints": [],
+                "keypoints": keypoints,
+                "metrics": {
+                    "backend": "mediapipe-pose-cache" if full_pose_cache is not None else "mediapipe",
+                    "cached_source_backend": "mediapipe" if full_pose_cache is not None else "",
+                    "inference_ms": round(float(detected.inference_time_ms), 1),
+                    "server_ms": round((time.perf_counter() - replay_started) * 1000.0, 1),
+                    "width": source_width,
+                    "height": source_height,
+                    "fps": 0.0,
+                    "offline_fast_pass": pose_pass[current],
+                },
+            }
+            serialize_started = time.perf_counter()
+            json.dumps(frame_record, ensure_ascii=False, separators=(",", ":"))
+            serialize_ms = (time.perf_counter() - serialize_started) * 1000.0
+            profiler.record_replay_cost(
+                frame_index=current,
+                timings={
+                    "smoothing_ms": smoothing_ms,
+                    "feature_ms": feature_ms,
+                    "rule_ms": rule_ms,
+                    "serialize_ms": serialize_ms,
+                },
+            )
+            inference_audit.record_analyzed(
+                current,
+                pass_name=pose_pass[current],
+            )
+            self._history.append(frame_record)
+
+        state_values = dict(final_state or {})
+        summary = {
+            "completed": True,
+            "offline_fast_enabled": True,
+            "target_pose_fps": float(fast_config.target_pose_fps),
+            "refinement_enabled": bool(fast_config.refinement_enabled),
+            "refinement_pose_fps": float(fast_config.refinement_pose_fps),
+            "candidate_margin_ms": float(fast_config.candidate_margin_ms),
+            "coarse_pose_frames": len(observations),
+            "refinement_pose_frames": profiler.refinement_pose_frames,
+            "pose_frames": len(poses),
+            "source_frames": len(timestamps),
+            "pose_sampling_ratio": round(len(poses) / len(timestamps), 6) if timestamps else 0.0,
+            "refinement_candidate_count": len(windows),
+            "candidate_windows": [window.as_dict() for window in windows],
+            "refinement_decode_frames": refinement_decode_frames,
+            "discovery_decisions_are_formal": False,
+        }
+        with self._frame_ready:
+            self._state.update(
+                {
+                    "frame_index": len(timestamps),
+                    "progress": 100.0,
+                    "pose_detected": bool(self._history and self._history[-1]["pose_detected"]),
+                    "phase": str(state_values.get("phase", "idle")),
+                    "reps": int(state_values.get("rep_count", 0) or 0),
+                    "candidate_count": int(state_values.get("candidate_count", state_values.get("rep_count", 0)) or 0),
+                    "pose_valid_rep_count": int(state_values.get("pose_valid_rep_count", state_values.get("rep_count", 0)) or 0),
+                    "no_rep_count": int(state_values.get("no_rep_count", 0) or 0),
+                    "unsure_count": int(state_values.get("unsure_count", 0) or 0),
+                    **inference_audit.as_dict(),
+                    **summary,
+                }
+            )
+            self._frame_ready.notify_all()
+        return summary
+
     def _run(self, config: dict[str, Any]) -> None:
         capture = None
         backend = None
@@ -967,13 +1479,45 @@ class PoseStreamEngine:
         annotated_video_render: dict[str, Any] = {}
         analysis_pass_time_ms: float | None = None
         analysis_started = time.perf_counter()
+        offline_fast_scheduler: AdaptiveOfflineFastScheduler | None = None
+        offline_fast_enabled = False
+        full_pose_cache: Any | None = None
+        previous_media_timestamp_ms: float | None = None
+        offline_fast_summary_override: dict[str, Any] | None = None
         try:
             source_path = str(config.get("video_path", ""))
             capture, source_fps, total_frames = self._open_capture(config)
             source_width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
             source_height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            product_pose_config = load_product_pose_config()
+            backend_request, target_select = _backend_plan(config)
+            planned_backend = resolve_backend_choice(
+                backend_request,
+                action_type=str(config["action"]),
+                input_video=source_path,
+                product_mode=not self._allow_experimental_backends,
+            )
+            fast_config = product_pose_config.offline_fast
+            offline_fast_enabled = bool(
+                config["source_mode"] == "upload"
+                and str(config.get("analysis_mode", "fast")) == "fast"
+                and planned_backend == "mediapipe"
+                and not bool(config.get("generate_annotated_video"))
+                and total_frames >= fast_config.minimum_source_frames
+            )
+            if offline_fast_enabled:
+                offline_fast_scheduler = AdaptiveOfflineFastScheduler(
+                    target_pose_fps=fast_config.target_pose_fps,
+                    refinement_pose_fps=fast_config.refinement_pose_fps,
+                    candidate_margin_ms=fast_config.candidate_margin_ms,
+                    refinement_enabled=fast_config.refinement_enabled,
+                )
             if config["source_mode"] == "upload":
-                inference_audit = UploadInferenceAudit()
+                inference_audit = UploadInferenceAudit(
+                    sparse_analysis=offline_fast_enabled,
+                    max_model_initializations=(2 if offline_fast_enabled else 1),
+                    allow_cross_pass_inference=offline_fast_enabled,
+                )
                 profiler = UploadVideoProfiler(
                     source_fps=source_fps,
                     source_frame_count=total_frames,
@@ -981,7 +1525,6 @@ class PoseStreamEngine:
                 )
                 profiler.start(analysis_started)
             cached_source_backend = ""
-            backend_request, target_select = _backend_plan(config)
             if config["source_mode"] == "upload":
                 cache_backend = resolve_backend_choice(
                     backend_request,
@@ -1002,6 +1545,7 @@ class PoseStreamEngine:
                         pose_cache_identity,
                     )
                     if cached_pose is not None:
+                        full_pose_cache = cached_pose
                         backend = CachedPoseBackend(cached_pose)
                         pose_cache_hit = True
                         pose_cache_path = str(
@@ -1012,9 +1556,10 @@ class PoseStreamEngine:
                         )
                         cached_source_backend = "mediapipe"
                     else:
-                        pose_cache_writer = PoseCacheWriter(
-                            pose_cache_identity
-                        )
+                        if not offline_fast_enabled:
+                            pose_cache_writer = PoseCacheWriter(
+                                pose_cache_identity
+                            )
             if config["source_mode"] == "sample":
                 backend = load_sample_pose_backend(
                     action=str(config["action"]),
@@ -1051,13 +1596,14 @@ class PoseStreamEngine:
                 max_missing_frames=5,
                 occlusion_guard=True,
             )
-            product_pose_config = load_product_pose_config()
             three_d_tracker = ThreeDKinematicsTracker(
                 product_pose_config.three_d_kinematics,
                 product_pose_config.three_d_quality,
             )
             analyzer = None
             analyzer_key: tuple[str, str, str] | None = None
+            discovery_analyzer = None
+            discovery_analyzer_key: tuple[str, str, str] | None = None
             started = time.perf_counter()
             last_frame_time = started
             smooth_fps = 0.0
@@ -1088,7 +1634,30 @@ class PoseStreamEngine:
                     }
                 )
 
-            while not self._stop_event.is_set():
+            if (
+                offline_fast_enabled
+                and inference_audit is not None
+                and profiler is not None
+            ):
+                offline_fast_summary_override = self._run_offline_fast_two_pass(
+                    config=config,
+                    capture=capture,
+                    backend=backend,
+                    full_pose_cache=full_pose_cache,
+                    source_fps=source_fps,
+                    total_frames=total_frames,
+                    source_width=source_width,
+                    source_height=source_height,
+                    pose_inference_ran=pose_inference_ran,
+                    inference_audit=inference_audit,
+                    profiler=profiler,
+                    fast_config=fast_config,
+                )
+                finished_normally = bool(
+                    offline_fast_summary_override.get("completed")
+                )
+
+            while not self._stop_event.is_set() and not offline_fast_enabled:
                 with self._lock:
                     settings = dict(self._settings)
                     record_requested = self._record_requested
@@ -1121,11 +1690,70 @@ class PoseStreamEngine:
                         (time.perf_counter() - started) * 1000
                     )
                     timeline_timestamp_ms = float(analysis_timestamp_ms)
+                fast_selection = FastFrameSelection(analyze=True)
+                if offline_fast_scheduler is not None:
+                    timeline_timestamp_ms = media_timestamp_ms(
+                        capture,
+                        frame_index=current_frame_index,
+                        source_fps=source_fps,
+                        previous_timestamp_ms=previous_media_timestamp_ms,
+                        pos_msec_property=cv2.CAP_PROP_POS_MSEC,
+                    )
+                    previous_media_timestamp_ms = timeline_timestamp_ms
+                    analysis_timestamp_ms = int(round(timeline_timestamp_ms))
+                    fast_selection = offline_fast_scheduler.select(
+                        timeline_timestamp_ms
+                    )
+                    if not fast_selection.analyze:
+                        total_frame_ms = (
+                            time.perf_counter() - frame_started
+                        ) * 1000.0
+                        if profiler is not None:
+                            profiler.record_frame(
+                                frame_index=current_frame_index,
+                                timestamp_ms=timeline_timestamp_ms,
+                                timings={
+                                    "decode_ms": decode_ms,
+                                    "total_frame_ms": total_frame_ms,
+                                },
+                                pose_inference_ran=False,
+                                pose_frame_analyzed=False,
+                            )
+                            live_profile = profiler.live_metrics(
+                                time.perf_counter() - analysis_started
+                            )
+                        else:
+                            live_profile = {}
+                        progress = (
+                            frame_index / total_frames * 100.0
+                            if total_frames > 0
+                            else 0.0
+                        )
+                        with self._frame_ready:
+                            self._state.update(
+                                {
+                                    "frame_index": frame_index,
+                                    "progress": round(min(progress, 100.0), 1),
+                                    "decoded_frame_count": (
+                                        inference_audit.decoded_frame_count
+                                        if inference_audit is not None
+                                        else frame_index
+                                    ),
+                                    **live_profile,
+                                }
+                            )
+                            self._frame_ready.notify_all()
+                        continue
                 inference_started = time.perf_counter()
-                detected_result = backend.detect(
-                    frame,
-                    timestamp_ms=analysis_timestamp_ms,
-                )
+                if offline_fast_scheduler is not None and full_pose_cache is not None:
+                    detected_result = full_pose_cache.pose_result(
+                        current_frame_index
+                    )
+                else:
+                    detected_result = backend.detect(
+                        frame,
+                        timestamp_ms=analysis_timestamp_ms,
+                    )
                 detected_result = replace(
                     detected_result,
                     frame_id=current_frame_index,
@@ -1155,21 +1783,34 @@ class PoseStreamEngine:
                 smoothing_ms = (time.perf_counter() - smoothing_started) * 1000.0
                 feature_started = time.perf_counter()
                 frame_height, frame_width = frame.shape[:2]
-                result, three_d_result = three_d_tracker.attach(
-                    result,
-                    capture_timestamp_ns=analysis_timestamp_ms * 1_000_000,
-                    pose_age_ms=0.0,
-                    image_width=frame_width,
-                    image_height=frame_height,
-                    raw_result=detected_result,
-                    camera_view=str(settings["camera_view"]),
-                )
-                three_d_payload = three_d_result.as_dict()
+                if offline_fast_scheduler is not None and not fast_config.detailed_trace:
+                    three_d_payload = {
+                        "enabled": False,
+                        "decision_mode": "off",
+                        "assist_status": "offline_fast_disabled",
+                        "three_d_available": False,
+                        "three_d_reliable": False,
+                        "angles_2d": {},
+                        "angles_3d": {},
+                        "measurements": {},
+                        "quality_reasons": ["offline_fast_minimal_report"],
+                    }
+                else:
+                    result, three_d_result = three_d_tracker.attach(
+                        result,
+                        capture_timestamp_ns=analysis_timestamp_ms * 1_000_000,
+                        pose_age_ms=0.0,
+                        image_width=frame_width,
+                        image_height=frame_height,
+                        raw_result=detected_result,
+                        camera_view=str(settings["camera_view"]),
+                    )
+                    three_d_payload = three_d_result.as_dict()
                 has_pose = bool(result.success and result.keypoints)
                 show_hand_overlay = hand_overlay_visible(
                     str(settings["landmark_profile"]),
                     bool(settings["show_fingers"]),
-                )
+                ) and offline_fast_scheduler is None
                 if resolved_backend == "sample-cache":
                     cached_hands = result.extra.get("cached_hand_detections")
                     hand_detections = (
@@ -1213,6 +1854,18 @@ class PoseStreamEngine:
                         else None
                     )
                     analyzer_key = key
+                if offline_fast_scheduler is not None and key != discovery_analyzer_key:
+                    discovery_analyzer = (
+                        create_action_analyzer(
+                            key[0],
+                            sensitivity=key[1],
+                            camera_view=key[2],
+                            live_mode=False,
+                        )
+                        if key[0] != "none"
+                        else None
+                    )
+                    discovery_analyzer_key = key
                 action_state = None
                 features = None
                 feature_ms = (time.perf_counter() - feature_started) * 1000.0
@@ -1231,8 +1884,14 @@ class PoseStreamEngine:
                             image_width=width,
                             image_height=height,
                             segmentation_mask=result.extra.get("segmentation_mask"),
+                            formal_quality=analyzer.formal_quality_gate.evaluate(
+                                result.keypoints,
+                                timestamp_ms=analysis_timestamp_ms,
+                                metadata=result.extra,
+                            ).as_dict(),
                         )
-                        features["three_d_kinematics"] = three_d_payload
+                        if three_d_payload.get("enabled", False):
+                            features["three_d_kinematics"] = three_d_payload
                         feature_ms += (time.perf_counter() - feature_started) * 1000.0
                     rule_started = time.perf_counter()
                     action_state = analyzer.attach_view_context(
@@ -1242,6 +1901,30 @@ class PoseStreamEngine:
                         )
                     )
                     rule_ms = (time.perf_counter() - rule_started) * 1000.0
+
+                if (
+                    offline_fast_scheduler is not None
+                    and fast_selection.coarse
+                ):
+                    discovery_state = None
+                    if discovery_analyzer is not None:
+                        manual_points = settings.get("manual_floor_points") or []
+                        discovery_analyzer.set_manual_floor_line(
+                            manual_points[0] if len(manual_points) == 2 else None,
+                            manual_points[1] if len(manual_points) == 2 else None,
+                        )
+                        discovery_state = discovery_analyzer.update(
+                            features if has_pose else None,
+                            timestamp_ms=analysis_timestamp_ms,
+                        )
+                    discovery_phase, discovery_count = discovery_state_values(
+                        discovery_state
+                    )
+                    offline_fast_scheduler.observe_coarse(
+                        timestamp_ms=timeline_timestamp_ms,
+                        phase=discovery_phase,
+                        candidate_count=discovery_count,
+                    )
 
                 phase = "idle" if action_state is None else str(action_state.get("phase", "unknown"))
                 action_debug = action_state.get("debug") if isinstance(action_state, Mapping) else None
@@ -1275,15 +1958,23 @@ class PoseStreamEngine:
                 feedback = visible_feedback(all_feedback, evaluation_phase)
                 assessment = assess_action(settings["action"], evaluation_phase, features, feedback)
                 height, width = frame.shape[:2]
-                angle_observations = trace_angle_sources(
-                    frame_index=current_frame_index,
-                    timestamp_ms=timeline_timestamp_ms,
-                    raw_result=detected_result,
-                    smoothed_result=result,
-                    image_width=width,
-                    image_height=height,
-                    rule_features=features,
-                    assessment=assessment,
+                detailed_trace = bool(
+                    offline_fast_scheduler is None
+                    or fast_config.detailed_trace
+                )
+                angle_observations = (
+                    trace_angle_sources(
+                        frame_index=current_frame_index,
+                        timestamp_ms=timeline_timestamp_ms,
+                        raw_result=detected_result,
+                        smoothed_result=result,
+                        image_width=width,
+                        image_height=height,
+                        rule_features=features,
+                        assessment=assessment,
+                    )
+                    if detailed_trace
+                    else []
                 )
                 angle_sources = angle_source_summary(angle_observations)
                 result_names = {point.name for point in result.keypoints}
@@ -1372,6 +2063,25 @@ class PoseStreamEngine:
                 ]
                 hand_keypoints, _ = serialize_hand_overlay(hand_detections)
                 keypoints.extend(hand_keypoints)
+                raw_keypoints = (
+                    _serialize_motion_keypoints(detected_result.keypoints)
+                    if detailed_trace
+                    else []
+                )
+                raw_world_keypoints = (
+                    _serialize_motion_keypoints(
+                        detected_result.extra.get("world_keypoints")
+                    )
+                    if detailed_trace
+                    else []
+                )
+                world_keypoints = (
+                    _serialize_motion_keypoints(
+                        result.extra.get("world_keypoints")
+                    )
+                    if detailed_trace
+                    else []
+                )
 
                 if (
                     bool(config.get("generate_annotated_video"))
@@ -1468,6 +2178,9 @@ class PoseStreamEngine:
                         "angle_sources": angle_sources,
                         "world_angles": three_d_payload["angles_3d"],
                         "three_d_kinematics": three_d_payload,
+                        "raw_keypoints": raw_keypoints,
+                        "raw_world_keypoints": raw_world_keypoints,
+                        "world_keypoints": world_keypoints,
                         "keypoints": keypoints,
                         "metrics": {
                             "backend": resolved_backend,
@@ -1483,6 +2196,13 @@ class PoseStreamEngine:
                     serialize_ms = (time.perf_counter() - serialize_started) * 1000.0
                     total_frame_ms = (time.perf_counter() - frame_started) * 1000.0
                     if profiler is not None:
+                        fast_pass_name = (
+                            "coarse"
+                            if fast_selection.coarse
+                            else "refinement"
+                            if fast_selection.refinement
+                            else "full"
+                        )
                         profiler.record_frame(
                             frame_index=current_frame_index,
                             timestamp_ms=timeline_timestamp_ms,
@@ -1504,6 +2224,8 @@ class PoseStreamEngine:
                                 "total_frame_ms": total_frame_ms,
                             },
                             pose_inference_ran=pose_inference_ran,
+                            pose_frame_analyzed=True,
+                            pass_name=fast_pass_name,
                         )
                         live_profile = profiler.live_metrics(
                             time.perf_counter() - analysis_started
@@ -1511,7 +2233,16 @@ class PoseStreamEngine:
                     else:
                         live_profile = {}
                     if inference_audit is not None:
-                        inference_audit.record_analyzed(current_frame_index)
+                        inference_audit.record_analyzed(
+                            current_frame_index,
+                            pass_name=(
+                                "coarse"
+                                if fast_selection.coarse
+                                else "refinement"
+                                if fast_selection.refinement
+                                else "full"
+                            ),
+                        )
                         audit_state = inference_audit.as_dict()
                     else:
                         audit_state = {}
@@ -1581,6 +2312,47 @@ class PoseStreamEngine:
                 analysis_pass_time_ms = (
                     time.perf_counter() - analysis_started
                 ) * 1000.0
+                fast_summary = (
+                    dict(offline_fast_summary_override)
+                    if offline_fast_summary_override is not None
+                    else
+                    offline_fast_scheduler.summary(
+                        source_frame_count=inference_audit.decoded_frame_count
+                    )
+                    if offline_fast_scheduler is not None
+                    else {
+                        "offline_fast_enabled": False,
+                        "source_frames": inference_audit.decoded_frame_count,
+                        "pose_frames": inference_audit.analyzed_frame_count,
+                        "pose_sampling_ratio": (
+                            inference_audit.analyzed_frame_count
+                            / inference_audit.decoded_frame_count
+                            if inference_audit.decoded_frame_count > 0
+                            else 0.0
+                        ),
+                        "coarse_pose_frames": 0,
+                        "refinement_pose_frames": 0,
+                        "refinement_candidate_count": 0,
+                    }
+                )
+                fast_summary.pop("completed", None)
+                if offline_fast_scheduler is not None:
+                    fast_summary.update(
+                        {
+                            "formal_backend": "mediapipe",
+                            "formal_rules_enabled": True,
+                            "detailed_trace_enabled": bool(
+                                fast_config.detailed_trace
+                            ),
+                            "hands_enabled": False,
+                            "annotated_video_generated": False,
+                            "dtw_enabled": False,
+                            "research_diagnostics_enabled": False,
+                            "canonical_3d_enabled": False,
+                        }
+                    )
+                if profiler is not None:
+                    profiler.set_summary_metadata(fast_summary)
                 inference_audit.validate_complete(
                     inference_expected=pose_inference_ran
                 )
@@ -1597,6 +2369,7 @@ class PoseStreamEngine:
                     self._state.update(
                         {
                             **audit_state,
+                            **fast_summary,
                             "pose_cache_frame_count": (
                                 inference_audit.analyzed_frame_count
                             ),
@@ -1761,6 +2534,35 @@ class PoseStreamEngine:
                         }
                     )
                 self._frame_ready.notify_all()
+
+
+def _serialize_motion_keypoints(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    serialized: list[dict[str, Any]] = []
+    for point in value:
+        name = getattr(point, "name", None)
+        if not name:
+            continue
+        try:
+            x = float(getattr(point, "x"))
+            y = float(getattr(point, "y"))
+            z = float(getattr(point, "z", 0.0))
+            confidence = float(getattr(point, "confidence", 0.0))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not all(math.isfinite(number) for number in (x, y, z, confidence)):
+            continue
+        serialized.append(
+            {
+                "name": str(name),
+                "x": round(x, 6),
+                "y": round(y, 6),
+                "z": round(z, 6),
+                "confidence": round(confidence, 4),
+            }
+        )
+    return serialized
 
 
 def _discover_sample_videos() -> list[dict[str, str]]:
@@ -1997,6 +2799,14 @@ def create_app(
                 "actions": [{"value": value, "label": ACTION_LABELS[value]} for value in ("none", *HYROX_ACTION_NAMES)],
                 "views": [{"value": value, "label": VIEW_LABELS[value]} for value in CAMERA_VIEWS],
                 "samples": [{"id": sample["id"], "name": sample["name"], "action": sample["action"]} for sample in samples],
+                "video_analysis_modes": [
+                    {
+                        "value": "fast",
+                        "label": "快速分析",
+                        "default": True,
+                        "formal_rule_source": "MediaPipe + current HYROX rules",
+                    }
+                ],
                 "standards": {action: standards_for(action) for action in HYROX_ACTION_NAMES},
                 "official_rules": {action: official_rules_for(action) for action in HYROX_ACTION_NAMES},
                 "csrf_token": item.csrf_token,
@@ -2011,7 +2821,11 @@ def create_app(
                     "max_frame_bytes": 512 * 1024,
                     "request_timeout_ms": 3000,
                     "warning_pose_age_ms": realtime_latency_config.warning_pose_age_ms,
+                    "analysis_max_pose_age_ms": realtime_latency_config.analysis_max_pose_age_ms,
                     "max_pose_age_ms": realtime_latency_config.max_pose_age_ms,
+                    "display_prediction_ms": realtime_latency_config.display_prediction_ms,
+                    "display_hold_ms": realtime_latency_config.display_hold_ms,
+                    "display_fade_ms": realtime_latency_config.display_fade_ms,
                     "hide_pose_after_ms": realtime_latency_config.hide_pose_after_ms,
                     "report_retention_seconds": 600,
                     "rendering": {
@@ -2075,6 +2889,20 @@ def create_app(
                             "core_raw_weight_scale": product_pose_config.display_smoothing.core_raw_weight_scale,
                             "face_raw_weight_scale": product_pose_config.display_smoothing.face_raw_weight_scale,
                             "world_speed_scale": product_pose_config.display_smoothing.world_speed_scale,
+                            "landmark_enter_confidence": product_pose_config.display_smoothing.landmark_enter_confidence,
+                            "landmark_exit_confidence": product_pose_config.display_smoothing.landmark_exit_confidence,
+                            "landmark_hold_ms": product_pose_config.display_smoothing.landmark_hold_ms,
+                            "pose_hold_frames": product_pose_config.display_smoothing.pose_hold_frames,
+                            "jitter_deadband": product_pose_config.display_smoothing.jitter_deadband,
+                            "quality_gate_enabled": product_pose_config.display_smoothing.quality_gate_enabled,
+                            "quality_minimum_confidence": product_pose_config.display_smoothing.quality_minimum_confidence,
+                            "quality_max_speed_body_s": product_pose_config.display_smoothing.quality_max_speed_body_s,
+                            "quality_max_acceleration_body_s2": product_pose_config.display_smoothing.quality_max_acceleration_body_s2,
+                            "quality_max_bone_length_change_ratio": product_pose_config.display_smoothing.quality_max_bone_length_change_ratio,
+                            "quality_identity_swap_margin": product_pose_config.display_smoothing.quality_identity_swap_margin,
+                            "occlusion_short_prediction_ms": product_pose_config.display_smoothing.occlusion_short_prediction_ms,
+                            "occlusion_hide_after_ms": product_pose_config.display_smoothing.occlusion_hide_after_ms,
+                            "occlusion_reacquire_frames": product_pose_config.display_smoothing.occlusion_reacquire_frames,
                         },
                         "display_prediction": {
                             "enabled": product_pose_config.display_prediction.enabled,
@@ -2149,6 +2977,7 @@ def create_app(
             sensitivity = str(data.get("sensitivity", "medium"))
             backend = str(data.get("backend", "mediapipe"))
             profile = str(data.get("landmark_profile", "full"))
+            analysis_mode = str(data.get("analysis_mode", "fast"))
             if action not in {"none", *HYROX_ACTION_NAMES}:
                 raise ValueError("无效的动作")
             if view not in CAMERA_VIEWS:
@@ -2159,8 +2988,11 @@ def create_app(
                 raise ValueError("无效的识别后端")
             if profile not in {"full", "no-face", "upper-body", "lower-body"}:
                 raise ValueError("无效的骨架显示模式")
+            if analysis_mode != "fast":
+                raise ValueError("无效的分析模式")
             config: dict[str, Any] = {
                 "source_mode": source_mode,
+                "analysis_mode": analysis_mode,
                 "action": action,
                 "camera_view": view,
                 "sensitivity": sensitivity,
@@ -2456,6 +3288,8 @@ def create_app(
                             realtime.record_latency_audit(payload)
                         elif message_type == "camera_diagnostics":
                             realtime.record_camera_diagnostics(payload)
+                        elif message_type == "display_tracking_metrics":
+                            realtime.record_display_tracking_metrics(payload)
                         else:
                             raise RealtimeProtocolError("unknown_message", "无法识别的 WebSocket 消息")
                     except json.JSONDecodeError:

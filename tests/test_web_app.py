@@ -76,13 +76,26 @@ def test_web_home_and_options_are_available() -> None:
     }
     assert options.json["standards"]["rowing"]
     assert options.json["official_rules"]["wall_ball"]
+    assert options.json["video_analysis_modes"] == [
+        {
+            "value": "fast",
+            "label": "快速分析",
+            "default": True,
+            "formal_rule_source": "MediaPipe + current HYROX rules",
+        }
+    ]
+    assert "高级 3D 分析" not in page.get_data(as_text=True)
     assert options.json["realtime"]["target_fps"] == 30
     assert options.json["realtime"]["camera_fps"] == 60
     assert options.json["realtime"]["max_requests_in_flight"] == 1
     assert options.json["realtime"]["inference_long_edge"] == 640
     assert options.json["realtime"]["jpeg_quality"] == 0.65
+    assert options.json["realtime"]["analysis_max_pose_age_ms"] == 120
     assert options.json["realtime"]["max_pose_age_ms"] == 120
-    assert options.json["realtime"]["hide_pose_after_ms"] == 300
+    assert options.json["realtime"]["display_prediction_ms"] == 45
+    assert options.json["realtime"]["display_hold_ms"] == 250
+    assert options.json["realtime"]["display_fade_ms"] == 150
+    assert options.json["realtime"]["hide_pose_after_ms"] == 400
     assert options.json["realtime"]["rendering"] == {
         "angle_text_fps": 12.0,
         "metrics_fps": 5.0,
@@ -125,12 +138,17 @@ def test_web_home_and_options_are_available() -> None:
     }
     display = options.json["realtime"]["browser_pose"]["display_smoothing"]
     assert display["profile"] == "ultra_responsive"
-    assert display["min_cutoff"] == pytest.approx(2.2)
-    assert display["beta"] == pytest.approx(0.12)
-    assert display["max_raw_weight"] == pytest.approx(0.45)
-    assert display["prediction_enabled"] is False
+    assert display["min_cutoff"] == pytest.approx(1.4)
+    assert display["beta"] == pytest.approx(0.08)
+    assert display["max_raw_weight"] == pytest.approx(0.10)
+    assert display["landmark_enter_confidence"] == pytest.approx(0.50)
+    assert display["landmark_exit_confidence"] == pytest.approx(0.30)
+    assert display["landmark_hold_ms"] == pytest.approx(220)
+    assert display["pose_hold_frames"] == 5
+    assert display["jitter_deadband"] == pytest.approx(0.0025)
+    assert display["prediction_enabled"] is True
     prediction = options.json["realtime"]["browser_pose"]["display_prediction"]
-    assert prediction["enabled"] is False
+    assert prediction["enabled"] is True
     assert prediction["mode"] == "constant_velocity"
     assert prediction["max_horizon_ms"] == pytest.approx(45)
     assert prediction["maximum_body_scale_displacement"] == pytest.approx(0.06)
@@ -915,11 +933,10 @@ def test_browser_realtime_client_uses_video_frame_callback_and_single_in_flight_
     assert "inference_long_edge" in source
     assert 'ui.realtimeConfig.jpeg_quality ?? 0.65' in source
     assert "new TextEncoder().encode(JSON.stringify" in source
-    assert "now - ui.lastResultAt" in source
-    assert "receiptAge + reportedPoseAge" in source
     assert "pose_result_age_ms: localPoseAgeMs" in source
-    assert "displayAge > maxAge" in source
-    assert "Math.min(warningAge, maxAge)" in source
+    assert "displayPoseController.resolve(" in source
+    assert "if (!displayPose.shouldRender)" in source
+    assert "displayPose.opacity" in source
     assert "hideAfter * 0.8" not in source
     assert "poseAge > Number(ui.realtimeConfig.max_pose_age_ms || 120)" in source
     assert "now - captureMs" not in source
@@ -964,19 +981,24 @@ def test_browser_pose_worker_uses_latest_frame_slot_and_landmark_protocol() -> N
     assert "image_landmarks: serializeLocalLandmarks(message.rawImageLandmarks)" in source
     assert "world_landmarks: serializeLocalLandmarks(message.rawWorldLandmarks)" in source
     assert "image_landmarks: serializeLocalLandmarks(message.imageLandmarks)" not in source
-    assert "drawSkeleton(result, opacity, renderStart, prediction.landmarks)" in source
+    assert "drawSkeleton(result, displayPose.opacity, renderStart, displayPose.landmarks)" in source
+    assert "display_tracking: displayPose.metrics" in source
     assert "ui.latestResult.keypoints = prediction" not in source
     assert "prediction_horizon_ms" not in source
     assert "prediction_point_count" not in source
     assert "prediction_clamped_point_count" not in source
     assert 'local_first?.server_pose_fallback !== false' in source
     assert 'type: "camera_diagnostics"' in source
+    assert 'type: "display_tracking_metrics"' in source
     assert 'message_type == "camera_diagnostics"' in Path("webui/app.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'message_type == "display_tracking_metrics"' in Path("webui/app.py").read_text(
         encoding="utf-8"
     )
 
 
-def test_browser_render_cache_keeps_finger_landmarks_with_pose_prediction() -> None:
+def test_browser_render_cache_applies_per_joint_validity_to_pose_and_fingers() -> None:
     source = Path("webui/static/app.js").read_text(encoding="utf-8")
 
     assert "const supplementalFingerLandmarkNames" in source
@@ -984,8 +1006,9 @@ def test_browser_render_cache_keeps_finger_landmarks_with_pose_prediction() -> N
     assert "new Uint8Array(renderLandmarkNames.length)" in source
     assert "new Map(renderLandmarkNames.map" in source
     assert "new Int16Array(renderLandmarkNames.length * 2)" in source
-    assert "if (displayLandmarks) {" in source
-    assert "index < poseLandmarkNames.length" in source
+    assert "point.displayValid === false" in source
+    assert "drawingCache.pointPresent[start]" in source
+    assert "drawingCache.pointPresent[end]" in source
     assert "index < renderLandmarkNames.length" in source
 
 
@@ -1061,6 +1084,22 @@ def test_start_rejects_unknown_action() -> None:
 
     assert response.status_code == 400
     assert "无效的动作" in response.json["error"]
+
+
+def test_start_rejects_deferred_advanced_analysis_mode() -> None:
+    engine = FakeEngine()
+    client = create_app(engine).test_client()
+    headers = csrf_headers(client)
+
+    response = client.post(
+        "/api/start",
+        headers=headers,
+        json={"source_mode": "upload", "analysis_mode": "advanced"},
+    )
+
+    assert response.status_code == 400
+    assert engine.started_with is None
+    assert "无效的分析模式" in response.json["error"]
 
 
 def test_sample_action_and_video_are_linked_by_the_api() -> None:

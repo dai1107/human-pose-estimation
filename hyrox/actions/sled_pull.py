@@ -6,6 +6,7 @@ from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_sled_pull_config
 from hyrox.contact import ContactResult, KneeContactDetector
 from hyrox.feedback import FeedbackMessage
+from hyrox.reliable_side import ReliableSideSelector
 from hyrox.violations import TemporalViolationTracker, ViolationResult
 
 
@@ -66,6 +67,11 @@ class SledPullAnalyzer(BaseActionAnalyzer):
             "UNSURE_POSSIBLE_SEATED_PULL",
             _resolved_int(values.get("seated_min_violation_ms"), 250),
         )
+        self.side_selector = ReliableSideSelector(
+            min_confidence=0.45,
+            switch_margin=0.08,
+            switch_confirmation_frames=2,
+        )
         visibility_min = _resolved_float(values.get("visibility_min"), 0.55)
         super().__init__(action="sled_pull", min_visible_score=min(1.0, visibility_min))
         self.configure_feedback_limits(values)
@@ -118,6 +124,7 @@ class SledPullAnalyzer(BaseActionAnalyzer):
 
     def reset(self) -> None:
         super().reset()
+        self.side_selector.reset()
         self.phase = "unknown"
         self.raw_phase = "unknown"
         self.stable_phase = "unknown"
@@ -304,10 +311,26 @@ class SledPullAnalyzer(BaseActionAnalyzer):
         visible_score = self._visible_score(values)
         left_elbow = _safe_float(values.get("left_elbow_angle"))
         right_elbow = _safe_float(values.get("right_elbow_angle"))
+        side_selection = self.side_selector.select(
+            values,
+            required_landmarks=("elbow", "wrist", "hip", "knee", "ankle"),
+            required_metrics=("elbow_angle", "knee_angle", "hip_angle"),
+        )
+        selected_side = side_selection.selected_side
+        # A pull cycle is a bilateral handle action.  Reliable-side metadata
+        # helps diagnose occlusion, but formal phase progression keeps the
+        # established two-arm aggregate so a unilateral twitch cannot create
+        # or erase a cycle.
         elbow_angle = _mean_metric(left_elbow, right_elbow)
         elbow_delta = None if elbow_angle is None or self.previous_elbow_angle is None else elbow_angle - self.previous_elbow_angle
-        knee_angle = _mean_metric(values.get("left_knee_angle"), values.get("right_knee_angle"))
-        hip_angle = _mean_metric(values.get("left_hip_angle"), values.get("right_hip_angle"))
+        knee_angle = _mean_metric(
+            values.get("left_knee_angle"),
+            values.get("right_knee_angle"),
+        )
+        hip_angle = _mean_metric(
+            values.get("left_hip_angle"),
+            values.get("right_hip_angle"),
+        )
         torso_angle = _safe_float(values.get("torso_angle"))
         body_center_y = _safe_float(values.get("body_center_y"))
         hip_center_y = _safe_float(values.get("hip_center_y"))
@@ -480,6 +503,9 @@ class SledPullAnalyzer(BaseActionAnalyzer):
                 "stable_phase": self.stable_phase,
                 "pull_count": self.rep_count,
                 "elbow_angle_mean": elbow_angle,
+                "selected_pose_side": selected_side,
+                "side_selection_strategy": "bilateral_cycle_with_reliability_metadata",
+                "reliable_side_selection": side_selection.as_dict(),
                 "elbow_delta": elbow_delta,
                 "torso_angle": torso_angle,
                 "knee_angle_mean": knee_angle,

@@ -30,6 +30,7 @@
 ```text
 关键点
   → 通用运动学特征
+  → ReliableSideSelector 或 bilateral-required 策略
   → 动作 YAML 阶段阈值
   → 动作专属技术反馈与完整端点顺序
   → 接触/脚部事件规则
@@ -45,12 +46,26 @@
 | 阶段与实时反馈 | 各动作 YAML、`hyrox/actions/*.py` | 确认当前阶段并生成技术问题；`feedback_limits` 控制单帧最多显示多少项 |
 | 触地与脚部事件 | `contact.yaml`、`foot_events.yaml` 及动作专属覆盖值 | 生成膝/胸触地、左右脚支撑、同步起落、错位和碎步证据 |
 | 完整候选规则 | 各动作分析器中的必需规则列表 | 将逐规则 `PASS/FAIL/UNSURE` 聚合成初步 `VALID/NO_REP/UNSURE` |
-| 可观测性 | `observability.yaml` | 检查整次可见度、必需关键点、决定性规则、地板、视角和单帧失败，必要时降级为 `UNSURE` |
+| 可观测性 | `observability.yaml` | 检查整次可见度、必需关键点、决定性规则、地板和单帧失败，必要时降级为 `UNSURE`；视角只保留为推荐 metadata |
 | 网页当前姿态评价 | `webui/analysis.py` 中的 `ACTION_STANDARDS` | 控制当前阶段的红/绿/中性骨架和角度标记；它用于训练解释，不替代完整候选规则 |
 
 因此，修改某个页面参考角度不一定会改变计数，修改技术提示阈值也不一定会改变 `VALID/NO_REP`。要调整完整动作判定，必须确认改动属于阶段识别、技术反馈、计数必需规则还是可观测性门控，并使用对应测试验证。主流程和结果解释见 [项目 README](../../README.md#动作问题如何判断)。
 
 第 6–12 轮实时优化没有修改本目录的正式 HYROX 阈值语义。统一 `JointMetric`、3D 可靠性、body canonical 坐标和 `GroundEstimator` 只提供来源选择、置信度或辅助/验证证据；第 12 轮人工角度严格非回归尚未通过，因此 selected-rule angle 仍采用当前正式 2D 分析流。不要仅因为报告中存在 canonical/3D 字段就把 YAML 阈值直接迁移为 3D。
+
+## 左右侧可靠性与双侧规则
+
+`hyrox/reliable_side.py` 的 `ReliableSideSelector` 不读取 `camera_view`。它按左右侧实际关键点置信度、正式指标完整度和置信度字段覆盖率评分；当前侧仍可观测时，另一侧需超过 `switch_margin: 0.08` 并连续 2 个分析帧占优才切换，当前侧正式指标丢失时立即切到可观测侧。默认最低侧置信度为 `0.45`，Lunge 伸展链沿用更保守的 `0.52`。
+
+| 动作 | 当前侧策略 |
+|---|---|
+| Rowing、SkiErg、Sled Push | 同一帧从可靠单侧关节链读取相关阶段指标，保留切换迟滞 |
+| Lunge | 先按动作空间关系确定 `contact_leg / leading_leg`，再仅为触地后膝髋伸展选择可靠腿链；左右侧不会重定义前后腿 |
+| Wall Ball | 可使用单链的配置读取可靠侧；前视/unknown 与双腕投掷等必需双侧证据保持 bilateral |
+| Sled Pull | 选择器只输出遮挡诊断 metadata，正式 `reach → pull → recover → reach` 继续使用双臂聚合 |
+| Burpee Broad Jump、Farmers Carry | `bilateral_required`，双脚同步/位移和双臂位置不得折叠为单侧规则 |
+
+动作调试字典统一输出 `side_selection_strategy`；使用选择器时还输出 `reliable_side_selection`，包含 `selected_side`、左右 `score/confidence/landmark_coverage/metric_coverage/observable/reason_codes`、pending 切换和累计切换次数。
 
 ## 默认中灵敏度计数与分析周期端点
 
@@ -60,8 +75,8 @@
 |---|---|---|
 | Lunge | `stand → trailing-knee contact → post-contact full extension` | 综合前进方向、脚位置和双膝离地高度确定后腿，清晰的近地膝可纠正侧视图左右误配。正面证据要求双膝/双髋 ≥165°；推荐侧面视角使用置信度更高的同侧腿链和 `side_extension_tolerance_deg: 3`，连续保持中灵敏度 2 帧。还必须交替触地且无额外调整步。 |
 | Wall Ball | `tall start → hip below knee → upward extension → bilateral throw proxy` | 起始双膝、双髋均需 ≥165°，躯干偏离竖直 ≤25°；最低点按局部地板距离要求髋比膝低至少人体高度的 0.01。投掷端点双膝、双髋均需 ≥165°，双腕从胸部附近上升且均高于肩；双腕峰值时间差采用 `120/220 ms` 三档。四项规则全 PASS 后加 1。 |
-| Rowing | `catch → finish` | `catch`：至少一侧膝 ≤105；`finish`：双膝 ≥145 且双肘平均 ≤145；`finish` 时增加一个分析周期。`drive` 可选，不产生官方有效次数。 |
-| SkiErg | `top → bottom → top` | `top`：双手腕均高于肩 ≥0.03 且躯干绝对角 <15；`bottom`：手腕低于胸部 ≥0.05，并且躯干绝对角 ≥15 或膝角 <155；返回 `top` 时增加一个分析周期。`pull_down/return` 可选，不产生官方有效次数。 |
+| Rowing | `catch → finish` | 可靠单侧膝、髋、肘链驱动阶段：`catch` 膝 ≤105，`finish` 膝 ≥145 且同侧肘 ≤145；`finish` 时增加一个分析周期。`drive` 可选，不产生官方有效次数。 |
+| SkiErg | `top → bottom → top` | 可靠单侧腕链驱动端点：`top` 手腕高于肩 ≥0.03 且躯干绝对角 <15；`bottom` 手腕低于胸部 ≥0.05，并且躯干绝对角 ≥15 或膝角 <155；返回 `top` 时增加一个分析周期。双腕高度差仍单独用于不对称技术提示。 |
 | Burpee Broad Jump | `chest contact confirmed → simultaneous takeoff → simultaneous landing → next hands-down validation` | 胸部必须由通用接触器确认；双脚起落同步及起落错位代理均需通过。身体中心位移/腿长需 ≥0.20，左右脚位移/腿长均需 ≥0.15 且方向一致。落地后进入 `AWAITING_NEXT_HANDS`，继续排查补步或碎步，到下一次 hands-down/chest-down 才完成八项规则验证并决定是否加 1。 |
 | Sled Push | `drive → step` | `drive`：躯干明显前倾且身体中心变化 ≥0.003 或膝伸展变化 ≥3；`step`：脚踝位置或脚间距变化 ≥0.04；`step` 时增加一个推动步分析周期，不产生官方有效次数。 |
 | Sled Pull | `reach → pull → recover → reach` | `reach`：双肘平均 ≥145；肘角减小形成 `pull`，随后肘角增大形成 `recover`；身体向前回正并再次到达 `reach` 时增加一个分析周期，使后拉和随后的回正属于同一周期。清晰拉幅建议 ≥25，不足主要触发质量提示，不产生官方有效次数。 |
@@ -85,7 +100,7 @@ Rowing、SkiErg、Sled Push 和 Sled Pull 的阶段计数只用于动作分析�
 - Farmers Carry 在检测到搬运移动时检查双臂。任一肘角 `<155°` 持续 `≥300 ms` 输出 `ARM_NOT_EXTENDED_VIOLATION`；任一手腕低于同侧髋部不足人体高度的 `0.03`，或手腕相对同侧髋的横向距离超过肩宽的 `0.80`，持续 `≥300 ms` 输出 `ARM_NOT_BY_SIDE_VIOLATION`。
 
 上述时间字段是持续违规门控，不是官方规则给出的容差。单帧异常只进入候选状态；
-关键点、地板或视角证据不足时为 `UNSURE`，不会直接输出明确违规。早拉手、划船节奏、
+关键点、地板或正式指标证据不足时为 `UNSURE`，不会直接输出明确违规；非推荐视角只产生拍摄建议。早拉手、划船节奏、
 躯干角度和左右不对称等既有技术提示仍是动作质量反馈，不会自动升级为比赛违规。
 
 ## 通用字段
@@ -122,7 +137,7 @@ Lunge 使用动作专属的膝盖代理配置：`knee_surface_radius_shank_ratio
 `required_landmark_confidence: 0.60` 是各必需关键点在决定性证据窗口中的中位置信度下限（再取最弱关键点），
 `rep_mean_confidence: 0.65` 是整次候选的平均可见度下限，
 `decisive_rule_confidence: 0.72` 是输出最终 `VALID` 或 `NO_REP` 所需的决定性规则
-置信度。局部地板失效、已知视角不适合或只有一个异常失败帧也会将最终结论降为
+置信度。局部地板失效、正式关键点/指标不可观测或只有一个异常失败帧会将最终结论降为
 `UNSURE`。这层门控不改写逐规则 `PASS/FAIL`，降级详情输出在
 `last_rep_observability`。
 

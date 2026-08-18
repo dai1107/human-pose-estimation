@@ -80,6 +80,74 @@ def test_display_raw_blend_is_disabled_by_config() -> None:
     assert "display_raw_blend" not in result.extra
 
 
+def test_display_filter_holds_a_brief_low_confidence_landmark_without_moving_it() -> None:
+    display = create_display_smoother(DisplaySmoothingConfig(raw_blend_enabled=False))
+    reliable = display.smooth_result(_pose(0.4, 0), capture_timestamp_ns=0)
+    low_points = [
+        Keypoint(
+            name=point.name,
+            x=0.9,
+            y=point.y,
+            confidence=0.1,
+            visibility=0.1,
+            presence=0.1,
+            source_model=point.source_model,
+        )
+        for point in _pose(0.9, 50).keypoints
+    ]
+    low = PoseResult(
+        keypoints=low_points,
+        connections=((0, 1),),
+        model_name="mediapipe",
+        num_keypoints=2,
+        success=True,
+        inference_time_ms=10.0,
+        timestamp_ms=50,
+    )
+
+    held = display.smooth_result(low, capture_timestamp_ns=50_000_000)
+    expired = display.smooth_result(low, capture_timestamp_ns=271_000_000)
+
+    assert held.keypoints[0].x == pytest.approx(reliable.keypoints[0].x)
+    assert held.keypoints[0].confidence > 0.2
+    assert expired.keypoints[0].confidence == 0.0
+
+
+def test_display_filter_holds_short_whole_pose_misses() -> None:
+    display = create_display_smoother(DisplaySmoothingConfig(pose_hold_frames=2))
+    display.smooth_result(_pose(0.4, 0), capture_timestamp_ns=0)
+    missed = PoseResult(
+        keypoints=[],
+        connections=(),
+        model_name="mediapipe",
+        num_keypoints=0,
+        success=False,
+        inference_time_ms=10.0,
+        timestamp_ms=33,
+    )
+
+    first = display.smooth_result(missed, capture_timestamp_ns=33_000_000)
+    second = display.smooth_result(missed, capture_timestamp_ns=66_000_000)
+    third = display.smooth_result(missed, capture_timestamp_ns=99_000_000)
+
+    assert first.success and first.extra["stabilized_hold"]
+    assert second.success and second.extra["hold_frames"] == 2
+    assert third.success is False
+
+
+def test_display_filter_deadband_suppresses_subpixel_static_jitter() -> None:
+    display = create_display_smoother(
+        DisplaySmoothingConfig(raw_blend_enabled=False, jitter_deadband=0.0025)
+    )
+    first = display.smooth_result(_pose(0.4, 0), capture_timestamp_ns=0)
+    jittered = display.smooth_result(
+        _pose(0.401, 33),
+        capture_timestamp_ns=33_000_000,
+    )
+
+    assert jittered.keypoints[0].x == pytest.approx(first.keypoints[0].x)
+
+
 def test_landmark_lag_debug_draws_raw_and_filtered_overlay() -> None:
     frame = np.zeros((160, 240, 3), dtype=np.uint8)
     draw_landmark_lag_debug(frame, _pose(0.25, 0), _pose(0.75, 0))

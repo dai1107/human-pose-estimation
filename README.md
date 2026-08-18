@@ -48,6 +48,7 @@ Lunge、Wall Ball 和 Burpee Broad Jump 会形成需要人体规则验证的动�
   → MediaPipe image + world landmarks
   → 显示/分析两套 One Euro
   → 统一关节角、3D 可靠性、地板和脚部证据
+  → ReliableSideSelector / 双侧必需规则
   → 动作专属状态机
   → 当前技术反馈与完整周期规则验证
   → 可观测性检查
@@ -64,11 +65,28 @@ Lunge、Wall Ball 和 Burpee Broad Jump 会形成需要人体规则验证的动�
 | 实时动作反馈 | 当前帧或最近一段动作中的技术问题，不一定影响有效计数 |
 | 完整周期判定 | 整次动作候选的必需人体规则和证据质量，输出 `VALID`、`NO_REP` 或 `UNSURE` |
 
-证据不足、身体遮挡、拍摄视角不适合或关键点置信度不足时，程序会优先返回 `UNSURE`，而不是给出不可靠的有效或无效结论。具体阈值和规则见 [动作配置说明](configs/hyrox/README.md)。
+证据不足、身体遮挡、正式指标不可计算或关键点置信度不足时，程序会优先返回 `UNSURE`，而不是给出不可靠的有效或无效结论。拍摄视角仅作为推荐信息：非推荐视角会提示 `CAMERA_VIEW_NOT_RECOMMENDED`，但不会单独改变 `VALID / NO_REP / UNSURE`。具体阈值和规则见 [动作配置说明](configs/hyrox/README.md)。
+
+## 六轮姿态系统改进状态
+
+《HYROX 姿态系统三项问题改进方案》的六轮任务现已全部完成：
+
+| 轮次 | 已实现内容 | 正式规则边界 |
+|---|---|---|
+| 1 | `DisplayPoseController` 的 `TRACKING / DEGRADED / LOST`、短时保持和淡出 | last-good/display prediction 只用于画骨架 |
+| 2 | 逐关键点置信度滞回、骨段局部隐藏、滤波缺口与 reacquisition 指标 | 显示补偿不进入 Rule Engine |
+| 3 | `OfflineFastPipeline` 时间戳采样、约 15 pose FPS、无播放节流和最小报告 | Fast 仍为 MediaPipe + HYROX 正式规则 |
+| 4 | coarse scan + candidate dense refinement | 候选、`VALID / NO_REP / UNSURE` 语义不变 |
+| 5 | `camera_view` 改为 metadata/advice，使用 `CAMERA_VIEW_NOT_RECOMMENDED` | 非推荐或 `unknown` 不会单独触发 `UNSURE` |
+| 6 | 统一 `ReliableSideSelector`：关键点置信度、指标完整度、迟滞和快速失效切换 | Lunge 保留前/后腿身份；双腕、双脚和双臂规则保持 bilateral |
+
+Rowing、SkiErg、Sled Push 使用可靠单侧关节链；Lunge 只把选择器用于触地后的伸展链；Wall Ball 在允许单链的拍摄配置中使用选择器，前视/unknown 仍保留双侧正式证据；Sled Pull 的正式周期继续使用双臂聚合，仅输出可靠侧诊断 metadata；Burpee Broad Jump 和 Farmers Carry 明确为 `bilateral_required`。逐侧评分与切换原因位于动作状态的 `debug.reliable_side_selection`。
 
 ## 实时性能与低延迟策略
 
-桌面摄像头和有窗口的视频回放采用 Latest-Frame 架构：捕获/播放线程只保留一个最新帧，MediaPipe 忙时覆盖旧待处理帧，不形成长推理队列。每个姿态结果都携带 `frame_id` 和源时间戳；超过帧差或 `max_pose_age_ms: 120` 的结果不会进入正式规则，也不会继续画在新视频帧上。
+桌面摄像头和有窗口的视频回放采用 Latest-Frame 架构：捕获/播放线程只保留一个最新帧，MediaPipe 忙时覆盖旧待处理帧，不形成长推理队列。每个姿态结果都携带 `frame_id` 和源时间戳；超过帧差或 `analysis_max_pose_age_ms: 120` 的结果不会进入正式规则。浏览器骨架显示与正式分析隔离：短时漏检会保持最后一副显示姿态，随后淡出，但保持、淡出和显示预测都不会进入 HYROX 规则、计数或报告。
+
+显示层对每个关键点独立使用置信度滞回：不可见节点需要高于 `0.50` 才进入显示，已显示节点降到 `0.30` 以下才退出。单个腕、踝等节点不可用时只隐藏依赖该节点的骨段，不会清空整副骨架。One Euro 在空姿态或短于 `250ms` 的缺口中保留滤波状态，达到缺口阈值才重新初始化。实时 JSON 报告的 `summary.display_tracking` 会记录 `pose_detection_rate`、`pose_missing_rate`、`consecutive_missing_ms`、`flicker_count` 和 `reacquisition_ms`；这些字段标记为 `display_only`，不参与正式判定。
 
 默认配置位于 `configs/product_pose.yaml`：
 
@@ -81,8 +99,23 @@ realtime_latency:
   max_pose_fps: 20
   queue_size: 1
   warning_pose_age_ms: 80
-  max_pose_age_ms: 120
+  analysis_max_pose_age_ms: 120
+  display_prediction_ms: 45
+  display_hold_ms: 250
+  display_fade_ms: 150
+display_smoothing:
+  max_gap_ms_before_reset: 250
+  min_cutoff: 1.4
+  beta: 0.08
+  max_raw_weight: 0.10
+  landmark_enter_confidence: 0.50
+  landmark_exit_confidence: 0.30
+  landmark_hold_ms: 220
+  pose_hold_frames: 5
+  jitter_deadband: 0.0025
 ```
+
+显示骨架会对单关节使用进入/退出置信度迟滞：短于 `landmark_hold_ms` 的低置信度波动保持最近可靠位置，连续整帧丢检最多保持 `pose_hold_frames` 个姿态推理帧。该保持仅用于画面渲染，不进入角度计算或 HYROX 正式判定。
 
 桌面 `RealtimeBudgetController` 根据滚动 P95 推理耗时、P95 姿态年龄和队列饱和度控制负载。降级顺序固定为 pose FPS `20→15→12`、推理宽度 `640→512→416→320`、可选额外分析频率；视频读取、播放和渲染时钟不会随 MediaPipe 变慢。浏览器实时链路使用本机 Worker 和唯一 pending 槽，拥有独立的 Full/Lite 自动基准与服务器兼容回退，不直接复用桌面控制器。
 
@@ -127,7 +160,7 @@ python -m src.doctor
 .\.venv\Scripts\python.exe start_web.py
 ```
 
-浏览器会打开 `http://127.0.0.1:5000`。选择动作和视频来源，允许摄像头权限后即可开始实时分析；也可以上传视频进行离线分析。
+浏览器会打开 `http://127.0.0.1:5000`。选择动作和视频来源，允许摄像头权限后即可开始实时分析；也可以上传视频进行离线分析。上传视频使用 MediaPipe 与现有 HYROX 规则完成快速分析，并按原视频时间轴回放正式骨架与动作结果。
 
 “动作反馈”区域的语音提示默认开启。语音由浏览器 Web Speech API 在当前设备本机合成，不申请麦克风权限，也不会向服务器上传音频。
 
@@ -190,7 +223,7 @@ python main.py `
 - `--hyrox-debug`：显示规则与特征调试信息；
 - `--experimental-backends`：显式启用实验后端。
 
-运行时按 `A` 打开动作菜单，按 `N` 切换到下一项动作，按 `V` 切换相机视角。视角不足以支持当前规则时会显示 `CAMERA_VIEW_LIMITED`。运行 `python main.py --help` 查看完整参数，其他桌面窗口快捷键和拍摄建议见 [完整使用说明](使用说明.md)。
+运行时按 `A` 打开动作菜单，按 `N` 切换到下一项动作，按 `V` 切换相机视角。非推荐视角会显示仅作拍摄建议的 `CAMERA_VIEW_NOT_RECOMMENDED`，系统仍按实际可观测关键点和指标继续分析；`unknown` 也不会自动导致 `UNSURE`。运行 `python main.py --help` 查看完整参数，其他桌面窗口快捷键和拍摄建议见 [完整使用说明](使用说明.md)。
 
 回放单个 HYROX 视频时必须明确指定 camera view（拍摄视角），例如：
 
@@ -316,6 +349,17 @@ python -m build
 # 固定示例黄金回归
 pose-golden --report outputs\validation\hyrox_golden_report.json
 
+# 遮挡/跨视角阶段 A 诊断基线（逐关节 CSV、阶段轨迹、难例分类、黄金回归）
+pose-occlusion-baseline --output-dir outputs\occlusion_view_phase_a
+
+# 阶段 B 上传显示稳定策略消融（可传单个 --input）
+node tools\run_display_stability_ablation.mjs `
+  --input-dir outputs\occlusion_view_phase_a\timelines `
+  --output outputs\occlusion_view_phase_a\display_stability_ablation.json
+
+# 阶段 C/D 正式证据质量、视角能力矩阵和相位解码报告
+pose-occlusion-phase-cd --output-dir outputs\occlusion_view_phase_cd
+
 # 耐久测试
 pose-endurance --minutes 30 --report outputs\validation\endurance_30m.json
 
@@ -332,6 +376,7 @@ pose-clean --json
 
 ```text
 hyrox/                   # HYROX 动作分析器与通用规则
+  reliable_side.py       # 与 camera_view 无关的左右侧可靠性评分和迟滞选择
 configs/hyrox/           # 动作配置
 src/backends/            # 姿态后端
 src/biomechanics/        # 通用运动学数据

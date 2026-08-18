@@ -177,4 +177,6 @@ def test_rowing_uses_visible_side_for_oblique_rear_counting() -> None:
     assert state["rep_count"] == 1
     assert state["unsure_count"] == 0
     assert state["debug"]["selected_pose_side"] == "left"
+    assert state["debug"]["side_selection_strategy"] == "reliable_single_chain"
+    assert state["debug"]["reliable_side_selection"]["left"]["observable"] is True
     assert state["debug"]["analysis_visible_score"] == pytest.approx(0.96)

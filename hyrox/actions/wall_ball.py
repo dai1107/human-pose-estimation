@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from math import isfinite
-from typing import Any
+from typing import Any, Literal
 
 from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_wall_ball_config
 from hyrox.feedback import FeedbackMessage
+from hyrox.reliable_side import ReliableSideSelector
 from hyrox.validity import BodyRuleResult, RepDecision
 
 
@@ -115,6 +116,11 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         self.sensitivity = sensitivity
         self.config_name = str(config_name or config_data.get("config_name") or "wall_ball_default")
         visibility_min = _resolved_float(config_data.get("visibility_min"), 0.45, minimum=0.0)
+        self.pose_side_selector = ReliableSideSelector(
+            min_confidence=0.45,
+            switch_margin=0.08,
+            switch_confirmation_frames=2,
+        )
         super().__init__(action="Wall Ball", min_visible_score=min(1.0, visibility_min))
         self.configure_feedback_limits(config_data)
         self.stand_knee_angle = _resolved_float(config_data.get("stand_knee_angle_min"), 150.0)
@@ -236,6 +242,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
 
     def reset(self) -> None:
         super().reset()
+        self.pose_side_selector.reset()
         self.phase = "unknown"
         self.raw_phase = "unknown"
         self.stable_phase = "unknown"
@@ -301,6 +308,7 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         self._heel_rise_frames = 0
         self._heel_rise_active = False
         self._pose_side: Literal["left", "right"] | None = None
+        self._pose_side_selection_frame: int | None = None
         self.rep_sequence = PhaseSequenceTracker(
             ("stand", "squat_down", "bottom", "drive", "throw_extension"),
             optional_phases=("squat_down", "drive"),
@@ -323,6 +331,31 @@ class WallBallAnalyzer(BaseActionAnalyzer):
         self,
         features: Mapping[str, object],
     ) -> Literal["left", "right"] | None:
+        if self._pose_side is not None:
+            return self._pose_side
+        if self._pose_side_selection_frame != self.frame_index:
+            selection = self.pose_side_selector.select(
+                features,
+                required_landmarks=(
+                    "shoulder",
+                    "wrist",
+                    "hip",
+                    "knee",
+                    "ankle",
+                ),
+                required_metrics=(
+                    "knee_angle",
+                    "hip_angle",
+                    "elbow_angle",
+                    "wrist_y",
+                ),
+            )
+            self._pose_side_selection_frame = self.frame_index
+        else:
+            selection = self.pose_side_selector.last_selection
+        # Front/unknown Wall Ball keeps bilateral formal rules so a missing
+        # wrist or leg cannot be hidden by selecting only the clearer side.
+        # The same selector still reports reliability metadata in those views.
         if self.camera_view not in {
             "side",
             "rear",
@@ -332,37 +365,9 @@ class WallBallAnalyzer(BaseActionAnalyzer):
             "front_right",
         }:
             return None
-        if self._pose_side is not None:
-            return self._pose_side
-        scores: list[tuple[float, int, Literal["left", "right"]]] = []
-        for side in ("left", "right"):
-            confidences = [
-                value
-                for name in ("shoulder", "wrist", "hip", "knee", "ankle")
-                for value in (
-                    _safe_float(features.get(f"{side}_{name}_confidence")),
-                )
-                if value is not None
-            ]
-            available = sum(
-                _safe_float(features.get(f"{side}_{metric}")) is not None
-                for metric in (
-                    "knee_angle",
-                    "hip_angle",
-                    "elbow_angle",
-                    "wrist_y",
-                )
-            )
-            if confidences or available:
-                scores.append(
-                    (
-                        min(confidences) if confidences else 0.0,
-                        available,
-                        side,
-                    )
-                )
-        if scores:
-            self._pose_side = max(scores)[2]
+        self._pose_side = (
+            None if selection is None else selection.selected_side
+        )
         return self._pose_side
 
     def _rule_sides(
@@ -928,6 +933,16 @@ class WallBallAnalyzer(BaseActionAnalyzer):
                     if pose_side is not None
                     else "bilateral"
                 ),
+                "side_selection_strategy": (
+                    "reliable_single_chain"
+                    if pose_side is not None
+                    else "bilateral_required"
+                ),
+                "reliable_side_selection": (
+                    None
+                    if self.pose_side_selector.last_selection is None
+                    else self.pose_side_selector.last_selection.as_dict()
+                ),
                 "visible_score": visible_score,
             },
         )
@@ -1185,6 +1200,16 @@ class WallBallAnalyzer(BaseActionAnalyzer):
                 f"selected_{self._pose_side}"
                 if self._pose_side is not None
                 else "bilateral"
+            ),
+            "side_selection_strategy": (
+                "reliable_single_chain"
+                if self._pose_side is not None
+                else "bilateral_required"
+            ),
+            "reliable_side_selection": (
+                None
+                if self.pose_side_selector.last_selection is None
+                else self.pose_side_selector.last_selection.as_dict()
             ),
             **self.rep_sequence.debug(),
         }

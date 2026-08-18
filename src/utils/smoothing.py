@@ -242,6 +242,10 @@ class KeypointSmoother:
         core_raw_weight_scale: float = 0.35,
         face_raw_weight_scale: float = 0.0,
         world_speed_scale: float = 1.25,
+        landmark_enter_confidence: float | None = None,
+        landmark_exit_confidence: float | None = None,
+        landmark_hold_ms: float = 0.0,
+        jitter_deadband: float = 0.0,
     ) -> None:
         if mode not in {"none", "ema", "one-euro"}:
             raise ValueError(f"unknown smoothing mode: {mode}")
@@ -279,10 +283,26 @@ class KeypointSmoother:
         self.core_raw_weight_scale = max(0.0, min(1.0, float(core_raw_weight_scale)))
         self.face_raw_weight_scale = max(0.0, min(1.0, float(face_raw_weight_scale)))
         self.world_speed_scale = max(1e-6, float(world_speed_scale))
+        self.landmark_enter_confidence = (
+            None if landmark_enter_confidence is None else _clamp01(landmark_enter_confidence)
+        )
+        self.landmark_exit_confidence = (
+            None if landmark_exit_confidence is None else _clamp01(landmark_exit_confidence)
+        )
+        if (
+            self.landmark_enter_confidence is not None
+            and self.landmark_exit_confidence is not None
+            and self.landmark_exit_confidence >= self.landmark_enter_confidence
+        ):
+            raise ValueError("landmark exit confidence must be below enter confidence")
+        self.landmark_hold_ns = max(0, int(float(landmark_hold_ms) * 1_000_000.0))
+        self.jitter_deadband = max(0.0, float(jitter_deadband))
         self._ema_state: dict[tuple[LandmarkSpace, str], Keypoint] = {}
         self._one_euro_state: dict[tuple[LandmarkSpace, str, str], OneEuroValueFilter] = {}
         self._raw_history: dict[tuple[LandmarkSpace, str], tuple[Keypoint, int]] = {}
         self._last_points: dict[str, Keypoint] = {}
+        self._landmark_visible: dict[str, bool] = {}
+        self._landmark_low_since_ns: dict[str, int] = {}
         self._guard_hold_counts: dict[str, int] = {}
         self._last_observation_timestamp_ns: dict[LandmarkSpace, int] = {}
         self._last_result: PoseResult | None = None
@@ -341,7 +361,7 @@ class KeypointSmoother:
             one_euro_profiles={"ultra_responsive": profile},
             max_gap_ms_before_reset=config.max_gap_ms_before_reset,
             min_confidence=0.0,
-            max_missing_frames=0,
+            max_missing_frames=config.pose_hold_frames,
             occlusion_guard=False,
             raw_blend_enabled=config.raw_blend_enabled,
             max_raw_weight=config.max_raw_weight,
@@ -352,6 +372,10 @@ class KeypointSmoother:
             core_raw_weight_scale=config.core_raw_weight_scale,
             face_raw_weight_scale=config.face_raw_weight_scale,
             world_speed_scale=config.world_speed_scale,
+            landmark_enter_confidence=config.landmark_enter_confidence,
+            landmark_exit_confidence=config.landmark_exit_confidence,
+            landmark_hold_ms=config.landmark_hold_ms,
+            jitter_deadband=config.jitter_deadband,
         )
 
     def smooth_result(
@@ -431,6 +455,8 @@ class KeypointSmoother:
         self._one_euro_state.clear()
         self._raw_history.clear()
         self._last_points.clear()
+        self._landmark_visible.clear()
+        self._landmark_low_since_ns.clear()
         self._guard_hold_counts.clear()
         self._last_observation_timestamp_ns.clear()
         self._last_result = None
@@ -450,6 +476,10 @@ class KeypointSmoother:
         if point.confidence < self.min_confidence or not all(isfinite(value) for value in (point.x, point.y, point.z)):
             return point
         previous = self._last_points.get(key) if space == "image" else None
+        if space == "image":
+            stabilized = self._stabilize_display_landmark(point, previous, timestamp_ns)
+            if stabilized is not None:
+                return stabilized
         if space == "image" and self._should_hold_for_occlusion(point, previous, occlusion_points):
             self._guard_hold_counts[key] = self._guard_hold_counts.get(key, 0) + 1
             guarded_names.append(point.name)
@@ -469,6 +499,54 @@ class KeypointSmoother:
         if space == "image":
             self._last_points[key] = smoothed
         return smoothed
+
+    def _stabilize_display_landmark(
+        self,
+        point: Keypoint,
+        previous: Keypoint | None,
+        timestamp_ns: int | None,
+    ) -> Keypoint | None:
+        """Debounce display-only landmark confidence and hold its last position briefly."""
+
+        if self.landmark_enter_confidence is None or self.landmark_exit_confidence is None:
+            return None
+        key = self._state_key(point)
+        confidence = min(
+            point.confidence,
+            point.visibility if point.visibility is not None else point.confidence,
+            point.presence if point.presence is not None else point.confidence,
+        )
+        visible = self._landmark_visible.get(key, False)
+        if not visible:
+            if confidence > self.landmark_enter_confidence:
+                self._landmark_visible[key] = True
+                self._landmark_low_since_ns.pop(key, None)
+                return None
+            return replace(point, confidence=0.0)
+
+        if confidence >= self.landmark_exit_confidence:
+            self._landmark_low_since_ns.pop(key, None)
+            return None
+
+        low_since_ns = self._landmark_low_since_ns.get(key)
+        if timestamp_ns is not None and low_since_ns is None:
+            low_since_ns = timestamp_ns
+            self._landmark_low_since_ns[key] = timestamp_ns
+        within_hold = (
+            previous is not None
+            and timestamp_ns is not None
+            and low_since_ns is not None
+            and timestamp_ns - low_since_ns <= self.landmark_hold_ns
+        )
+        if within_hold:
+            return replace(
+                previous,
+                visibility=point.visibility,
+                presence=point.presence,
+            )
+        self._landmark_visible[key] = False
+        self._landmark_low_since_ns.pop(key, None)
+        return replace(point, confidence=0.0)
 
     def _smooth_ema(self, point: Keypoint, *, space: LandmarkSpace) -> Keypoint:
         key = self._state_key(point)
@@ -512,14 +590,37 @@ class KeypointSmoother:
         raw_weight = self._raw_weight(point, timestamp_ns, space=space)
         raw_weights.append(raw_weight)
         if raw_weight <= 0.0:
-            return replace(point, **values)
-        keep = 1.0 - raw_weight
-        return replace(
-            point,
-            x=values["x"] * keep + point.x * raw_weight,
-            y=values["y"] * keep + point.y * raw_weight,
-            z=values["z"] * keep + point.z * raw_weight,
+            smoothed = replace(point, **values)
+        else:
+            keep = 1.0 - raw_weight
+            smoothed = replace(
+                point,
+                x=values["x"] * keep + point.x * raw_weight,
+                y=values["y"] * keep + point.y * raw_weight,
+                z=values["z"] * keep + point.z * raw_weight,
+            )
+        return self._apply_display_deadband(smoothed, space=space)
+
+    def _apply_display_deadband(
+        self,
+        point: Keypoint,
+        *,
+        space: LandmarkSpace,
+    ) -> Keypoint:
+        if space != "image" or self.jitter_deadband <= 0.0:
+            return point
+        previous = self._last_points.get(self._state_key(point))
+        if previous is None:
+            return point
+        confidence = min(
+            point.confidence,
+            point.visibility if point.visibility is not None else point.confidence,
+            point.presence if point.presence is not None else point.confidence,
         )
+        threshold = self.jitter_deadband * (1.0 + (1.0 - _clamp01(confidence)))
+        if _xy_distance(point, previous) >= threshold:
+            return point
+        return replace(point, x=previous.x, y=previous.y)
 
     def _raw_weight(
         self,
@@ -625,6 +726,8 @@ class KeypointSmoother:
         if space == "image":
             self._last_points.clear()
             self._guard_hold_counts.clear()
+            self._landmark_visible.clear()
+            self._landmark_low_since_ns.clear()
         self._raw_history = {
             key: value for key, value in self._raw_history.items() if key[0] != space
         }

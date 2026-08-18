@@ -85,17 +85,28 @@ class HyroxAnalysisController:
         image_height: int,
         segmentation_mask: object | None,
         three_d_kinematics: Mapping[str, object] | None = None,
+        formal_metadata: Mapping[str, object] | None = None,
         extract_when_disabled: bool = False,
     ) -> tuple[Mapping[str, object] | None, Mapping[str, object] | None]:
         features = None
         state = None
         if (extract_when_disabled or self.enabled) and has_pose:
             try:
+                formal_quality = (
+                    self.analyzer.formal_quality_gate.evaluate(
+                        keypoints,
+                        timestamp_ms=timestamp_ms,
+                        metadata=formal_metadata,
+                    ).as_dict()
+                    if self.analyzer is not None
+                    else None
+                )
                 features = extract_basic_pose_features(
                     keypoints,
                     image_width=image_width,
                     image_height=image_height,
                     segmentation_mask=segmentation_mask,
+                    formal_quality=formal_quality,
                 )
                 if isinstance(three_d_kinematics, Mapping):
                     features["three_d_kinematics"] = dict(three_d_kinematics)

@@ -216,8 +216,12 @@ REP_REASON_TEXT = {
 CAPTURE_ISSUE_CODES = {
     "LOW_VISIBILITY",
     "POSE_MISSING",
+    # Legacy codes remain readable in historical reports.  New runtime view
+    # messages are informational and never gate a repetition decision.
     "CAMERA_VIEW_REQUIRED",
     "CAMERA_VIEW_LIMITED",
+    "CAMERA_VIEW_UNKNOWN",
+    "CAMERA_VIEW_NOT_RECOMMENDED",
     "NOT_SEATED_OR_BAD_VIEW",
 }
 

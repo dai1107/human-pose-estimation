@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from src.pose.formal_quality import FormalLandmarkQualityGate
+
 from .config import load_observability_config
 from .contact import ContactDetectorSuite
 from .feedback import FeedbackMessage
 from .floor_reference import FloorReferenceResult, LocalFloorReference
 from .foot_events import FootEventDetectorSuite
+from .phase_decoder import PhaseEvidenceScorer, TemporalPhaseDecoder
 from .validity import (
     BodyRuleResult,
     ObservabilityAssessment,
@@ -19,9 +22,11 @@ from .validity import (
     apply_three_d_assist,
 )
 from .view_policy import (
+    action_view_capability,
     action_view_suitability,
     filter_feedback_for_view,
     normalize_camera_view,
+    recommended_camera_views,
     view_profile,
 )
 
@@ -307,8 +312,16 @@ class BaseActionAnalyzer:
         )
         self.max_feedback_messages = 2
         self.low_visibility_exclusive = True
-        self.tracking_loss_grace_frames = 3
+        # At 15-30 pose FPS, six frames covers the common 200-400 ms self-
+        # occlusion around bottom/contact/handle crossover without erasing the
+        # last biomechanically confirmed stage.  An active repetition gets a
+        # slightly longer guard so a hidden endpoint cannot break its order.
+        self.tracking_loss_grace_frames = 6
+        self.active_sequence_loss_grace_frames = 10
         self.camera_view = "unknown"
+        self.phase_evidence_scorer = PhaseEvidenceScorer()
+        self.phase_decoder = TemporalPhaseDecoder()
+        self.formal_quality_gate = FormalLandmarkQualityGate()
         self.reset()
 
     def _advance_confirmed_phase(
@@ -318,27 +331,36 @@ class BaseActionAnalyzer:
     ) -> tuple[str, str]:
         """Debounce a phase while preserving state across brief pose dropouts."""
         previous = str(getattr(self, "stable_phase", "unknown"))
-        current_raw = str(getattr(self, "raw_phase", "unknown"))
-        frames = int(getattr(self, "frames_in_phase", 0))
-        raw_phase = str(raw_phase)
-        if raw_phase == current_raw:
-            frames += 1
-        else:
-            current_raw = raw_phase
-            frames = 1
-
-        threshold = max(1, int(confirmation_frames))
-        if raw_phase in TRANSIENT_PHASES and previous not in TRANSIENT_PHASES:
-            # A person can be briefly occluded at the bottom or terminal pose.
-            # Hold the last confirmed phase long enough for the detector to
-            # recover instead of breaking the in-progress repetition.
-            threshold = max(threshold, self.tracking_loss_grace_frames + 1)
-        if frames >= threshold:
-            self.stable_phase = raw_phase
-
-        self.raw_phase = current_raw
-        self.frames_in_phase = frames
+        capability = action_view_capability(self.action, self.camera_view)
+        tracker = getattr(self, "rep_sequence", None)
+        sequence = getattr(tracker, "sequence", None)
+        score = self.phase_evidence_scorer.score(
+            str(raw_phase),
+            getattr(self, "_current_features", None),
+            view_multiplier=capability.score_multiplier,
+            alternatives=tuple(sequence or ()),
+        )
+        transient_hold = self.tracking_loss_grace_frames
+        if int(getattr(tracker, "progress", 0)) > 0:
+            transient_hold = self.active_sequence_loss_grace_frames
+        decoded = self.phase_decoder.update(
+            score.selected_phase,
+            current_stable_phase=previous,
+            minimum_duration_frames=max(1, int(confirmation_frames)),
+            transient_hold_frames=transient_hold,
+            legal_sequence=sequence,
+            # PhaseSequenceTracker remains the authoritative legal-cycle gate,
+            # including its action-specific optional phases.
+            enforce_legal_transitions=False,
+        )
+        self.stable_phase = decoded.stable_phase
+        self.raw_phase = score.selected_phase
+        self.frames_in_phase = decoded.frames_in_proposal
         self.phase = self.stable_phase
+        self.last_phase_scores = score.as_dict()
+        self.last_phase_decoder = decoded.as_dict()
+        self.last_phase_decoder["legal_sequence_enforced_by"] = "PhaseSequenceTracker"
+        self.last_phase_decoder["view_capability"] = capability.as_dict()
         return previous, str(self.stable_phase)
 
     def set_camera_view(self, camera_view: str) -> None:
@@ -376,13 +398,23 @@ class BaseActionAnalyzer:
             state["debug"] = debug
         debug["camera_view"] = self.camera_view
         debug["view_profile"] = self.camera_view_profile
+        debug["camera_view_recommended"] = action_view_suitability(
+            self.action,
+            self.camera_view,
+        )
+        capability = action_view_capability(self.action, self.camera_view)
+        debug["camera_view_capability"] = capability.as_dict()
+        debug["camera_view_advisory_only"] = True
+        debug["recommended_camera_views"] = list(
+            recommended_camera_views(self.action)
+        )
         messages = state.get("feedback_messages")
         if self.camera_view_profile == "unknown" and isinstance(messages, list) and not messages:
             messages.append(
                 FeedbackMessage(
                     level="info",
-                    code="CAMERA_VIEW_REQUIRED",
-                    text="请选择正面或侧面视角，以启用对应评价标准",
+                    code="CAMERA_VIEW_UNKNOWN",
+                    text="未提供拍摄视角信息；系统仍将按可观测人体证据继续分析",
                     confidence=1.0,
                 )
             )
@@ -396,6 +428,12 @@ class BaseActionAnalyzer:
         self.no_rep_count = 0
         self.unsure_count = 0
         self.frame_index = 0
+        self.identity_reset_count = 0
+        self.last_identity_reset_reason: tuple[str, ...] = ()
+        self.last_phase_scores: dict[str, object] = {}
+        self.last_phase_decoder: dict[str, object] = {}
+        self.phase_decoder.reset("unknown")
+        self.formal_quality_gate.reset()
         self.last_rep_candidate: RepCandidate | None = None
         self.last_rep_decision: RepDecision | None = None
         self.last_observability_assessment: (
@@ -440,6 +478,12 @@ class BaseActionAnalyzer:
         timestamp_ms: int | None = None,
     ) -> int:
         """Start one analyzer frame and retain a bounded candidate evidence buffer."""
+        source_features = features if isinstance(features, Mapping) else {}
+        identity = source_features.get("identity_continuity")
+        if isinstance(identity, Mapping) and str(identity.get("status", "")).upper() == "DISCONTINUOUS":
+            self._reset_for_identity_discontinuity(
+                tuple(str(value) for value in (identity.get("reason_codes") or ("IDENTITY_DISCONTINUITY",)))
+            )
         self.frame_index += 1
         self.last_timestamp_ms = None if timestamp_ms is None else int(timestamp_ms)
         floor_features = features if isinstance(features, dict) else dict(features or {})
@@ -471,6 +515,31 @@ class BaseActionAnalyzer:
                 self.frame_index - len(self._candidate_frames) + 1,
             )
         return self.frame_index
+
+    def _reset_for_identity_discontinuity(self, reasons: tuple[str, ...]) -> None:
+        """Reset in-progress formal state while preserving lifetime counters."""
+        lifetime = {
+            "rep_count": self.rep_count,
+            "candidate_count": self.candidate_count,
+            "pose_valid_rep_count": self.pose_valid_rep_count,
+            "no_rep_count": self.no_rep_count,
+            "unsure_count": self.unsure_count,
+            "frame_index": self.frame_index,
+            "last_rep_candidate": self.last_rep_candidate,
+            "last_rep_decision": self.last_rep_decision,
+            "last_observability_assessment": self.last_observability_assessment,
+            "last_three_d_assist_assessment": self.last_three_d_assist_assessment,
+        }
+        prior_resets = int(getattr(self, "identity_reset_count", 0))
+        self.reset()
+        tracker = getattr(self, "rep_sequence", None)
+        if tracker is not None and hasattr(tracker, "reset"):
+            tracker.reset()
+        for name, value in lifetime.items():
+            setattr(self, name, value)
+        self.identity_reset_count = prior_resets + 1
+        self.last_identity_reset_reason = tuple(dict.fromkeys(reasons))
+        self._candidate_start_frame = self.frame_index + 1
 
     def set_manual_floor_line(
         self,
@@ -678,6 +747,12 @@ class BaseActionAnalyzer:
                 "floor_reference": self.last_floor_reference.as_dict(),
                 "contacts": self.contact_detectors.as_dict(),
                 "foot_events": self.foot_event_detector.as_dict(),
+                "identity_reset_count": self.identity_reset_count,
+                "last_identity_reset_reason": list(self.last_identity_reset_reason),
+                "formal_evidence_quality": self._current_features.get("formal_evidence_quality"),
+                "metric_observability": self._current_features.get("metric_observability", {}),
+                "phase_scores": dict(self.last_phase_scores),
+                "phase_decoder": dict(self.last_phase_decoder),
             }
         )
         return state

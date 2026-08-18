@@ -15,9 +15,11 @@ realtime_latency:
   target_pose_fps: 15
   max_pose_fps: 20
   warning_pose_age_ms: 80
-  max_pose_age_ms: 120
+  analysis_max_pose_age_ms: 120
+  display_prediction_ms: 45
+  display_hold_ms: 250
+  display_fade_ms: 150
   max_frame_gap: 5
-  hide_pose_after_ms: 300
 
 analysis_smoothing:
   mode: adaptive_one_euro
@@ -43,13 +45,13 @@ analysis_smoothing:
 display_smoothing:
   mode: adaptive_one_euro
   profile: ultra_responsive
-  prediction_enabled: false
+  prediction_enabled: true
   max_gap_ms_before_reset: 250
-  min_cutoff: 2.2
-  beta: 0.12
+  min_cutoff: 1.4
+  beta: 0.08
   d_cutoff: 1.0
   raw_blend_enabled: true
-  max_raw_weight: 0.45
+  max_raw_weight: 0.10
   minimum_visibility: 0.70
   slow_speed: 0.15
   fast_speed: 1.20
@@ -57,9 +59,23 @@ display_smoothing:
   core_raw_weight_scale: 0.35
   face_raw_weight_scale: 0.00
   world_speed_scale: 1.25
+  landmark_enter_confidence: 0.50
+  landmark_exit_confidence: 0.30
+  landmark_hold_ms: 220
+  pose_hold_frames: 5
+  jitter_deadband: 0.0025
+  quality_gate_enabled: true
+  quality_minimum_confidence: 0.35
+  quality_max_speed_body_s: 18.0
+  quality_max_acceleration_body_s2: 180.0
+  quality_max_bone_length_change_ratio: 0.55
+  quality_identity_swap_margin: 0.12
+  occlusion_short_prediction_ms: 200
+  occlusion_hide_after_ms: 500
+  occlusion_reacquire_frames: 3
 
 display_prediction:
-  enabled: false
+  enabled: true
   mode: constant_velocity
   max_horizon_ms: 45
   maximum_body_scale_displacement: 0.06
@@ -122,8 +138,25 @@ three_d_quality:
   ground_minimum_contact_confidence: 0.55
   ground_maximum_image_deviation: 0.025
   ground_maximum_world_vertical_deviation_m: 0.08
+  contact_constraint_high_confidence: 0.70
+  contact_constraint_drift_body_ratio: 0.10
+  camera_motion_unstable_score: 0.42
+  camera_motion_minimum_reliability: 0.35
+  local_ground_minimum_confidence: 0.50
+  biomech_minimum_confidence: 0.60
+  pose_reliability_minimum_joint_confidence: 0.50
+  validation_budget_ms: 4.0
+  validation_maximum_stride: 4
 
 web_realtime:
   max_requests_in_flight: 1
   inference_long_edge: 640
   jpeg_quality: 0.65
+
+offline_fast:
+  target_pose_fps: 15
+  detailed_trace: false
+  refinement_enabled: true
+  refinement_pose_fps: 30
+  candidate_margin_ms: 500
+  minimum_source_frames: 30

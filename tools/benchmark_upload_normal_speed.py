@@ -107,6 +107,17 @@ def run_benchmark(
         "camera_view": camera_view,
         "cold_pose_cache": True,
         "performance": performance,
+        "formal_summary": {
+            key: analysis_report.get("summary", {}).get(key)
+            for key in (
+                "candidate_count",
+                "pose_valid_rep_count",
+                "no_rep_count",
+                "unsure_count",
+                "reps",
+                "last_phase",
+            )
+        },
         "displayed_angle_count": displayed_angle_count,
         "angle_source_counts": dict(sorted(angle_source_counts.items())),
         "passed": performance.get("normal_speed_analysis_passed") is True,

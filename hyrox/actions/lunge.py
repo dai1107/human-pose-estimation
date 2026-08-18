@@ -7,6 +7,7 @@ from hyrox.base import BaseActionAnalyzer, PhaseSequenceTracker
 from hyrox.config import load_lunge_config
 from hyrox.contact import ContactResult, KneeContactConfig, KneeContactDetector
 from hyrox.feedback import FeedbackMessage
+from hyrox.reliable_side import ReliableSideSelector
 from hyrox.validity import BodyRuleResult, RepDecision
 
 
@@ -193,6 +194,11 @@ class LungeAnalyzer(BaseActionAnalyzer):
             config_value("visibility_min", _profile_value(profile, "min_visible_score", min_visible_score)),
             float(profile["min_visible_score"]),
             minimum=0.0,
+        )
+        self.extension_side_selector = ReliableSideSelector(
+            min_confidence=0.52,
+            switch_margin=0.08,
+            switch_confirmation_frames=1,
         )
         super().__init__(action="Lunge", min_visible_score=resolved_min_visible_score)
         self.configure_feedback_limits(config_data)
@@ -479,6 +485,7 @@ class LungeAnalyzer(BaseActionAnalyzer):
         self.current_rep_min_knee_angle = None
 
     def _reset_candidate_rule_tracking(self) -> None:
+        self.extension_side_selector.reset()
         self.current_contact_leg: Literal["left", "right"] | None = None
         self.current_leading_leg: Literal["left", "right"] | None = None
         self.trailing_leg_source = "unresolved"
@@ -755,34 +762,14 @@ class LungeAnalyzer(BaseActionAnalyzer):
                         # Only the side choice comes from 3D.  PASS/FAIL below
                         # continues to use the original 2D angle values.
                         self._extension_side = best_side
-            side_scores: list[
-                tuple[float, bool, Literal["left", "right"]]
-            ] = []
-            for side in ("left", "right"):
-                confidences = [
-                    value
-                    for name in ("hip", "knee", "ankle")
-                    for value in (
-                        _safe_float(
-                            features.get(f"{side}_{name}_confidence")
-                        ),
-                    )
-                    if value is not None
-                ]
-                if confidences:
-                    side_scores.append(
-                        (
-                            min(confidences),
-                            side == self.current_leading_leg,
-                            side,
-                        )
-                    )
-            if (
-                self._extension_side is None
-                and side_scores
-                and max(side_scores)[0] >= 0.52
-            ):
-                self._extension_side = max(side_scores)[2]
+            if self._extension_side is None:
+                selection = self.extension_side_selector.select(
+                    features,
+                    required_landmarks=("hip", "knee", "ankle"),
+                    required_metrics=("knee_angle", "hip_angle"),
+                    preferred_side=self.current_leading_leg,
+                )
+                self._extension_side = selection.selected_side
         if self._extension_side == "left":
             knee_values = (left_knee_angle,)
             hip_values = (left_hip_angle,)
@@ -1206,6 +1193,12 @@ class LungeAnalyzer(BaseActionAnalyzer):
                     "config_name": self.config_name,
                     "previous_valid_contact_leg": self.previous_valid_contact_leg,
                     "current_contact_leg": self.current_contact_leg,
+                    "side_selection_strategy": "role_aware_reliable_extension",
+                    "reliable_extension_side_selection": (
+                        None
+                        if self.extension_side_selector.last_selection is None
+                        else self.extension_side_selector.last_selection.as_dict()
+                    ),
                     "lunge_required_rules": list(LUNGE_REQUIRED_RULES),
                     **self.rep_sequence.debug(),
                 },
@@ -1346,6 +1339,12 @@ class LungeAnalyzer(BaseActionAnalyzer):
                 "bottom_confirmed_frame": self._bottom_confirmed_frame,
                 "full_extension_confirmed_frame": self._full_extension_confirmed_frame,
                 "extension_side": self._extension_side,
+                "side_selection_strategy": "role_aware_reliable_extension",
+                "reliable_extension_side_selection": (
+                    None
+                    if self.extension_side_selector.last_selection is None
+                    else self.extension_side_selector.last_selection.as_dict()
+                ),
                 "lunge_validation_state": self._validation_state(raw_phase),
                 "current_contact_leg": self.current_contact_leg,
                 "current_leading_leg": self.current_leading_leg,

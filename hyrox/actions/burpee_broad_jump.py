@@ -1070,6 +1070,7 @@ class BurpeeBroadJumpAnalyzer(BaseActionAnalyzer):
                 "frames_in_phase": self.frames_in_phase,
                 "config_name": self.config_name,
                 "sensitivity": self.sensitivity,
+                "side_selection_strategy": "bilateral_required",
                 "burpee_required_rules": list(BURPEE_REQUIRED_RULES),
                 "burpee_validation_state": (
                     "RULE_VALIDATION"

@@ -440,6 +440,7 @@ class FarmersCarryAnalyzer(BaseActionAnalyzer):
                 "frames_in_phase": self.frames_in_phase,
                 "motion_detected": self.motion_detected,
                 "stationary_ms": stationary_ms,
+                "side_selection_strategy": "bilateral_required",
                 "farmers_carry_arm_violations": [
                     result.as_dict() for result in violation_objects
                 ],

@@ -43,6 +43,14 @@ from src.product_pose import (
     ThreeDKinematicsConfig,
     ThreeDQualityConfig,
 )
+from src.realtime.camera_motion import normalize_camera_motion
+from src.realtime.temporal_pose import TemporalPoseBuffer
+from src.realtime.validation import (
+    LatestValidationWorker,
+    ValidationBudgetGate,
+    build_validation_task,
+    realtime_layer_contract,
+)
 from src.latency_audit import derive_web_latencies, summarize_latency_samples
 from webui.analysis import RepVoiceFeedbackTracker, assess_action, enrich_report, visible_feedback
 from webui.hands import (
@@ -136,6 +144,18 @@ CAMERA_DIAGNOSTIC_FIELDS = {
     "duplicateFrameRatio",
     "sampleCount",
     "warnings",
+    "cameraMotion",
+}
+CAMERA_MOTION_FIELDS = {
+    "schema_version",
+    "available",
+    "method",
+    "camera_motion_score",
+    "state",
+    "translation_normalized",
+    "tracked_background_points",
+    "modifies_body_3d",
+    "formal_rule_replacement_allowed",
 }
 CAMERA_SETTING_FIELDS = {
     "width",
@@ -144,6 +164,19 @@ CAMERA_SETTING_FIELDS = {
     "deviceId",
     "resizeMode",
     "facingMode",
+}
+DISPLAY_TRACKING_FIELDS = {
+    "state",
+    "sample_count",
+    "pose_detection_rate",
+    "pose_missing_rate",
+    "consecutive_missing_frames",
+    "consecutive_missing_ms",
+    "flicker_count",
+    "reacquisition_ms",
+    "reacquisition_count",
+    "valid_landmark_count",
+    "display_only",
 }
 FORBIDDEN_ANALYSIS_PREDICTION_FIELDS = {
     "predicted_landmarks",
@@ -378,6 +411,55 @@ def _browser_display_filter(value: Any) -> dict[str, Any]:
         if not math.isfinite(number) or not 0 <= number <= 0.45 + 1e-6:
             raise RealtimeProtocolError("invalid_pose_frame", "浏览器显示混合权重无效")
         parsed[target_name] = round(number, 6)
+    return parsed
+
+
+def _browser_display_tracking(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping) or set(value) - DISPLAY_TRACKING_FIELDS:
+        raise RealtimeProtocolError("invalid_latency_audit", "显示跟踪指标无效")
+    state = str(value.get("state", ""))
+    if state not in {"TRACKING", "DEGRADED", "LOST"}:
+        raise RealtimeProtocolError("invalid_latency_audit", "显示跟踪状态无效")
+    display_only = value.get("display_only")
+    if display_only is not True:
+        raise RealtimeProtocolError("invalid_latency_audit", "显示跟踪指标必须仅用于显示")
+    parsed: dict[str, Any] = {"state": state, "display_only": True}
+    integer_limits = {
+        "sample_count": 1_000_000,
+        "consecutive_missing_frames": 1_000_000,
+        "flicker_count": 1_000_000,
+        "reacquisition_count": 1_000_000,
+        "valid_landmark_count": 100,
+    }
+    for name, limit in integer_limits.items():
+        raw = value.get(name, 0)
+        if isinstance(raw, bool) or not isinstance(raw, int) or not 0 <= raw <= limit:
+            raise RealtimeProtocolError("invalid_latency_audit", "显示跟踪计数无效")
+        parsed[name] = raw
+    for name in ("pose_detection_rate", "pose_missing_rate"):
+        raw = value.get(name, 0.0)
+        if isinstance(raw, bool):
+            raise RealtimeProtocolError("invalid_latency_audit", "显示跟踪比率无效")
+        try:
+            number = float(raw)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RealtimeProtocolError("invalid_latency_audit", "显示跟踪比率无效") from exc
+        if not math.isfinite(number) or not 0 <= number <= 1:
+            raise RealtimeProtocolError("invalid_latency_audit", "显示跟踪比率无效")
+        parsed[name] = round(number, 6)
+    for name in ("consecutive_missing_ms", "reacquisition_ms"):
+        raw = value.get(name, 0.0)
+        if isinstance(raw, bool):
+            raise RealtimeProtocolError("invalid_latency_audit", "显示跟踪时长无效")
+        try:
+            number = float(raw)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RealtimeProtocolError("invalid_latency_audit", "显示跟踪时长无效") from exc
+        if not math.isfinite(number) or not 0 <= number <= 3_600_000:
+            raise RealtimeProtocolError("invalid_latency_audit", "显示跟踪时长无效")
+        parsed[name] = round(number, 3)
     return parsed
 
 
@@ -790,8 +872,12 @@ class RealtimePoseSession:
             "queue_dropped": 0,
         }
         self._history: deque[dict[str, Any]] = deque(maxlen=9000)
-        self._pending_latency_audits: dict[int, tuple[dict[str, float], dict[str, float | None]]] = {}
+        self._pending_latency_audits: dict[
+            int,
+            tuple[dict[str, float], dict[str, float | None], dict[str, Any]],
+        ] = {}
         self._camera_diagnostics: dict[str, Any] = {}
+        self._display_tracking_metrics: dict[str, Any] = {}
         self._last_submit_at = 0.0
         self._connected = False
         self._disconnected_at: float | None = None
@@ -853,6 +939,7 @@ class RealtimePoseSession:
                 self._history.clear()
                 self._pending_latency_audits.clear()
                 self._camera_diagnostics.clear()
+                self._display_tracking_metrics.clear()
                 self._frames = LatestFrameQueue()
                 while True:
                     try:
@@ -986,6 +1073,13 @@ class RealtimePoseSession:
             raise RealtimeProtocolError("invalid_pose_frame", "浏览器姿态模型档位无效")
         model_benchmark = _browser_model_benchmark(values.get("pose_model_benchmark"))
         display_filter = _browser_display_filter(values.get("display_filter"))
+        camera_motion_value = values.get("camera_motion", {})
+        if (
+            not isinstance(camera_motion_value, Mapping)
+            or set(camera_motion_value) - CAMERA_MOTION_FIELDS
+        ):
+            raise RealtimeProtocolError("invalid_pose_frame", "摄像机运动证据无效")
+        camera_motion = normalize_camera_motion(camera_motion_value)
         frame_id = values.get("frame_id")
         if isinstance(frame_id, bool) or not isinstance(frame_id, int) or not 0 < frame_id <= 0xFFFFFFFF:
             raise RealtimeProtocolError("invalid_frame_id", "frame_id 必须是正整数")
@@ -1060,6 +1154,7 @@ class RealtimePoseSession:
                 "pose_model": pose_model,
                 "pose_model_benchmark": model_benchmark,
                 "display_filter": display_filter,
+                "camera_motion": camera_motion,
                 "pose_result_age_ms": max(pose_result_age_ms, inference_ms),
             },
         )
@@ -1122,13 +1217,16 @@ class RealtimePoseSession:
             if math.isfinite(number):
                 timing[str(name)] = number
         derived = derive_web_latencies(timing)
+        display_tracking = _browser_display_tracking(values.get("display_tracking"))
         with self._lock:
             for frame in reversed(self._history):
                 if frame.get("frame_id") == frame_id:
                     frame["latency_timing"] = timing
                     frame["latency"] = derived
+                    if display_tracking:
+                        frame["display_tracking"] = display_tracking
                     return True
-            self._pending_latency_audits[frame_id] = (timing, derived)
+            self._pending_latency_audits[frame_id] = (timing, derived, display_tracking)
             while len(self._pending_latency_audits) > 256:
                 self._pending_latency_audits.pop(next(iter(self._pending_latency_audits)))
         return True
@@ -1278,8 +1376,64 @@ class RealtimePoseSession:
             "sampleCount": sample_count,
             "warnings": list(warnings_value),
         }
+        camera_motion_value = diagnostics_value.get("cameraMotion", {})
+        if not isinstance(camera_motion_value, Mapping) or set(camera_motion_value) - CAMERA_MOTION_FIELDS:
+            raise RealtimeProtocolError(
+                "invalid_camera_diagnostics",
+                "摄像机运动诊断无效",
+            )
+        translation_value = camera_motion_value.get("translation_normalized", (0.0, 0.0))
+        if (
+            not isinstance(translation_value, (list, tuple))
+            or len(translation_value) != 2
+        ):
+            raise RealtimeProtocolError(
+                "invalid_camera_diagnostics",
+                "摄像机运动位移无效",
+            )
+        translation = []
+        for raw in translation_value:
+            try:
+                number = float(raw)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise RealtimeProtocolError(
+                    "invalid_camera_diagnostics",
+                    "摄像机运动位移无效",
+                ) from exc
+            if not math.isfinite(number) or abs(number) > 2.0:
+                raise RealtimeProtocolError(
+                    "invalid_camera_diagnostics",
+                    "摄像机运动位移超出范围",
+                )
+            translation.append(number)
+        diagnostics["cameraMotion"] = normalize_camera_motion(
+            {
+                "available": bool(camera_motion_value.get("available", False)),
+                "method": str(camera_motion_value.get("method", ""))[:80],
+                "camera_motion_score": camera_motion_value.get("camera_motion_score", 0.0),
+                "state": str(camera_motion_value.get("state", "camera_static")),
+                "translation_normalized": translation,
+                "tracked_background_points": max(
+                    0,
+                    min(1000, int(camera_motion_value.get("tracked_background_points", 0))),
+                ),
+            }
+        )
         with self._lock:
             self._camera_diagnostics = diagnostics
+        return True
+
+    def record_display_tracking_metrics(self, values: Mapping[str, Any]) -> bool:
+        """Store bounded display-only continuity telemetry outside analysis."""
+
+        metrics = _browser_display_tracking(values.get("metrics"))
+        if not metrics:
+            raise RealtimeProtocolError(
+                "invalid_display_tracking_metrics",
+                "显示跟踪指标无效",
+            )
+        with self._lock:
+            self._display_tracking_metrics = metrics
         return True
 
     def next_result(self, timeout: float = 0.0) -> dict[str, Any] | None:
@@ -1327,6 +1481,7 @@ class RealtimePoseSession:
             self._history.clear()
             self._pending_latency_audits.clear()
             self._camera_diagnostics.clear()
+            self._display_tracking_metrics.clear()
             self._report_expires_at = None
 
     def report(self) -> dict[str, Any]:
@@ -1334,6 +1489,15 @@ class RealtimePoseSession:
             frames = list(self._history)
             state = dict(self._state)
             camera_diagnostics = dict(self._camera_diagnostics)
+            latest_display_tracking = dict(self._display_tracking_metrics)
+        display_tracking = latest_display_tracking or next(
+            (
+                dict(frame["display_tracking"])
+                for frame in reversed(frames)
+                if isinstance(frame.get("display_tracking"), Mapping)
+            ),
+            {},
+        )
         latency_samples = [frame["latency"] for frame in frames if isinstance(frame.get("latency"), Mapping)]
         return enrich_report({
             **artifact_metadata("web_realtime_pose_report"),
@@ -1355,6 +1519,7 @@ class RealtimePoseSession:
                 "three_d_kinematics": summarize_three_d_records(frames),
                 "latency_audit": summarize_latency_samples(latency_samples),
                 "camera_diagnostics": camera_diagnostics,
+                "display_tracking": display_tracking,
             },
             "frames": frames,
         })
@@ -1456,6 +1621,13 @@ class RealtimePoseSession:
         backend_request: tuple[str, str] | None = None
         smoother = self._new_smoother()
         three_d_tracker = self._new_three_d_tracker()
+        temporal_pose_buffer = TemporalPoseBuffer()
+        validation_worker = LatestValidationWorker()
+        validation_budget_gate = ValidationBudgetGate(
+            warning_pose_age_ms=self._max_pose_age_ms * 0.67,
+            validation_budget_ms=self._three_d_quality_config.validation_budget_ms,
+            maximum_stride=self._three_d_quality_config.validation_maximum_stride,
+        )
         analyzer: Any | None = None
         analyzer_key: tuple[str, str, str] | None = None
         hand_overlay = WebHandOverlay(PROJECT_ROOT / "models" / "hand_landmarker.task")
@@ -1490,6 +1662,7 @@ class RealtimePoseSession:
                             backend_request = requested_backend
                             smoother = self._new_smoother()
                             three_d_tracker.reset()
+                            validation_worker.reset()
                         message_backend_name = backend_name
                     message = self._process_packet(
                         packet,
@@ -1497,12 +1670,15 @@ class RealtimePoseSession:
                         message_backend_name,
                         smoother,
                         three_d_tracker,
+                        temporal_pose_buffer,
                         settings,
                         settings_revision,
                         run_id,
                         analyzer,
                         analyzer_key,
                         hand_overlay,
+                        validation_worker,
+                        validation_budget_gate,
                     )
                     analyzer = message.pop("_analyzer")
                     analyzer_key = message.pop("_analyzer_key")
@@ -1514,6 +1690,8 @@ class RealtimePoseSession:
                     if not context_is_current:
                         smoother.reset()
                         three_d_tracker.reset()
+                        temporal_pose_buffer.reset()
+                        validation_worker.reset()
                         self._publish(
                             {
                                 "type": "frame_dropped",
@@ -1534,7 +1712,13 @@ class RealtimePoseSession:
                     with self._lock:
                         pending_audit = self._pending_latency_audits.pop(packet.sequence, None)
                         if pending_audit is not None:
-                            history_item["latency_timing"], history_item["latency"] = pending_audit
+                            (
+                                history_item["latency_timing"],
+                                history_item["latency"],
+                                display_tracking,
+                            ) = pending_audit
+                            if display_tracking:
+                                history_item["display_tracking"] = display_tracking
                         self._history.append(history_item)
                         self._state.update(
                             {
@@ -1568,6 +1752,8 @@ class RealtimePoseSession:
                 except StaleFrameContext:
                     smoother.reset()
                     three_d_tracker.reset()
+                    temporal_pose_buffer.reset()
+                    validation_worker.reset()
                     self._publish(
                         {
                             "type": "frame_dropped",
@@ -1600,6 +1786,7 @@ class RealtimePoseSession:
                         }
                     )
         finally:
+            validation_worker.close()
             hand_overlay.close()
             if backend is not None:
                 backend.close()
@@ -1630,12 +1817,15 @@ class RealtimePoseSession:
         backend_name: str,
         smoother: KeypointSmoother,
         three_d_tracker: ThreeDKinematicsTracker,
+        temporal_pose_buffer: TemporalPoseBuffer,
         settings: Mapping[str, Any],
         settings_revision: int,
         run_id: str,
         analyzer: Any | None,
         analyzer_key: tuple[str, str, str] | None,
         hand_overlay: WebHandOverlay,
+        validation_worker: LatestValidationWorker,
+        validation_budget_gate: ValidationBudgetGate,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         frame: np.ndarray | None = None
@@ -1704,6 +1894,7 @@ class RealtimePoseSession:
                 if pose_age_after_inference_ms <= self._max_pose_age_ms
                 else detected
             )
+            validation_snapshot = validation_worker.snapshot()
             result, three_d_result = three_d_tracker.attach(
                 result,
                 capture_timestamp_ns=capture_timestamp_ns,
@@ -1712,6 +1903,34 @@ class RealtimePoseSession:
                 image_height=height,
                 raw_result=detected,
                 camera_view=str(settings["camera_view"]),
+                camera_motion=(
+                    result.extra.get("camera_motion")
+                    if isinstance(result.extra.get("camera_motion"), Mapping)
+                    else self._latest_camera_motion()
+                ),
+                validation_enabled=False,
+                validation_result=validation_snapshot,
+            )
+            validation_stride = validation_budget_gate.observe(
+                pose_age_ms=pose_age_after_inference_ms,
+                validation_ms=float(validation_snapshot.get("validation_ms", 0.0)),
+            )
+            if packet.sequence % validation_stride == 0:
+                validation_worker.submit(
+                    build_validation_task(
+                        result,
+                        three_d_result,
+                        local_ground_minimum_confidence=(
+                            self._three_d_quality_config.local_ground_minimum_confidence
+                        ),
+                        biomech_minimum_confidence=(
+                            self._three_d_quality_config.biomech_minimum_confidence
+                        ),
+                    )
+                )
+            realtime_layers = realtime_layer_contract(
+                validation=validation_snapshot,
+                validation_stride=validation_stride,
             )
             show_hand_overlay = (
                 pose_age_after_inference_ms <= self._max_pose_age_ms
@@ -1752,6 +1971,7 @@ class RealtimePoseSession:
         has_pose = bool(result.success and result.keypoints and not stale_pose)
         next_analyzer_key = (str(settings["action"]), str(settings["sensitivity"]), str(settings["camera_view"]))
         if next_analyzer_key != analyzer_key:
+            temporal_pose_buffer.reset()
             analyzer = (
                 create_action_analyzer(
                     next_analyzer_key[0],
@@ -1777,6 +1997,11 @@ class RealtimePoseSession:
                     width,
                     height,
                     segmentation_mask=result.extra.get("segmentation_mask"),
+                    formal_quality=analyzer.formal_quality_gate.evaluate(
+                        result.keypoints,
+                        timestamp_ms=inference_timestamp_ms,
+                        metadata=result.extra,
+                    ).as_dict(),
                 )
                 if has_pose
                 else None
@@ -1786,6 +2011,22 @@ class RealtimePoseSession:
             action_state = analyzer.attach_view_context(
                 analyzer.update(features, timestamp_ms=inference_timestamp_ms)
             )
+        temporal_context = temporal_pose_buffer.update(
+            result.keypoints,
+            timestamp_ms=inference_timestamp_ms,
+            features=features,
+            three_d_kinematics=three_d_result.as_dict(),
+            phase=(
+                str(action_state.get("phase", "unknown"))
+                if isinstance(action_state, Mapping)
+                else "unknown"
+            ),
+        )
+        if isinstance(action_state, Mapping):
+            action_state = dict(action_state)
+            action_debug = dict(action_state.get("debug") or {})
+            action_debug["temporal_motion_context"] = temporal_context
+            action_state["debug"] = action_debug
 
         formal_action = str(settings["action"])
         manual_gate = {
@@ -2003,6 +2244,10 @@ class RealtimePoseSession:
             "connections": connections,
             "world_angles": three_d_result.as_dict()["angles_3d"],
             "three_d_kinematics": three_d_result.as_dict(),
+            "pose_reliability": three_d_result.pose_reliability.as_dict(),
+            "metric_candidates": dict(three_d_result.metric_candidates),
+            "realtime_layers": realtime_layers,
+            "temporal_motion_context": temporal_context,
             "counts": {
                 "reps": reps,
                 "candidate_count": candidate_count,
@@ -2033,6 +2278,12 @@ class RealtimePoseSession:
             "_analyzer": analyzer,
             "_analyzer_key": analyzer_key,
         }
+
+    def _latest_camera_motion(self) -> dict[str, Any]:
+        with self._lock:
+            diagnostics = dict(self._camera_diagnostics)
+        value = diagnostics.get("cameraMotion")
+        return normalize_camera_motion(value if isinstance(value, Mapping) else None)
 
 
 @dataclass(slots=True)

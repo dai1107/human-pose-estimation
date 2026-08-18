@@ -34,7 +34,7 @@ test("static jitter and low visibility do not enable raw blending", () => {
   filter.applyImage(pose(0.5), 0);
   const jitter = filter.applyImage(pose(0.502), 33);
   assert.equal(jitter.rawWeights[15], 0);
-  assert.ok(Math.abs(jitter.landmarks[15].x - 0.5) < 0.002);
+  assert.equal(jitter.landmarks[15].x, 0.5);
 
   const lowVisibility = pose(0.7, 0.6);
   const hidden = filter.applyImage(lowVisibility, 66);
@@ -64,4 +64,61 @@ test("stage six exposes prediction capability and still caps raw weight", () => 
 
   assert.equal(summary.predictionEnabled, true);
   assert.ok(summary.maxRawWeight <= 0.45);
+});
+
+test("missing landmarks preserve One Euro state until the configured gap boundary", () => {
+  const filter = new DisplayPoseFilter({
+    raw_blend_enabled: false,
+    max_gap_ms_before_reset: 250,
+  });
+  filter.applyImage(pose(0.0), 0);
+  filter.applyImage(pose(1.0), 30);
+  filter.applyImage([], 60);
+  const shortGap = filter.applyImage(pose(1.0), 100);
+  assert.ok(shortGap.landmarks[15].x < 1.0);
+
+  const resetAtBoundary = filter.applyImage(pose(0.25), 350);
+  assert.equal(resetAtBoundary.landmarks[15].x, 0.25);
+});
+
+test("high-confidence structural jumps are rejected before One Euro and predicted briefly", () => {
+  const filter = new DisplayPoseFilter({
+    raw_blend_enabled: false,
+    jitter_deadband: 0,
+    quality_max_speed_body_s: 12,
+    occlusion_short_prediction_ms: 200,
+    occlusion_hide_after_ms: 500,
+  });
+  filter.applyImage(pose(0.20), 0);
+  filter.applyImage(pose(0.22), 33);
+  const jump = pose(0.22);
+  jump[15] = { ...jump[15], x: 0.95 };
+  const rejected = filter.applyImage(jump, 66);
+
+  assert.equal(rejected.quality.rejectedPointCount, 1);
+  assert.equal(rejected.landmarks[15].displayPredicted, true);
+  assert.ok(rejected.landmarks[15].displayReasonCodes.includes("velocity_outlier"));
+  assert.ok(rejected.landmarks[15].x < 0.30);
+});
+
+test("occluded landmarks hide after the time budget and blend during reacquisition", () => {
+  const filter = new DisplayPoseFilter({
+    raw_blend_enabled: false,
+    jitter_deadband: 0,
+    occlusion_hide_after_ms: 500,
+    occlusion_reacquire_frames: 3,
+  });
+  filter.applyImage(pose(0.2), 0);
+  const low = pose(0.9, 0.1);
+  filter.applyImage(low, 100);
+  filter.applyImage(low, 200);
+  filter.applyImage(low, 300);
+  filter.applyImage(low, 400);
+  const hidden = filter.applyImage(low, 500);
+  assert.equal(hidden.landmarks[15].displayValid, false);
+  assert.equal(hidden.landmarks[15].occlusionState, "occluded");
+
+  const reacquired = filter.applyImage(pose(0.4), 600);
+  assert.equal(reacquired.landmarks[15].occlusionState, "reacquiring");
+  assert.ok(reacquired.landmarks[15].x < 0.4);
 });

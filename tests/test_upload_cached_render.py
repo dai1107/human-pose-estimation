@@ -91,6 +91,7 @@ def test_second_pass_renders_from_cache_without_pose_inference(
 
     assert output_path.is_file()
     assert summary["rendered_from_pose_cache"] is True
+    assert summary["display_stabilized"] is True
     assert summary["pose_inference_count"] == 0
     assert summary["input_frame_count"] == frame_count
     assert summary["output_frame_count"] == frame_count

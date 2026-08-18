@@ -209,4 +209,6 @@ def test_skierg_counts_with_one_reliably_visible_wrist_from_rear() -> None:
     )
     assert state["rep_count"] == 1
     assert state["debug"]["selected_pose_side"] == "right"
+    assert state["debug"]["side_selection_strategy"] == "reliable_single_chain"
+    assert state["debug"]["reliable_side_selection"]["right"]["observable"] is True
     assert state["debug"]["analysis_visible_score"] == pytest.approx(0.97)

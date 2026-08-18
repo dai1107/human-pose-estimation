@@ -385,6 +385,10 @@ def test_side_view_extension_uses_the_more_observable_leg_chain() -> None:
 
     assert state["last_rep_decision"]["status"] == "VALID"
     assert state["last_rep_candidate"]["events"]["extension_side"] == "right"
+    assert state["debug"]["side_selection_strategy"] == (
+        "role_aware_reliable_extension"
+    )
+    assert state["debug"]["current_leading_leg"] == "right"
 
 
 def test_wrong_side_or_multiple_step_events_fail_no_shuffle_rule() -> None:

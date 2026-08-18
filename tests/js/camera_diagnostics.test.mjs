@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { CameraDiagnostics } from "../../webui/static/workers/camera_diagnostics.mjs";
+import { BackgroundCameraMotionEstimator, CameraDiagnostics } from "../../webui/static/workers/camera_diagnostics.mjs";
 
 test("camera diagnostics preserves actual track settings", () => {
   const diagnostics = new CameraDiagnostics();
@@ -17,6 +17,25 @@ test("camera diagnostics preserves actual track settings", () => {
   assert.equal(result.settings.width, 640);
   assert.equal(result.settings.frameRate, 59.94);
   assert.equal(result.settings.deviceId, "camera-1");
+});
+
+test("background camera motion ignores the person region and reports global translation", () => {
+  const estimator = new BackgroundCameraMotionEstimator();
+  const width = 32;
+  const height = 18;
+  const frame = (dx = 0) => {
+    const pixels = new Uint8Array(width * height);
+    for (let y = 2; y < height - 2; y += 4) {
+      for (let x = 2; x < width - 4; x += 5) pixels[y * width + x + dx] = 255;
+    }
+    return pixels;
+  };
+  estimator.observe(frame(), width, height, { x1: 0.4, y1: 0.2, x2: 0.6, y2: 0.9 });
+  const result = estimator.observe(frame(2), width, height, { x1: 0.4, y1: 0.2, x2: 0.6, y2: 0.9 });
+  assert.equal(result.modifies_body_3d, false);
+  assert.equal(result.formal_rule_replacement_allowed, false);
+  assert.ok(result.camera_motion_score > 0);
+  assert.notEqual(result.state, "camera_static");
 });
 
 test("healthy 60 FPS stream produces no warnings", () => {

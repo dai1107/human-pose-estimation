@@ -84,6 +84,7 @@ def test_farmers_carry_transitions_ready_carrying_and_rest() -> None:
     assert carrying["phase"] == "carrying"
     assert carrying["rep_count"] == 0
     assert carrying["debug"]["carrying_score"] > 0.8
+    assert carrying["debug"]["side_selection_strategy"] == "bilateral_required"
 
     analyzer.update(_features(body_center_x=0.53), 1600)
     analyzer.update(_features(body_center_x=0.53), 1650)

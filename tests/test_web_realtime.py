@@ -540,9 +540,36 @@ def test_web_latency_timeline_round_trips_into_downloadable_report() -> None:
         "expected_display_time_ms": 133.0,
         "video_frame_presented_at_render_ms": 120.0,
     })
-    assert session.record_latency_audit({"frame_id": 1, "timing": timing}) is True
+    display_tracking = {
+        "state": "DEGRADED",
+        "sample_count": 12,
+        "pose_detection_rate": 0.75,
+        "pose_missing_rate": 0.25,
+        "consecutive_missing_frames": 2,
+        "consecutive_missing_ms": 66.0,
+        "flicker_count": 1,
+        "reacquisition_ms": 42.0,
+        "reacquisition_count": 1,
+        "valid_landmark_count": 31,
+        "display_only": True,
+    }
+    assert session.record_latency_audit({
+        "frame_id": 1,
+        "timing": timing,
+        "display_tracking": display_tracking,
+    }) is True
     report = session.report()
     assert report["summary"]["latency_audit"]["sample_count"] == 1
+    assert report["summary"]["display_tracking"] == display_tracking
+    assert report["frames"][0]["display_tracking"] == display_tracking
+    latest_tracking = {
+        **display_tracking,
+        "state": "LOST",
+        "consecutive_missing_ms": 450.0,
+        "valid_landmark_count": 0,
+    }
+    assert session.record_display_tracking_metrics({"metrics": latest_tracking}) is True
+    assert session.report()["summary"]["display_tracking"] == latest_tracking
     assert report["frames"][0]["latency"]["pose_video_age_difference_ms"] == 20.0
     assert "pose_video_age_difference_ms" in session.report_csv()
     with pytest.raises(RealtimeProtocolError, match="未知字段"):
@@ -553,6 +580,14 @@ def test_web_latency_timeline_round_trips_into_downloadable_report() -> None:
                     **timing,
                     "predicted_landmarks": 33,
                 },
+            }
+        )
+    with pytest.raises(RealtimeProtocolError, match="仅用于显示"):
+        session.record_latency_audit(
+            {
+                "frame_id": 1,
+                "timing": timing,
+                "display_tracking": {**display_tracking, "display_only": False},
             }
         )
     session.stop()

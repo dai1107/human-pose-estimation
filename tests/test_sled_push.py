@@ -75,6 +75,8 @@ def test_sled_push_phases_and_step_count() -> None:
     assert step["rep_count"] == 1
     assert step["debug"]["rep_completed"] is True
     assert step["debug"]["step_count"] == 1
+    assert step["debug"]["side_selection_strategy"] == "reliable_single_chain"
+    assert step["debug"]["selected_pose_side"] in {"left", "right"}
     assert analyzer.update(_features(torso_angle=10), 500)["phase"] == "reset"
 
 
