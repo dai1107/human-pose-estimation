@@ -1,0 +1,9 @@
+{
+  "schema_version": "wham_wsl_config_v1",
+  "enabled": true,
+  "distro": "Ubuntu",
+  "wham_root": ".local/share/pose-wham/WHAM",
+  "python_path": ".local/share/pose-wham/miniconda/envs/wham/bin/python",
+  "estimate_local_only": true,
+  "run_smplify": false
+}

@@ -19,6 +19,7 @@ logs/
 models/rtmw-dw-x-l_simcc-cocktail14_270e-256x192_20231122.onnx
 
 # Generated analysis and test artifacts
+outputs/
 outputs/build_*/
 outputs/pytest_*/
 outputs/*_smoke.csv
@@ -33,6 +34,7 @@ outputs/recordings/
 # Raw and derived human-motion datasets are local by default.
 datasets/
 *.oni
+*.mp4
 
 # Local third-party source checkouts and ONI bridge intermediates.
 tools/oni_bridge/vendor/
