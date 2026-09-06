@@ -66,6 +66,11 @@ pose-oni-research-round11 = "tools.run_round11_oni_research:main"
 pose-angle-inspect = "tools.inspect_joint_angles:main"
 pose-angle-annotate = "tools.manual_angle_annotation:main"
 pose-angle-compare = "tools.compare_manual_angles:main"
+pose-angle-analyze = "tools.analyze_existing_angle_errors:main"
+pose-angle-v2-shadow = "tools.run_angle_v2_shadow:main"
+pose-angle-v2-sweep = "tools.sweep_angle_v2_parameters:main"
+pose-swim-wrist-track = "tools.run_swim_wrist_tracking:main"
+pose-swim-round6 = "tools.run_swim_round6_experiment:main"
 pose-clean = "src.output_management:main"
 pose-occlusion-baseline = "tools.run_occlusion_view_baseline:main"
 pose-occlusion-phase-cd = "tools.run_occlusion_view_phase_cd:main"
@@ -104,6 +109,8 @@ webui = [
   "configs/reference_features.yaml",
   "configs/reference_quality.yaml",
   "configs/hyrox_golden_videos.json",
+  "configs/angle_v2_shadow.yaml",
+  "configs/swim_wrist_tracking.yaml",
 ]
 "configs/sample_pose_cache" = [
   "configs/sample_pose_cache/*.json.gz",

@@ -1,0 +1,43 @@
+swim_wrist_tracking:
+  mode: experimental
+
+  # Round 4: fixed 2x2 association weights from 优化方案.md.
+  motion_weight: 0.40
+  chain_weight: 0.35
+  semantic_weight: 0.15
+  smoothness_weight: 0.10
+  minimum_pose_confidence: 0.15
+  identity_change_margin: 0.15
+  identity_confirmation_frames: 3
+  reacquire_confirmation_frames: 2
+  maximum_occlusion_frames: 5
+  maximum_prediction_frames: 10
+  kalman_process_noise: 0.015
+  kalman_measurement_noise: 0.025
+
+  # Round 5: causal trajectory outlier and sparse LK quality gates.
+  outlier_history_size: 31
+  outlier_minimum_history: 5
+  outlier_mad_scale: 6.0
+  outlier_minimum_speed_body_s: 2.0
+  outlier_maximum_speed_body_s: 30.0
+  lk_maximum_gap_frames: 5
+  lk_maximum_forward_backward_error_px: 1.5
+  lk_maximum_forward_backward_body_ratio: 0.04
+  lk_minimum_displacement_body_ratio: 0.35
+  lk_maximum_displacement_body_ratio: 1.50
+  lk_minimum_history: 5
+  lk_mad_scale: 6.0
+
+  # Round 6: generic wrist ROI appearance, not a color-name classifier.
+  appearance_weight: 0.15
+  appearance_roi_forearm_ratio: 0.25
+  appearance_ema_alpha: 0.05
+  appearance_minimum_identity_confidence: 0.75
+  appearance_minimum_visibility: 0.65
+
+  # Optional offline CoTracker adapter. Missing package/weights stay unavailable.
+  cotracker_maximum_width: 384
+  cotracker_window_frames: 120
+  cotracker_overlap_frames: 20
+  cotracker_visibility_threshold: 0.50

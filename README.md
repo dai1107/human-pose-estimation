@@ -302,6 +302,25 @@ python tools\compare_manual_angles.py `
 
 输出包含人工对照 MAE、中位绝对误差、P90/P95、最低点/完全伸展事件偏移、原始与平滑角度曲线延迟，以及显式旧版/新版非回归比较。现有 150 条人工标注覆盖 Lunge、Wall Ball、Burpee 和 Rowing，但缺少明确标定的 30°/45°斜侧素材和成对旧新版程序事件帧。当前代理比较中 Median/P90 改善，MAE/P95 分别变差 `0.136°/1.5032°`，严格非回归未通过，所以正式 HYROX 阈值仍使用原 2D 规则。完整结果见 [第 12 轮验证报告](outputs/angle_validation/round12/ROUND12_VALIDATION_REPORT.md)。
 
+重新挖掘现有人工数据时，可直接读取 Round 12 逐条结果：
+
+```powershell
+python tools\analyze_existing_angle_errors.py `
+  --round12 outputs\angle_validation\round12 `
+  --output-dir outputs\angle_validation\round1_error_analysis
+```
+
+也可显式传入原始人工标注和帧报告：
+
+```powershell
+python tools\analyze_existing_angle_errors.py `
+  --annotations outputs\angle_validation\manual_angles.json `
+  --report outputs\report.json `
+  --round12 outputs\angle_validation\round12
+```
+
+该工具会重新计算六路逐点绝对误差，并按动作、关节、左右侧、视角、动作相位、10° 角度区间、关键点置信度和 2D/3D 分歧分桶；同时输出动作/关节/角度区间与动作/关节/相位组合。产物包括机器可读 JSON、逐条 CSV 和 Markdown 结论，不修改正式规则。
+
 人工标签是视频像素上的投影 2D 角，因此报告中的 3D 数值属于投影一致性差距，不是空间 3D 真值 MAE；正面视角的 2D 膝角也不能解释为真实三维关节角。
 
 ## 个人参考动作与 DTW 比较
@@ -366,9 +385,42 @@ pose-endurance --minutes 30 --report outputs\validation\endurance_30m.json
 # 摄像头后端基准
 pose-camera-benchmark --help
 
+# Angle V2：30 条手机 RGB 全量 shadow 回放
+pose-angle-v2-shadow --scope all
+
+# Angle V2：用现有人工标签做有界参数 sweep
+pose-angle-v2-sweep
+
+# 游泳第 4、5 轮：持久左右腕身份 + LK 短时轨迹补偿
+pose-swim-wrist-track ".\游泳视频.mp4"
+
+# 游泳第 6 轮：现有标记视频上的五模式腕带 + CoTracker 离线比较
+pose-swim-round6 --output-dir outputs\swim_wrist_round6
+
 # 输出清理（默认仅预览）
 pose-clean --json
 ```
+
+Angle V2 的质量门、关节组平滑、异常剔除、端点、迟滞和时序证据均仅在
+shadow 链路运行，不改变正式 HYROX 2D 规则。回放报告位于
+`outputs/angle_validation/angle_v2_round2/`，参数 sweep 位于
+`outputs/angle_validation/angle_v2_round3_sweep/`；没有独立验证集时工具会明确禁止
+替换正式默认值。
+
+游泳腕部工具把 MediaPipe 的 `left_wrist/right_wrist` 当作每帧候选，不直接当作永久
+身份。它维护独立的 anatomical left/right track，以恒速 Kalman、肩—肘—腕骨链、
+2×2 Hungarian 等价全局分配和三帧迟滞处理标签交换；短时缺失使用带 forward/backward
+一致性检查的 LK 光流，轨迹跳点由身体尺度归一化的 median/MAD 门拒绝。结果写入
+`outputs/swim_wrist_tracking_round4_5/`。本轮不使用腕带外观或 CoTracker，也不修改
+HYROX `ReliableSideSelector`。
+
+第 6 轮在腕部动态 ROI 中提取 HSV/Lab 直方图与饱和度，并仅在身份和可见度高置信时
+以 EMA 更新左右 appearance prototype；可选 CoTracker 后端只在本地包与权重可用时
+离线运行，默认不隐式下载。当前两段标记视频共 3,806 帧、26 个人工腕带中心锚点：
+Pose+LK 的 identity-switch proxy 为 16（MediaPipe only 为 186），锚点身份正确率
+57.69%，平均 coverage 89.71%，body-normalized jitter 0.04069。CoTracker 本机缺包/
+权重，因此相关两项明确记为 unavailable；不估算、不用 LK 冒充。实验默认保持
+Pose+LK，正式默认未修改；完整报告位于 `outputs/swim_wrist_round6/`。
 
 实验、数据处理、消融、性能优化和各阶段验证的历史结果不在 README 展开，统一记录在 [CHANGELOG.md](CHANGELOG.md) 及对应研究报告中。
 
@@ -380,6 +432,7 @@ hyrox/                   # HYROX 动作分析器与通用规则
 configs/hyrox/           # 动作配置
 src/backends/            # 姿态后端
 src/biomechanics/        # 通用运动学数据
+src/swimming/            # 独立的游泳腕部身份、Kalman、LK、appearance 与 CoTracker 适配
 src/realtime/            # 桌面运行时
   budget.py              # 自适应推理预算控制，不改变视频/渲染时钟
 src/validation/          # 回归、性能与耐久验证

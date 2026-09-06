@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- 完成《优化方案》第 6 轮游泳腕带 + CoTracker 离线实验：新增前臂尺度动态 ROI、
+  HSV/Lab + 饱和度 appearance descriptor、左右独立高置信 EMA 原型与候选—轨迹外观代价；
+  新增默认禁止隐式下载的 CoTracker offline adapter，以及五模式 A/B、26 个人工腕带中心
+  锚点评估、不可用原因和有界默认决策报告。两段现有标记视频共 3,806 帧中，MediaPipe /
+  Pose+identity / Pose+LK 的 identity-switch proxy 为 186/22/16，锚点身份正确率为
+  46.15%/50.00%/57.69%，归一化 jitter 为 0.42738/0.05736/0.04069。本机缺少
+  CoTracker 包和权重，两个 CoTracker 模式保持 unavailable，未估算或用 LK 冒充；
+  同集 Pose+LK+wristband 辅助消融不具备独立 holdout，实验默认保持 Pose+LK，正式默认、
+  HYROX 规则和 `ReliableSideSelector` 均未修改。
+- 完成《优化方案》第 4、5 轮游泳腕部优化：新增永久 anatomical Left/Right WristTrack，
+  以恒速 Kalman、肩—肘—腕骨链、固定 2×2 Hungarian 等价全局分配和 margin + 连续
+  3 帧迟滞处理 MediaPipe 左右标签交换；加入最多 5 帧 LK 光流、forward/backward
+  一致性、身体尺度归一化 median/MAD 跳点拒绝及 `occluded/lost/reacquired` 状态。
+  现有 1,631 帧游泳视频全量回放中，左右 coverage 从 0.8596 提至 0.9185/0.8964，
+  normalized jitter 从 0.4324/0.4816 降至 0.0441/0.0412；本轮未使用腕带外观、
+  CoTracker 或新模型，也未修改 HYROX `ReliableSideSelector`。
+- 完成《优化方案》第 1–3 轮：重做现有 150 条人工角度的分层误差分析；新增仅 shadow 的
+  HYROX Angle V2 关节组平滑、骨长质量门、时序异常剔除、平台端点保护、迟滞、时序证据
+  与 2D/3D 分歧降级，并全量重放 30 条手机 RGB；再以 8 条人工复核记录、48 次动作和
+  26 个有界候选进行参数 sweep。由于目标动作没有独立 validation/test holdout，正式
+  2D 阈值和默认配置均未替换，3D 也未提升为正式裁决。
 - 完成 HYROX 姿态系统改进第 6 轮：新增统一 `ReliableSideSelector`，按左右关键点
   置信度、正式指标完整度和覆盖率评分，加入 `0.08` 切换 margin、连续 2 帧确认及
   当前侧不可观测时的即时 failover；Rowing、SkiErg、Sled Push、Lunge 伸展链和

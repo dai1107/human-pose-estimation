@@ -1,0 +1,71 @@
+angle_v2_shadow:
+  enabled: true
+  mode: shadow
+  minimum_confidence: 0.50
+  bone_length_deviation_ratio: 0.20
+  temporal_history_size: 31
+  temporal_minimum_history: 5
+  temporal_mad_scale: 6.0
+  temporal_minimum_velocity_limit_deg_s: 90.0
+  temporal_maximum_velocity_deg_s: 720.0
+  maximum_gap_ms_before_reset: 250.0
+  endpoint_radius_frames: 2
+  endpoint_minimum_confidence: 0.60
+  endpoint_minimum_prominence_deg: 1.0
+  hysteresis_width_deg: 3.0
+  evidence_window_size: 5
+  evidence_pass_count: 3
+  evidence_fail_count: 3
+  evidence_minimum_hold_ms: 100.0
+
+# Round-2 values are explicit per angle group. The replay tool may recommend
+# alternatives, but these shadow defaults never drive formal HYROX rules.
+angle_v2_smoothing_knee:
+  min_cutoff: 1.6
+  beta: 0.10
+  d_cutoff: 1.0
+
+angle_v2_smoothing_hip:
+  min_cutoff: 1.3
+  beta: 0.06
+  d_cutoff: 1.0
+
+angle_v2_smoothing_elbow:
+  min_cutoff: 2.0
+  beta: 0.15
+  d_cutoff: 1.0
+
+angle_v2_smoothing_shoulder:
+  min_cutoff: 1.3
+  beta: 0.06
+  d_cutoff: 1.0
+
+angle_v2_smoothing_ankle:
+  min_cutoff: 1.0
+  beta: 0.03
+  d_cutoff: 1.0
+
+angle_v2_smoothing_wrist:
+  min_cutoff: 2.0
+  beta: 0.15
+  d_cutoff: 1.0
+
+angle_v2_smoothing_torso:
+  min_cutoff: 1.3
+  beta: 0.06
+  d_cutoff: 1.0
+
+angle_v2_smoothing_default:
+  min_cutoff: 1.6
+  beta: 0.08
+  d_cutoff: 1.0
+
+angle_v2_conflict_thresholds_deg:
+  knee: 25.0
+  hip: 30.0
+  elbow: 35.0
+  shoulder: 35.0
+  ankle: 30.0
+  wrist: 40.0
+  torso: 35.0
+  default: 30.0
