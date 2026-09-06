@@ -36,10 +36,14 @@ def test_backend_reports_missing_package_or_checkpoint_without_download() -> Non
     backend = CoTrackerOfflineBackend(allow_torch_hub_download=False)
 
     assert backend.availability.available is False
-    assert backend.availability.reason in {
-        "cotracker_package_and_weights_unavailable",
-        "cotracker_checkpoint_missing",
-    }
+    assert (
+        backend.availability.reason.startswith("torch_unavailable:")
+        or backend.availability.reason
+        in {
+            "cotracker_package_and_weights_unavailable",
+            "cotracker_checkpoint_missing",
+        }
+    )
     result = backend.track_window(
         [np.zeros((32, 32, 3), dtype=np.uint8)],
         np.asarray([[0.0, 10.0, 10.0]], dtype=np.float32),
@@ -48,6 +52,7 @@ def test_backend_reports_missing_package_or_checkpoint_without_download() -> Non
 
 
 def test_injected_model_tracks_scaled_queries_and_returns_normalized_points() -> None:
+    pytest.importorskip("torch", reason="injected CoTracker model requires torch")
     model = _FakeCoTracker()
     config = SwimWristTrackerConfig(cotracker_maximum_width=100)
     backend = CoTrackerOfflineBackend(config, model=model, device="cpu")
@@ -78,4 +83,3 @@ def test_backend_rejects_inconsistent_frame_shapes() -> None:
             ],
             np.asarray([[0.0, 10.0, 10.0]], dtype=np.float32),
         )
-

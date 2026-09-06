@@ -141,6 +141,10 @@ class CoTrackerOfflineBackend:
     ) -> CoTrackerWindowResult:
         """Track ``[time, x, y]`` pixel queries over one bounded frame window."""
 
+        if frames_bgr:
+            first_shape = frames_bgr[0].shape[:2]
+            if any(frame.shape[:2] != first_shape for frame in frames_bgr):
+                raise ValueError("all CoTracker window frames must have the same shape")
         if not self.availability.available or self.model is None or self._torch is None:
             return CoTrackerWindowResult(
                 np.empty((0, 0, 2), dtype=np.float32),
@@ -159,9 +163,6 @@ class CoTrackerOfflineBackend:
                 False,
                 "frames_or_queries_missing",
             )
-        first_shape = frames_bgr[0].shape[:2]
-        if any(frame.shape[:2] != first_shape for frame in frames_bgr):
-            raise ValueError("all CoTracker window frames must have the same shape")
         height, width = first_shape
         maximum_width = max(64, int(self.config.cotracker_maximum_width))
         scale = min(1.0, maximum_width / max(1.0, float(width)))
